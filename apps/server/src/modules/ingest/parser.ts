@@ -65,7 +65,11 @@ function parseShow(parts: string[]): Parsed {
   const extra = tokens.findIndex((t) => EXTRA.test(t));
   if (extra >= 0) {
     const name = splitSeasonMarker(show(extra)).show;
-    return name ? { kind: 'extra', show: name, label: tokens[extra]! } : UNPARSED;
+    // "NCED 01" / "NCED Special": keep the qualifier that tells creditless variants apart.
+    const next = tokens[extra + 1];
+    const qualified = /^NC(?:OP|ED)$/i.test(tokens[extra]!) && next && /^(?:\d{1,2}[a-z]?|special)$/i.test(next);
+    const label = qualified ? `${tokens[extra]} ${next}` : tokens[extra]!;
+    return name ? { kind: 'extra', show: name, label } : UNPARSED;
   }
   const season = seasonDir ? Number(seasonDir[1]) : null;
   const abs = tokens.findLastIndex((t) => /^(?:E|EP|EPISODE)?\d{1,4}(?:v\d)?$/i.test(t));

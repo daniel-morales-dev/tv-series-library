@@ -80,6 +80,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     const state: ScanState = { ctx: { db, tmdb: memoize(opts.tmdb), dataDir }, offline: false, dirs: new Map() };
     const summary: ScanSummary = { ingested: 0, pending: 0, waiting: 0, failed: 0 };
     await retryMetadata(state);
+    relabelExtras();
 
     const files = await listVideos(contentDir);
     const onDisk = new Set(files.map((f) => f.rel));
@@ -269,6 +270,14 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
       for (const o of orphans) await relinkFiles(state.ctx, o.title_id);
     } catch (err) {
       goOffline(state, err);
+    }
+  }
+
+  // Extras stored by an older parser lost their number ("NCED" instead of "NCED 01").
+  function relabelExtras(): void {
+    for (const r of all<{ id: number; path: string; extra_label: string }>(db, 'SELECT id, path, extra_label FROM media_files WHERE extra_label IS NOT NULL')) {
+      const parsed = parsePath(r.path);
+      if (parsed.kind === 'extra' && parsed.label !== r.extra_label) run(db, 'UPDATE media_files SET extra_label = ? WHERE id = ?', parsed.label, r.id);
     }
   }
 

@@ -85,6 +85,17 @@ describe('scanner and registration', () => {
     expect(all(e.db, 'SELECT * FROM pending_files')).toHaveLength(0);
   });
 
+  it('relabels stored extras from the current parser on scan', async () => {
+    const e = env();
+    const rel = 'shows/bakemonogatari/NC/Bakemonogatari - NCED 01 [BD].mkv';
+    e.addFile(bake('01'));
+    e.addFile(rel);
+    await e.ingestor.scan();
+    run(e.db, 'UPDATE media_files SET extra_label = ? WHERE path = ?', 'NCED', rel);
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT extra_label FROM media_files WHERE path = ?', rel)?.extra_label).toBe('NCED 01');
+  });
+
   it('does not touch known files or TMDB on a second scan', async () => {
     const e = env();
     e.addFile(bake('01'));

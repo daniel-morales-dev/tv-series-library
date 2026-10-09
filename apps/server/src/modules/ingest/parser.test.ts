@@ -36,6 +36,11 @@ describe('parsePath: shows', () => {
     expect(parsePath('shows/Show/Show Menu.mkv')).toMatchObject({ kind: 'extra', label: 'Menu' });
   });
 
+  it.each(['NCED 01', 'NCED 02', 'NCED Special', 'NCOP 01', 'NCOP 02'])('keeps the qualifier of creditless extra %s', (label) => {
+    const file = `[Cifer] Sousou no Frieren S1 - ${label} [BD 1080P Ma10p Opus].mkv`;
+    expect(parsePath(`shows/[Cifer] Sousou no Frieren S1 [BD 1080p Opus]/NC/${file}`)).toMatchObject({ kind: 'extra', label });
+  });
+
   it('derives the show from the file name when it sits directly under shows/', () => {
     expect(parsePath('shows/Some.Show.S01E02.mkv')).toEqual({ kind: 'episode', show: 'Some Show', season: 1, number: 2 });
   });
