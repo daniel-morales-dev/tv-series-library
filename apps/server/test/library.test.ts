@@ -81,6 +81,22 @@ describe('continue watching', () => {
     expect(item).toMatchObject({ mediaFileId: s2e1, positionS: 0, season: 2, episode: 1 });
   });
 
+  it('exposes the target episode id and its still', async () => {
+    const { app, db } = setup();
+    const p = addProfile(db);
+    const t = addTitle(db, 'Show', { kind: 'series' });
+    const e1 = addEpisode(db, t, 1, 1);
+    const e2 = addEpisode(db, t, 1, 2);
+    run(db, 'UPDATE episodes SET still_path = ? WHERE id = ?', 'stills/e2.jpg', get<any>(db, 'SELECT episode_id FROM media_files WHERE id = ?', e2).episode_id);
+    progress(db, p, e1, 990, 1000, '2026-01-01T00:00:00Z');
+    const [item] = await list(app, p);
+    const epId = get<any>(db, 'SELECT episode_id FROM media_files WHERE id = ?', e2).episode_id;
+    expect(item).toMatchObject({ mediaFileId: e2, episodeId: epId, stillPath: 'stills/e2.jpg' });
+    const film = addFile(db, addTitle(db, 'Film'));
+    progress(db, p, film, 100, 1000, '2026-01-03T00:00:00Z');
+    expect((await list(app, p))[0]).toMatchObject({ mediaFileId: film, episodeId: null, stillPath: null });
+  });
+
   it('omits titles with nothing left, hidden or finished, and orders by recency', async () => {
     const { app, db } = setup();
     const p = addProfile(db);

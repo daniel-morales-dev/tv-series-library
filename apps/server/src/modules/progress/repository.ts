@@ -88,6 +88,8 @@ export function setFinished(db: DatabaseSync, profileId: number, titleId: number
 
 interface FileRow {
   id: number;
+  episode_id: number | null;
+  still_path: string | null;
   extra_label: string | null;
   duration_s: number | null;
   season_number: number | null;
@@ -115,7 +117,7 @@ export function listContinueWatching(db: DatabaseSync, profileId: number) {
   for (const l of latest) {
     const files = all<FileRow>(
       db,
-      `SELECT mf.id, mf.extra_label, mf.duration_s, s.number AS season_number, e.number AS episode_number,
+      `SELECT mf.id, mf.episode_id, e.still_path, mf.extra_label, mf.duration_s, s.number AS season_number, e.number AS episode_number,
          e.name AS episode_name, wp.completed, wp.position_s
        FROM media_files mf
        LEFT JOIN episodes e ON e.id = mf.episode_id
@@ -140,6 +142,8 @@ export function listContinueWatching(db: DatabaseSync, profileId: number) {
       title: toSummary(title),
       mediaFileId: target.mediaFileId,
       positionS: target.positionS,
+      episodeId: file.episode_id,
+      stillPath: file.still_path,
       durationS: file.duration_s,
       season: file.season_number,
       episode: file.episode_number,

@@ -23,6 +23,8 @@ export const api = {
   addToMyList: (pid: number, titleId: number) => request<void>(`/profiles/${pid}/my-list/${titleId}`, { method: 'PUT' }),
   removeFromMyList: (pid: number, titleId: number) => request<void>(`/profiles/${pid}/my-list/${titleId}`, { method: 'DELETE' }),
   title: (id: number, profileId: number) => request<TitleDetail>(`/titles/${id}?profileId=${profileId}`),
+  setFinished: (pid: number, titleId: number, finished: boolean) =>
+    request<void>(`/profiles/${pid}/titles/${titleId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   jobs: () => request<Job[]>('/jobs'),
   play: (mediaFileId: number) => request<{ status: 'ready' | 'processing' }>(`/media-files/${mediaFileId}/play`, { method: 'POST' }),
 };

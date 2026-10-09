@@ -1,89 +1,326 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
-import { useRoute } from 'vue-router';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { api, getProfileId, imageUrl } from '../api.ts';
+import EpisodePanel from '../components/EpisodePanel.vue';
+import Icon from '../components/Icon.vue';
+import LangLine from '../components/LangLine.vue';
 import { fileStatus, needsPolling } from '../fileStatus.ts';
+import { fileLanguages, titleLanguages } from '../languages.ts';
+import { KIND_LABEL, initial, progressPct, remainingLabel } from '../library.ts';
+import { hasHero, inMyList, loadMyList, toggleMyList } from '../session.ts';
+import { airDateLabel, buildEpisodes, castOf, episodeAction, playPlan, runtimeLabel, type EpisodeRow } from '../titlePage.ts';
 import type { Job, MediaFile, TitleDetail } from '../types.ts';
 
 const route = useRoute();
+const router = useRouter();
 const detail = ref<TitleDetail | null>(null);
 const jobs = ref<Job[]>([]);
 const error = ref('');
+const seasonNumber = ref<number | null>(null);
 let timer: ReturnType<typeof setTimeout> | undefined;
+let gen = 0;
 
 async function load() {
+  clearTimeout(timer);
+  const mine = ++gen;
   try {
     const [d, j] = await Promise.all([api.title(Number(route.params.id), getProfileId() ?? 0), api.jobs()]);
+    if (mine !== gen) return;
     detail.value = d;
     jobs.value = j;
     error.value = '';
   } catch {
-    error.value = 'No se pudo cargar el título.';
+    if (mine === gen) error.value = 'No se pudo cargar el título.';
   }
-  if (detail.value && needsPolling(detail.value.files)) timer = setTimeout(load, 5000);
+  if (mine === gen && detail.value && needsPolling(detail.value.files)) timer = setTimeout(load, 5000);
 }
 
-onMounted(load);
-onUnmounted(() => clearTimeout(timer));
+onMounted(() => {
+  hasHero.value = true;
+  load();
+  loadMyList().catch(() => {});
+});
+onBeforeUnmount(() => {
+  hasHero.value = false;
+  gen++;
+  clearTimeout(timer);
+});
+watch(() => route.params.id, () => {
+  detail.value = null;
+  seasonNumber.value = null;
+  load();
+});
 
-const status = (f: MediaFile) => fileStatus(f, jobs.value);
-const filesOf = (episodeId: number) => detail.value?.files.filter((f) => f.episodeId === episodeId) ?? [];
+const seasons = computed(() => (detail.value ? buildEpisodes(detail.value) : []));
+const allRows = computed(() => seasons.value.flatMap((s) => s.rows));
+const plan = computed(() => (detail.value ? playPlan(detail.value) : null));
+const episodeId = computed(() => Number(route.query.episode) || null);
+const openRow = computed(() => allRows.value.find((r) => r.id === episodeId.value) ?? null);
+
+// Season shown: the user's pick, else the one holding the deep-linked or next-to-watch episode.
+const season = computed(() => {
+  const byPick = seasons.value.find((s) => s.number === seasonNumber.value);
+  if (byPick) return byPick;
+  const target = openRow.value ?? allRows.value.find((r) => r.file?.id === plan.value?.fileId);
+  return seasons.value.find((s) => s.number === target?.season) ?? seasons.value[0] ?? null;
+});
+
+const status = (f: MediaFile | null) => (f ? fileStatus(f, jobs.value) : null);
 const extras = computed(() => detail.value?.files.filter((f) => f.extraLabel) ?? []);
+const cast = computed(() => (detail.value ? castOf(detail.value.credits) : []));
+const langs = computed(() => (detail.value ? titleLanguages(detail.value.files) : { audio: [], subs: [] }));
+const listed = computed(() => (detail.value ? inMyList(detail.value.id) : false));
+const epCount = computed(() => allRows.value.length);
+
+const meta = computed(() => {
+  const d = detail.value;
+  if (!d) return [];
+  const count =
+    d.kind === 'movie'
+      ? runtimeLabel(d.runtimeMin, null)
+      : seasons.value.length
+        ? `${seasons.value.length} ${seasons.value.length === 1 ? 'temporada' : 'temporadas'} · ${epCount.value} ${epCount.value === 1 ? 'episodio' : 'episodios'}`
+        : null;
+  return [KIND_LABEL[d.kind], d.year, ...d.genres.slice(0, 2), d.rating ? `★ ${d.rating.toFixed(1).replace('.', ',')}` : null, count].filter(Boolean) as (string | number)[];
+});
+
+const watchTo = (fileId: number) => ({ path: `/watch/${fileId}`, query: { title: detail.value!.id } });
+const stillOf = (r: EpisodeRow) => r.stillPath ?? detail.value?.backdropPath ?? null;
+
+const busy = ref(false);
+async function toggleFinished() {
+  const pid = getProfileId();
+  if (!pid || !detail.value || busy.value) return;
+  busy.value = true;
+  try {
+    await api.setFinished(pid, detail.value.id, !detail.value.finished);
+    await load();
+  } finally {
+    busy.value = false;
+  }
+}
+
+// Episode panel: opened via ?episode=<id>; focus returns to the row that opened it.
+let opener: HTMLElement | null = null;
+function openEpisode(r: EpisodeRow, ev?: Event) {
+  opener = (ev?.currentTarget as HTMLElement) ?? null;
+  router.replace({ query: { ...route.query, episode: r.id } });
+}
+async function closeEpisode() {
+  const id = episodeId.value;
+  const { episode: _drop, ...rest } = route.query;
+  await router.replace({ query: rest });
+  await nextTick();
+  (opener ?? document.querySelector<HTMLElement>(`[data-ep="${id}"]`))?.focus();
+  opener = null;
+}
 </script>
 
 <template>
-  <main class="legacy">
-    <p><RouterLink class="btn" to="/browse">← Inicio</RouterLink></p>
-    <p v-if="error" class="error">{{ error }}</p>
-    <p v-else-if="!detail" class="muted">Cargando…</p>
-    <template v-else>
-      <div class="head">
-        <img v-if="detail.posterPath" :src="imageUrl(detail.posterPath)" :alt="detail.title" />
-        <div>
-          <h1>{{ detail.title }}</h1>
-          <p class="muted">{{ detail.year ?? '' }}</p>
-          <p>{{ detail.overview }}</p>
+  <main v-if="error" class="page state"><h2>No se pudo cargar</h2><p>{{ error }}</p><RouterLink class="pill" to="/browse">Volver al inicio</RouterLink></main>
+  <div v-else-if="!detail" class="skeleton" aria-busy="true" />
+  <template v-else>
+    <section class="hero">
+      <img v-if="detail.backdropPath" class="bg" :src="imageUrl(detail.backdropPath)" alt="" fetchpriority="high" draggable="false" />
+      <div class="copy">
+        <img v-if="detail.logoPath" class="logo" :src="imageUrl(detail.logoPath)" :alt="detail.title" />
+        <h1 v-else class="name">{{ detail.title }}</h1>
+        <ul class="meta">
+          <li v-for="m in meta" :key="m">{{ m }}</li>
+        </ul>
+        <LangLine :langs="langs" class="hero-langs" />
+        <p v-if="detail.overview" class="overview">{{ detail.overview }}</p>
+        <div class="btns">
+          <RouterLink v-if="plan" class="pill primary" :to="watchTo(plan.fileId)"><Icon name="play" /> {{ plan.label }}</RouterLink>
+          <button
+            class="round"
+            :class="{ on: listed }"
+            :aria-label="listed ? 'Quitar de Mi lista' : 'Agregar a Mi lista'"
+            :aria-pressed="listed"
+            :title="listed ? 'En Mi lista' : 'Mi lista'"
+            @click="toggleMyList(detail)"
+          >
+            <Icon :name="listed ? 'check' : 'plus'" />
+          </button>
+          <button class="pill glass" :disabled="busy" :aria-pressed="!!detail.finished" @click="toggleFinished">
+            <Icon :name="detail.finished ? 'close' : 'check'" :size="20" /> {{ detail.finished ? 'No visto' : 'Marcar como visto' }}
+          </button>
         </div>
       </div>
+    </section>
 
-      <section v-for="s in detail.seasons" :key="s.id">
-        <h2>{{ s.name || `Temporada ${s.number}` }}</h2>
-        <ul>
-          <li v-for="e in s.episodes" :key="e.id">
-            <span class="ep">{{ e.number }}. {{ e.name }}</span>
-            <span v-if="!filesOf(e.id).length" class="muted">sin archivo</span>
-            <RouterLink v-for="f in filesOf(e.id)" :key="f.id" class="btn" :class="status(f).kind" :to="`/watch/${f.id}?title=${detail.id}`">
-              {{ status(f).label }}<small v-if="status(f).detail"> · {{ status(f).detail }}</small>
-            </RouterLink>
+    <div class="content">
+      <section v-if="season" class="eps" aria-labelledby="eps-h">
+        <div class="eps-head">
+          <h2 id="eps-h">{{ detail.kind === 'movie' ? 'Película' : 'Episodios' }}</h2>
+          <div v-if="seasons.length > 1" class="tabs" role="tablist" aria-label="Temporadas">
+            <button
+              v-for="s in seasons"
+              :key="s.id"
+              role="tab"
+              :aria-selected="s.id === season.id"
+              :class="{ on: s.id === season.id }"
+              @click="seasonNumber = s.number"
+            >
+              {{ s.name || `Temporada ${s.number}` }}
+            </button>
+          </div>
+          <p v-else-if="season.name" class="muted season-name">{{ season.name }} · {{ season.rows.length }} episodios</p>
+        </div>
+
+        <ol class="list">
+          <li v-for="r in season.rows" :key="r.id" class="row" :class="{ off: !r.file }">
+            <component
+              :is="r.file ? 'RouterLink' : 'div'"
+              class="thumb"
+              v-bind="r.file ? { to: watchTo(r.file.id), 'aria-label': `Reproducir episodio ${r.number}` } : {}"
+            >
+              <img v-if="stillOf(r)" :src="imageUrl(stillOf(r)!)" alt="" loading="lazy" draggable="false" />
+              <span v-if="r.file" class="play"><Icon name="play" :size="30" /></span>
+              <span v-if="r.progress?.completed" class="seen">Visto</span>
+              <span v-else-if="episodeAction(r) === 'resume'" class="bar">
+                <i :style="{ width: `${progressPct(r.progress!.positionS, r.progress!.durationS)}%` }" />
+              </span>
+            </component>
+            <button class="info" :data-ep="r.id" :aria-label="`Ver información del episodio ${r.number}`" @click="openEpisode(r, $event)">
+              <span class="head">
+                <span class="title"><b>E{{ r.number }}</b> {{ r.name || `Episodio ${r.number}` }}</span>
+                <span class="when">{{ [runtimeLabel(r.runtimeMin, r.file?.durationS ?? null), airDateLabel(r.airDate)].filter(Boolean).join(' · ') }}</span>
+              </span>
+              <span v-if="r.overview" class="syn">{{ r.overview }}</span>
+              <span class="foot">
+                <LangLine v-if="r.file" :langs="fileLanguages(r.file)" class="muted" />
+                <span v-if="status(r.file)" class="chip" :class="status(r.file)!.kind">{{ status(r.file)!.label }}</span>
+                <span v-else class="chip queued">sin archivo</span>
+                <span v-if="episodeAction(r) === 'resume'" class="muted left">{{ remainingLabel(r.progress!.positionS, r.progress!.durationS) }}</span>
+              </span>
+            </button>
           </li>
-        </ul>
+        </ol>
       </section>
 
-      <section v-if="extras.length">
-        <h2>Extras</h2>
-        <ul>
+      <section v-if="extras.length" aria-labelledby="ex-h">
+        <h2 id="ex-h">Extras</h2>
+        <ul class="extras">
           <li v-for="f in extras" :key="f.id">
-            <span class="ep">{{ f.extraLabel }}</span>
-            <RouterLink class="btn" :class="status(f).kind" :to="`/watch/${f.id}?title=${detail.id}`">
-              {{ status(f).label }}<small v-if="status(f).detail"> · {{ status(f).detail }}</small>
+            <RouterLink class="extra" :to="watchTo(f.id)">
+              <Icon name="play" :size="22" />
+              <span class="x-name">{{ f.extraLabel }}</span>
+              <span class="x-sub">{{ runtimeLabel(null, f.durationS) ?? '' }}</span>
+              <span class="chip" :class="status(f)!.kind">{{ status(f)!.label }}</span>
             </RouterLink>
           </li>
         </ul>
       </section>
-    </template>
-  </main>
+
+      <section v-if="cast.length" aria-labelledby="cast-h">
+        <h2 id="cast-h">Reparto</h2>
+        <ul class="cast">
+          <li v-for="c in cast" :key="c.personId">
+            <span class="face">
+              <img v-if="c.profilePath" :src="imageUrl(c.profilePath)" alt="" loading="lazy" draggable="false" />
+              <template v-else>{{ initial(c.name) }}</template>
+            </span>
+            <span class="c-name">{{ c.name }}</span>
+            <span v-if="c.character" class="c-role">{{ c.character }}</span>
+          </li>
+        </ul>
+      </section>
+    </div>
+
+    <EpisodePanel
+      v-if="openRow"
+      :row="openRow"
+      :status="status(openRow.file)"
+      :title-id="detail.id"
+      :fallback="detail.backdropPath"
+      @close="closeEpisode"
+    />
+  </template>
 </template>
 
 <style scoped>
-.legacy { padding-top: calc(var(--header-h) + 16px); }
-.head { display: flex; gap: 20px; flex-wrap: wrap; }
-.head img { width: 160px; border-radius: 8px; align-self: flex-start; }
-.head > div { flex: 1 1 280px; }
-ul { list-style: none; margin: 0; padding: 0; }
-li { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid #25252d; }
-.ep { flex: 1 1 200px; }
-.ready { background: #1f4d2e; }
-.processing { background: #5a4a14; }
-.queued { background: #2b2b35; }
-.error { background: #5a1f1f; color: inherit; }
+.skeleton { height: clamp(420px, 62vh, 680px); background: linear-gradient(100deg, var(--bg-raised) 30%, var(--bg-card) 50%, var(--bg-raised) 70%) 0 0 / 300% 100%; animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { to { background-position: -300% 0; } }
+.hero { position: relative; height: clamp(440px, 64vh, 700px); overflow: hidden; background: #000; color: #fff; }
+.bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 20%; }
+.hero::before, .hero::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; }
+.hero::before { background: linear-gradient(90deg, rgba(6, 6, 10, 0.9) 0%, rgba(6, 6, 10, 0.55) 40%, transparent 72%); }
+.hero::after { background: linear-gradient(transparent 50%, var(--bg) 100%), linear-gradient(rgba(6, 6, 10, 0.55), transparent 22%); }
+.copy {
+  position: absolute; z-index: 2; left: var(--gutter); bottom: clamp(40px, 9vh, 90px);
+  width: min(660px, calc(100% - 2 * var(--gutter))); display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
+}
+.logo { max-width: min(420px, 80%); max-height: 140px; object-fit: contain; object-position: left bottom; filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.6)); }
+.name { margin: 0; font-size: clamp(2.2rem, 5vw, 3.8rem); line-height: 1.02; letter-spacing: -0.02em; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6); }
+.meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0; padding: 0; list-style: none; font-size: 0.95rem; font-weight: 600; color: #e6e6f0; }
+.meta li + li::before { content: ''; display: inline-block; width: 4px; height: 4px; margin-right: 14px; vertical-align: middle; border-radius: 50%; background: var(--accent); }
+.hero-langs { color: #dcdce8; }
+.overview {
+  margin: 0; max-width: 60ch; font-size: clamp(0.95rem, 1.2vw, 1.05rem); line-height: 1.5; color: #e9e9f2;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+.btns { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 6px; }
+.pill:disabled { opacity: 0.6; cursor: default; }
+
+.content { position: relative; z-index: 2; padding: 0 var(--gutter) 80px; max-width: 1500px; margin: 0 auto; }
+section { margin-top: 26px; }
+h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
+.eps-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; margin-bottom: 14px; }
+.eps-head h2 { margin: 0; }
+.season-name { margin: 0; }
+.tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.tabs button { min-height: 40px; padding: 0 16px; border-radius: 999px; font-weight: 600; white-space: nowrap; background: var(--bg-card); color: var(--text-dim); }
+.tabs button.on { background: var(--accent); color: var(--accent-ink); }
+
+.list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
+.row { display: grid; grid-template-columns: clamp(150px, 20vw, 260px) 1fr; gap: clamp(12px, 2vw, 24px); align-items: start; padding: 14px 0; border-top: 1px solid var(--line); }
+.row:first-child { border-top: 0; }
+.thumb { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 10px; background: linear-gradient(160deg, var(--bg-hover), var(--bg-card)); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.row.off .thumb img { opacity: 0.45; }
+.play { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; background: rgba(8, 8, 12, 0.45); opacity: 0; transition: opacity 0.15s; }
+.play :deep(svg) { padding: 10px; box-sizing: content-box; border-radius: 50%; border: 2px solid #fff; }
+.thumb:hover .play, .thumb:focus-visible .play { opacity: 1; }
+.seen { position: absolute; left: 8px; top: 8px; padding: 2px 9px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-size: 0.75rem; font-weight: 700; }
+.bar { position: absolute; inset: auto 0 0; height: 5px; background: rgba(255, 255, 255, 0.28); }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.info { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-height: 0; padding: 4px 8px; margin: -4px -8px; border-radius: 10px; background: none; text-align: left; }
+.info:hover { background: var(--bg-card); }
+.head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 16px; }
+.title { font-size: 1.05rem; font-weight: 600; }
+.title b { color: var(--accent); margin-right: 4px; }
+.when { color: var(--text-dim); font-size: 0.88rem; }
+.syn { color: var(--text-dim); font-size: 0.92rem; line-height: 1.5; max-width: 80ch; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+.left { font-size: 0.85rem; }
+.chip { padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
+.chip.ready { color: #4cc38a; }
+.chip.processing { color: #e8b84a; }
+.chip.error { color: var(--danger); }
+
+.extras { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.extra { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 2px 10px; padding: 10px 14px; border-radius: 12px; background: var(--bg-card); }
+.extra:hover { background: var(--bg-hover); }
+.extra > :first-child { grid-row: span 2; color: var(--accent); }
+.x-name { font-weight: 600; }
+.x-sub { grid-column: 2; font-size: 0.8rem; color: var(--text-dim); }
+.extra .chip { grid-row: span 2; grid-column: 3; }
+
+.cast { margin: 0; padding: 0 0 6px; list-style: none; display: flex; gap: 20px; overflow-x: auto; scrollbar-width: thin; }
+.cast li { flex: none; width: 110px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; }
+.face { display: grid; place-items: center; width: 92px; height: 92px; margin-bottom: 6px; overflow: hidden; border-radius: 50%; background: var(--bg-hover); font-size: 2rem; font-weight: 700; color: var(--text-dim); }
+.face img { width: 100%; height: 100%; object-fit: cover; }
+.c-name { font-size: 0.88rem; font-weight: 600; line-height: 1.25; }
+.c-role { font-size: 0.78rem; color: var(--text-dim); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+@media (max-width: 720px) {
+  .hero { height: clamp(460px, 72vh, 620px); }
+  .hero::before { background: linear-gradient(90deg, rgba(6, 6, 10, 0.7), rgba(6, 6, 10, 0.2)); }
+  .copy { bottom: 28px; gap: 10px; }
+  .row { grid-template-columns: 116px 1fr; gap: 12px; }
+  .syn { -webkit-line-clamp: 3; font-size: 0.86rem; }
+  .play { display: none; }
+}
 </style>

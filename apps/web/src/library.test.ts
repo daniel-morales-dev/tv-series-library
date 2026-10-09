@@ -18,7 +18,7 @@ const t = (id: number, over: Partial<TitleSummary> = {}): TitleSummary => ({
   rating: null, genres: [], posterPath: null, backdropPath: `w1280/${id}.jpg`, logoPath: null, ...over,
 });
 const cont = (title: TitleSummary): ContinueItem => ({
-  title, mediaFileId: title.id * 10, positionS: 100, durationS: 1000, season: 1, episode: 2, episodeName: 'x', updatedAt: '',
+  title, mediaFileId: title.id * 10, positionS: 100, durationS: 1000, season: 1, episode: 2, episodeName: 'x', episodeId: 2, stillPath: null, updatedAt: '',
 });
 
 describe('remaining time', () => {

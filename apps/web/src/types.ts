@@ -27,6 +27,8 @@ export interface ContinueItem {
   season: number | null;
   episode: number | null;
   episodeName: string | null;
+  episodeId: number | null;
+  stillPath: string | null;
   updatedAt: string;
 }
 
@@ -74,6 +76,11 @@ export interface Episode {
   id: number;
   number: number;
   name: string | null;
+  overview: string | null;
+  runtimeMin: number | null;
+  stillPath: string | null;
+  /** ISO date `YYYY-MM-DD`. */
+  airDate: string | null;
 }
 
 export interface Season {
@@ -83,9 +90,20 @@ export interface Season {
   episodes: Episode[];
 }
 
+export interface Credit {
+  personId: number;
+  name: string;
+  profilePath: string | null;
+  role: 'cast' | 'director';
+  character: string | null;
+}
+
 export interface TitleDetail extends TitleSummary {
   seasons: Season[];
   files: MediaFile[];
+  credits: Credit[];
+  inMyList?: boolean;
+  finished?: boolean;
   progress?: WatchProgress[];
 }
 

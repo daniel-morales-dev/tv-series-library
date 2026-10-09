@@ -1,0 +1,83 @@
+import { describe, expect, it } from 'vitest';
+import { airDateLabel, buildEpisodes, castOf, episodeAction, playPlan, runtimeLabel } from './titlePage.ts';
+import type { Credit, Episode, MediaFile, TitleDetail } from './types.ts';
+
+const ep = (id: number, number: number): Episode => ({ id, number, name: `E${number}`, overview: null, runtimeMin: 24, stillPath: null, airDate: null });
+const file = (id: number, episodeId: number | null, extra: Partial<MediaFile> = {}): MediaFile => ({
+  id, status: 'ready', episodeId, extraLabel: null, durationS: 1000, audioTracks: [], subtitleTracks: [], ...extra,
+});
+const detail = (over: Partial<TitleDetail> = {}): TitleDetail =>
+  ({
+    id: 1, kind: 'series', title: 'S', seasons: [{ id: 1, number: 1, name: null, episodes: [ep(2, 2), ep(1, 1), ep(3, 3)] }],
+    files: [file(11, 1), file(12, 2), file(13, 3), file(20, null, { extraLabel: 'OP' })], credits: [], progress: [], ...over,
+  }) as TitleDetail;
+const prog = (mediaFileId: number, positionS: number, completed = false) => ({ mediaFileId, positionS, durationS: 1000, completed });
+
+describe('buildEpisodes', () => {
+  it('orders by episode number and joins file and progress; extras excluded', () => {
+    const [s] = buildEpisodes(detail({ progress: [prog(12, 300)] }));
+    expect(s!.rows.map((r) => r.number)).toEqual([1, 2, 3]);
+    expect(s!.rows[1]).toMatchObject({ season: 1, file: { id: 12 }, progress: { positionS: 300 } });
+    expect(s!.rows[0]!.progress).toBeNull();
+  });
+  it('keeps episodes without a file', () => {
+    const [s] = buildEpisodes(detail({ files: [] }));
+    expect(s!.rows[0]!.file).toBeNull();
+  });
+});
+
+describe('episodeAction', () => {
+  const row = (p: ReturnType<typeof prog> | null) => ({ progress: p }) as never;
+  it('plays, resumes or rewatches', () => {
+    expect(episodeAction(row(null))).toBe('play');
+    expect(episodeAction(row(prog(1, 5)))).toBe('play');
+    expect(episodeAction(row(prog(1, 300)))).toBe('resume');
+    expect(episodeAction(row(prog(1, 1000, true)))).toBe('rewatch');
+  });
+});
+
+describe('playPlan', () => {
+  it('starts at the first episode when nothing was watched', () => {
+    expect(playPlan(detail())).toMatchObject({ fileId: 11, action: 'play', label: 'Reproducir' });
+  });
+  it('resumes a partially watched episode', () => {
+    expect(playPlan(detail({ progress: [prog(11, 1000, true), prog(12, 300)] }))).toMatchObject({ fileId: 12, action: 'resume', label: 'Continuar T1·E2' });
+  });
+  it('continues at the next episode after a finished one', () => {
+    expect(playPlan(detail({ progress: [prog(11, 1000, true)] }))).toMatchObject({ fileId: 12, action: 'resume', label: 'Continuar T1·E2' });
+  });
+  it('offers rewatch when everything is done', () => {
+    const all = [prog(11, 1000, true), prog(12, 1000, true), prog(13, 1000, true)];
+    expect(playPlan(detail({ progress: all }))).toMatchObject({ fileId: 11, action: 'rewatch', label: 'Ver de nuevo' });
+  });
+  it('handles movies (no episodes)', () => {
+    const movie = detail({ kind: 'movie', seasons: [], files: [file(5, null)] });
+    expect(playPlan(movie)).toMatchObject({ fileId: 5, label: 'Reproducir' });
+    expect(playPlan({ ...movie, progress: [prog(5, 400)] })).toMatchObject({ action: 'resume', label: 'Continuar' });
+    expect(playPlan({ ...movie, progress: [prog(5, 1000, true)] })).toMatchObject({ action: 'rewatch' });
+  });
+  it('is null when there is nothing to play', () => {
+    expect(playPlan(detail({ files: [] }))).toBeNull();
+  });
+});
+
+describe('labels', () => {
+  it('formats runtime', () => {
+    expect(runtimeLabel(24, null)).toBe('24 min');
+    expect(runtimeLabel(null, 1466)).toBe('24 min');
+    expect(runtimeLabel(125, null)).toBe('2 h 5 min');
+    expect(runtimeLabel(null, null)).toBeNull();
+  });
+  it('formats the air date in Spanish', () => {
+    expect(airDateLabel('2009-07-17')).toBe('17 de julio de 2009');
+    expect(airDateLabel(null)).toBeNull();
+    expect(airDateLabel('nope')).toBeNull();
+  });
+});
+
+describe('castOf', () => {
+  it('keeps cast only, capped', () => {
+    const c = (n: number, role: Credit['role']): Credit => ({ personId: n, name: `P${n}`, profilePath: null, role, character: null });
+    expect(castOf([c(1, 'director'), c(2, 'cast'), c(3, 'cast')], 1).map((x) => x.personId)).toEqual([2]);
+  });
+});

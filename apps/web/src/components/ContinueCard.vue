@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { imageUrl } from '../api.ts';
-import { useDismiss } from '../dismiss.ts';
+import { popoverPosition } from '../popover.ts';
 import { episodeLabel, progressPct, remainingLabel } from '../library.ts';
 import type { ContinueItem } from '../types.ts';
 import Icon from './Icon.vue';
@@ -10,18 +10,53 @@ const props = defineProps<{ item: ContinueItem }>();
 const emit = defineEmits<{ remove: [titleId: number] }>();
 
 const open = ref(false);
-const root = ref<HTMLElement | null>(null);
-useDismiss(root, () => (open.value = false));
+const dotsBtn = ref<HTMLButtonElement | null>(null);
+const menuEl = ref<HTMLElement | null>(null);
+const pos = ref({ left: 0, top: 0 });
+
+// The menu lives in <body>: inside the row's scroller it would be clipped and force a horizontal scroll.
+function place() {
+  const a = dotsBtn.value?.getBoundingClientRect();
+  const m = menuEl.value;
+  if (a && m) pos.value = popoverPosition(a, { width: m.offsetWidth, height: m.offsetHeight }, { width: innerWidth, height: innerHeight });
+}
+const close = () => (open.value = false);
+const onDown = (e: Event) => {
+  const t = e.target as Node;
+  if (!menuEl.value?.contains(t) && !dotsBtn.value?.contains(t)) close();
+};
+const onKey = (e: Event) => {
+  if ((e as KeyboardEvent).key !== 'Escape') return;
+  close();
+  dotsBtn.value?.focus();
+};
+function listen(on: boolean) {
+  const act = on ? 'addEventListener' : 'removeEventListener';
+  document[act]('pointerdown', onDown);
+  document[act]('keydown', onKey);
+  window[act]('resize', close);
+  window[act]('scroll', close, true);
+}
+watch(open, async (on) => {
+  listen(on);
+  if (on) {
+    await nextTick();
+    place();
+    menuEl.value?.querySelector<HTMLElement>('button, a')?.focus();
+  }
+});
+onBeforeUnmount(() => listen(false));
+const itemTo = computed(() => ({ path: `/title/${props.item.title.id}`, query: props.item.episodeId ? { episode: props.item.episodeId } : {} }));
 
 const to = computed(() => ({ path: `/watch/${props.item.mediaFileId}`, query: { title: props.item.title.id } }));
 const label = computed(() => episodeLabel(props.item.season, props.item.episode, props.item.episodeName));
 const left = computed(() => remainingLabel(props.item.positionS, props.item.durationS));
 const pct = computed(() => progressPct(props.item.positionS, props.item.durationS));
-const image = computed(() => props.item.title.backdropPath ?? props.item.title.posterPath);
+const image = computed(() => props.item.stillPath ?? props.item.title.backdropPath ?? props.item.title.posterPath);
 </script>
 
 <template>
-  <article ref="root" class="cc">
+  <article class="cc">
     <RouterLink :to="to" class="thumb" :aria-label="`Continuar ${item.title.title}`">
       <img v-if="image" :src="imageUrl(image)" alt="" loading="lazy" draggable="false" />
       <span v-if="left" class="left">{{ left }}</span>
@@ -31,18 +66,27 @@ const image = computed(() => props.item.title.backdropPath ?? props.item.title.p
     <div class="info">
       <div class="text">
         <p class="series">{{ item.title.title }}</p>
-        <p v-if="label" class="ep">{{ label }}</p>
+        <p v-if="label" class="ep" :title="label">{{ label }}</p>
       </div>
-      <button class="dots" aria-label="Más opciones" aria-haspopup="menu" :aria-expanded="open" @click="open = !open">
+      <button
+        ref="dotsBtn"
+        class="dots"
+        aria-label="Más opciones"
+        aria-haspopup="menu"
+        :aria-expanded="open"
+        @click="open = !open"
+      >
         <Icon name="dots" />
       </button>
-      <ul v-if="open" class="menu" role="menu">
-        <li role="none">
-          <button role="menuitem" @click="emit('remove', item.title.id)">Quitar de Continuar viendo</button>
-        </li>
-        <li role="none"><RouterLink role="menuitem" :to="`/title/${item.title.id}`">Ir al título</RouterLink></li>
-      </ul>
     </div>
+    <Teleport to="body">
+      <ul v-if="open" ref="menuEl" class="cc-menu" role="menu" :style="{ left: `${pos.left}px`, top: `${pos.top}px` }">
+        <li role="none"><button role="menuitem" @click="close(); emit('remove', item.title.id)">Quitar de Continuar viendo</button></li>
+        <li role="none">
+          <RouterLink role="menuitem" :to="itemTo" @click="close">{{ item.episodeId ? 'Ir al episodio' : 'Ir al título' }}</RouterLink>
+        </li>
+      </ul>
+    </Teleport>
   </article>
 </template>
 
@@ -72,19 +116,19 @@ const image = computed(() => props.item.title.backdropPath ?? props.item.title.p
   margin: 0; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
   color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.ep { margin: 2px 0 0; font-size: 0.95rem; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ep { margin: 2px 0 0; font-size: 0.95rem; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dots {
   flex: none; display: grid; place-items: center; width: 36px; height: 36px; min-height: 0; padding: 0;
   border-radius: 50%; background: none; color: var(--text-dim);
 }
 .dots:hover { background: var(--bg-hover); color: var(--text); }
-.menu {
-  position: absolute; right: 0; top: 44px; z-index: 6; margin: 0; padding: 6px; list-style: none; min-width: 230px;
+.cc-menu {
+  position: fixed; z-index: 60; margin: 0; padding: 6px; list-style: none; min-width: 230px;
   background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow);
 }
-.menu button, .menu a {
+.cc-menu button, .cc-menu a {
   display: block; width: 100%; min-height: 0; padding: 11px 14px; border-radius: 8px; background: none;
   text-align: left; font-size: 0.92rem; color: var(--text);
 }
-.menu button:hover, .menu a:hover, .menu button:focus-visible, .menu a:focus-visible { background: var(--bg-hover); }
+.cc-menu button:hover, .cc-menu a:hover, .cc-menu button:focus-visible, .cc-menu a:focus-visible { background: var(--bg-hover); }
 </style>
