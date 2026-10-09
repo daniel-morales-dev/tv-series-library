@@ -157,3 +157,7 @@ export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number)
     })),
   };
 }
+
+export function titleExists(db: DatabaseSync, id: number): boolean {
+  return get(db, 'SELECT 1 AS x FROM titles WHERE id = ?', id) !== undefined;
+}
