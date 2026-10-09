@@ -202,7 +202,7 @@ describe('play while processing', () => {
     const e = env(async (args, o) => {
       if (!args.includes('-var_stream_map')) return void args.forEach((a) => /\.(vtt|ass|ttf)$/.test(a) && writeFileSync(a, 'x'));
       const out = outDir(args);
-      writeFileSync(join(out, 'master.m3u8'), '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME="audio_1",URI="a0/index.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/index.m3u8\n');
+      writeFileSync(join(out, 'master.m3u8'), '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME="audio_1",URI="a0/index.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/index.m3u8\n\n');
       o?.onProgress?.(10);
       await new Promise((r) => setTimeout(r, 50));
       namedMidRun = readFileSync(join(out, 'master.m3u8'), 'utf8');

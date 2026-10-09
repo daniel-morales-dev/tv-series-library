@@ -9,7 +9,7 @@ import type { ProcessResult } from './queue.ts';
 async function nameMaster(dir: string, plan: Plan, strict: boolean): Promise<boolean> {
   const path = join(dir, 'master.m3u8');
   const text = await readFile(path, 'utf8');
-  if (strict && !/\.m3u8\n$/.test(text)) return false;
+  if (strict && !/\.m3u8\n+$/.test(text)) return false;
   await writeFile(`${path}.new`, nameRenditions(text, plan));
   await rename(`${path}.new`, path);
   return true;

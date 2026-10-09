@@ -25,15 +25,15 @@
   - [x] T4a Plan de procesamiento + tests
   - [x] T4b Ejecución ffmpeg (HLS, subs, fuentes) + cola de jobs
   - [x] T4c API jobs/stream + verificación real (ep 01 + un OP)
-- [ ] T4d Ver mientras procesa + bajo consumo (pedido del dueño 2026-10-09):
+- [x] T4d Ver mientras procesa + bajo consumo (pedido del dueño 2026-10-09):
   - Al dar play a un archivo no listo: pasa al frente de la cola y se reproduce en cuanto haya los primeros segmentos (playlist HLS tipo `EVENT` que crece; adelantar solo hasta lo ya procesado).
   - Límite de recursos: `nice 19` + `ionice` idle, hilos de x264 limitados (configurable), un job a la vez. Medir RAM/CPU y confirmar que sigue más rápido que tiempo real (si no, el video se detiene).
   - Recordatorio: la cola ya procesa todo al importar, así que lo descargado con anticipación no tiene espera.
   - Ruta: delegada (sonnet). Diseño:
-    - [ ] T4d1 HLS `event` (crece, `ENDLIST` al final); subtítulos/fuentes extraídos **antes** del video (disponibles al empezar); nombres de pistas en `master.m3u8` apenas ffmpeg lo escribe; `/api/stream` sirve `hls/<id>.tmp` mientras no exista el definitivo.
-    - [ ] T4d2 Migración 003 `jobs.priority`; `POST /api/media-files/:id/play`: si está listo responde `ready`; si no, encola con prioridad y **interrumpe** el job en curso (vuelve a la cola, reinicia de 0) para procesar este ya.
-    - [ ] T4d3 Bajo consumo: `os.setPriority(pid, 19)` al ffmpeg (sin `ionice`: con nice 19 el I/O baja a la menor prioridad best-effort), `-threads` de x264 por `FFMPEG_THREADS` (default 4), un job a la vez.
-    - [ ] T4d4 Verificación real: medir CPU/RAM y velocidad vs tiempo real con 4 hilos; reproducir mientras procesa.
+    - [x] T4d1 HLS `event` (crece, `ENDLIST` al final); subtítulos/fuentes extraídos **antes** del video (disponibles al empezar); nombres de pistas en `master.m3u8` apenas ffmpeg lo escribe; `/api/stream` sirve `hls/<id>.tmp` mientras no exista el definitivo.
+    - [x] T4d2 Migración 003 `jobs.priority`; `POST /api/media-files/:id/play`: si está listo responde `ready`; si no, encola con prioridad y **interrumpe** el job en curso (vuelve a la cola, reinicia de 0) para procesar este ya.
+    - [x] T4d3 Bajo consumo: `os.setPriority(pid, 19)` al ffmpeg (sin `ionice`: con nice 19 el I/O baja a la menor prioridad best-effort), `-threads` de x264 por `FFMPEG_THREADS` (default 4), un job a la vez.
+    - [x] T4d4 Verificación real: medir CPU/RAM y velocidad vs tiempo real con 4 hilos; reproducir mientras procesa.
 - [ ] T5 Frontend: perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial
 - [ ] T6 Player: hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio
 - [ ] T7 Empaquetado Linux: Docker Compose `restart: unless-stopped`, Docker habilitado en systemd, puerto abierto en firewall (ufw si aplica), URL + QR en Ajustes, **guía en español en el README: cómo correrlo en la laptop Linux y cómo entrar desde celular y TV** (decisión del dueño: la guía se escribe aquí, no antes)
@@ -58,6 +58,8 @@
 
 - TV del dueño: **TCL C635** (Google TV / Android TV, nueva). Player con hls.js (MSE). Pendiente elegir navegador en la TV (Google TV no trae Chrome) o alternativa (app WebView / Cast) en T6.
 
+- T4d: 157 tests en verde, `tsc` limpio. Real (ep 02, 1441 s, 4 hilos, nice 19): **3,9× tiempo real** (368 s), primer segmento reproducible a los **6,3 s**, CPU ≈4,8 núcleos de 16, RAM máx. ≈670 MB; `ENDLIST` al terminar, pistas renombradas, subtítulos listos antes del video. Bug hallado en la verificación: ffmpeg termina el master con `\n\n` y el renombrado temprano no se aplicaba (corregido con test). Commits b201888 + el de esta corrección. Revisión RDD: riesgo medio, `under_budget` (queda en el tramo; base = `HEAD~1` porque no existe `main`).
+
 ## Pendientes conocidos (T4)
 - Una caída puede dejar `hls/<id>.tmp`; se borra al reprocesar ese archivo (no hay barrido al arrancar).
 - Primer cue del VTT puede ser un cartel de una letra (typesetting de ASS): esperado con WebVTT.
@@ -69,7 +71,7 @@
 - `./content` y `./data` son relativos al cwd (`apps/server` con `npm start -w`): fijar en T7.
 
 ## Siguiente paso
-**Esperar indicación del dueño para retomar.** Luego: T4d (ver mientras procesa + bajo consumo), después T6 Player básico.
+T6 Player básico (hls.js, `POST /api/media-files/:id/play` y reintentar `master.m3u8` hasta que exista).
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
