@@ -182,3 +182,9 @@ export function memoize(client: TmdbClient): TmdbClient {
     image: client.image,
   };
 }
+
+// Used when no token is configured: every call fails, so ingestion runs in offline mode.
+export function unavailableTmdb(): TmdbClient {
+  const fail = () => Promise.reject(new Error('TMDB_READ_ACCESS_TOKEN is not set'));
+  return { searchTv: fail, tv: fail, tvSeason: fail, episodeGroup: fail, searchMovie: fail, movie: fail, collection: fail, image: fail };
+}

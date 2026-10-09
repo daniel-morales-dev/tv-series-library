@@ -25,9 +25,8 @@ export interface Candidate {
   overview: string | null;
 }
 
-export type Assignment =
-  | { status: 'matched'; titleId: number; seasonNumber: number | null }
-  | { status: 'no_match'; candidates: Candidate[] };
+export type Matched = { status: 'matched'; titleId: number; seasonNumber: number | null };
+export type Assignment = Matched | { status: 'no_match'; candidates: Candidate[] };
 
 export interface GroupMatch {
   episodeGroupId: string;
@@ -91,7 +90,7 @@ export async function adoptSeries(
   tv: TvDetails,
   group: GroupMatch | null,
   reuseTitleId?: number,
-): Promise<Assignment> {
+): Promise<Matched> {
   const titleId = await importTv(ctx, tv, reuseTitleId);
   if (group) await importGroupSeason(ctx, titleId, group.episodeGroupId, group.seasonNumber, group.group);
   setSourceDir(ctx.db, dirRel, titleId, group?.seasonNumber ?? null);
