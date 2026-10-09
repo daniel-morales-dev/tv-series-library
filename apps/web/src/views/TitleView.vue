@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router';
 import { api, getProfileId, imageUrl } from '../api.ts';
 import EpisodePanel from '../components/EpisodePanel.vue';
+import ExtraCard from '../components/ExtraCard.vue';
 import Icon from '../components/Icon.vue';
 import LangLine from '../components/LangLine.vue';
 import { fileStatus, needsPolling } from '../fileStatus.ts';
@@ -207,12 +208,7 @@ async function closeEpisode() {
         <h2 id="ex-h">Extras</h2>
         <ul class="extras">
           <li v-for="f in extras" :key="f.id">
-            <component :is="isPlayable(f) ? 'RouterLink' : 'div'" class="extra" v-bind="isPlayable(f) ? { to: watchTo(f.id) } : {}">
-              <Icon name="play" :size="22" />
-              <span class="x-name">{{ f.extraLabel }}</span>
-              <span class="x-sub">{{ runtimeLabel(null, f.durationS) ?? '' }}</span>
-              <span class="badge" :class="status(f)!.kind">{{ status(f)!.label }}</span>
-            </component>
+            <ExtraCard :file="f" :status="status(f)!" :to="watchTo(f.id)" />
           </li>
         </ul>
       </section>
@@ -304,12 +300,6 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .badge.error { color: var(--danger); }
 
 .extras { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
-.extra { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 2px 10px; padding: 10px 14px; border-radius: 12px; background: var(--bg-card); }
-.extra:hover { background: var(--bg-hover); }
-.extra > :first-child { grid-row: span 2; color: var(--accent); }
-.x-name { font-weight: 600; }
-.x-sub { grid-column: 2; font-size: 0.8rem; color: var(--text-dim); }
-.extra .badge { grid-row: span 2; grid-column: 3; }
 
 .cast { margin: 0; padding: 0 0 6px; list-style: none; display: flex; gap: 20px; overflow-x: auto; scrollbar-width: thin; }
 .cast li { flex: none; width: 110px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; }

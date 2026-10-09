@@ -2,6 +2,7 @@ import { renderToString } from 'vue/server-renderer';
 import { createSSRApp, h } from 'vue';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, playErrorMessage } from './api.ts';
+import ExtraCard from './components/ExtraCard.vue';
 import ListCard from './components/ListCard.vue';
 import TitleCard from './components/TitleCard.vue';
 import { fileStatus, needsPolling } from './fileStatus.ts';
@@ -67,5 +68,16 @@ describe('409 downloading', () => {
     expect(playErrorMessage(new Error('downloading'))).toBe('Este episodio aún se está descargando.');
     expect(playErrorMessage(new Error('500'))).toBe('No se pudo preparar el video (500).');
     expect(playErrorMessage(new Error('404'))).toBe('No se pudo cargar el video.');
+  });
+});
+
+describe('extras', () => {
+  const extra = (status: MediaFile['status']) => ({ ...file(1, null, status), extraLabel: 'NCED 01' });
+  it('shows no play icon while downloading, but does when playable', async () => {
+    const cardHtml = (f: MediaFile) => html(ExtraCard, { file: f, status: fileStatus(f, []), to: '/watch/1' });
+    const downloading = await cardHtml(extra('downloading'));
+    expect(downloading).toContain('descargando');
+    expect(downloading).not.toContain('<svg');
+    expect(await cardHtml(extra('ready'))).toContain('<svg');
   });
 });
