@@ -83,6 +83,8 @@
 
 - T6c: 16 tests web, typecheck y build en verde (sin evidencia RED: tests y lógica se escribieron juntos). Ruta `/watch/:mediaFileId?title=<titleId>`. Pantalla completa sobre el contenedor (no el `<video>`) para que el menú y "Siguiente" sigan visibles; botón nativo oculto con `controlslist`. Riesgos a probar en T6d: autoplay bloqueado en iOS/TV, iOS sin menú de audio (HLS nativo), subtítulos asociados por posición, chunk de hls.js de 581 kB.
 
+- Revisión RDD de T6c (base `beac387`, riesgo medio, `slice_budget_reached`): omitida por el dueño. Commit 3bd8e9d; próxima base `3bd8e9d`.
+
 ## Siguiente paso
 T6d: reescanear `content/`, procesar al menos un episodio y probar en celular y TV por WiFi.
 
