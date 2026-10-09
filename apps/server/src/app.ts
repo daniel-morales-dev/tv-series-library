@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Ingestor } from './modules/ingest/ingestor.ts';
+import { processingRoutes } from './modules/processing/routes.ts';
 import type { Worker } from './modules/processing/worker.ts';
 import { ingestRoutes } from './modules/ingest/routes.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
@@ -31,6 +32,7 @@ export function buildApp({ db, logger = false, dataDir = './data', ingestor, wor
       myListRoutes(api, db);
       progressRoutes(api, db);
       ingestRoutes(api, db, dataDir, ingestor);
+      processingRoutes(api, db, dataDir, worker);
     },
     { prefix: '/api' },
   );
