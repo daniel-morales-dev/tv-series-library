@@ -21,10 +21,10 @@
   - [x] T3b Migración 002 + cliente TMDB + asignación (episode groups) + imágenes
   - [x] T3c Escaneo, completitud, watcher y modo sin internet
   - [x] T3d API Pendientes, escaneo manual e imágenes + verificación real
-- [ ] T4 Procesamiento (diseño: `docs/design/t4-procesamiento.md`): plan ffprobe → HLS fMP4 multi-audio + WebVTT (+ `.ass` y fuentes guardados), cola de jobs con progreso, API de stream — ruta: delegada (sonnet)
-  - [ ] T4a Plan de procesamiento + tests
-  - [ ] T4b Ejecución ffmpeg (HLS, subs, fuentes) + cola de jobs
-  - [ ] T4c API jobs/stream + verificación real (ep 01 + un OP)
+- [x] T4 Procesamiento (diseño: `docs/design/t4-procesamiento.md`): plan ffprobe → HLS fMP4 multi-audio + WebVTT (+ `.ass` y fuentes guardados), cola de jobs con progreso, API de stream — ruta: delegada (sonnet)
+  - [x] T4a Plan de procesamiento + tests
+  - [x] T4b Ejecución ffmpeg (HLS, subs, fuentes) + cola de jobs
+  - [x] T4c API jobs/stream + verificación real (ep 01 + un OP)
 - [ ] T5 Frontend: perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial
 - [ ] T6 Player: hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio
 - [ ] T7 Empaquetado Linux: Docker Compose `restart: unless-stopped`, Docker habilitado en systemd, puerto abierto en firewall (ufw si aplica), URL + QR en Ajustes, **guía en español en el README: cómo correrlo en la laptop Linux y cómo entrar desde celular y TV** (decisión del dueño: la guía se escribe aquí, no antes)
@@ -45,6 +45,11 @@
 - T3: 84 tests vitest en verde, `tsc` limpio. Escaneo real de `content/` con TMDB: Monogatari (46195, anime), temporada "Bakemonogatari" con 15 episodios, 34 archivos (15 episodios + 19 extras OP/ED/PV), 0 pendientes; reescaneo sin cambios. Commits 18770c7, fb60f80, 32ff3a1, 9d73436.
 
 - Los videos son H.264 **High 10** (10 bits): Chrome y TV no los reproducen → se recodifican. Dueño eligió 1080p nativo (`veryfast`, CRF 20): ~3 min/episodio, ~45 min todo Bakemonogatari, ~320 MB/episodio. Subtítulos: WebVTT ahora, guardando `.ass` + fuentes para un renderizador ASS futuro (ADR 0002 actualizado).
+- T4: 147 tests en verde, `tsc` limpio. Real: ep 01 en 181 s → 549 MB (H.264 High 8 bits 1080p, AAC jpn, duración idéntica 1466 s), OP2 en 15 s; VTT, `.ass` y 26 fuentes; `/api/stream` 200 con content-types correctos y 404 ante `..`. Commits 40c75d3, 2226579, 09e95f2.
+
+## Pendientes conocidos (T4)
+- Una caída puede dejar `hls/<id>.tmp`; se borra al reprocesar ese archivo (no hay barrido al arrancar).
+- Primer cue del VTT puede ser un cartel de una letra (typesetting de ASS): esperado con WebVTT.
 
 ## Pendientes conocidos (T3)
 - Buscar "bakemonogatari" no encuentra "Monogatari": el índice solo guarda el título localizado. Indexar nombres de temporada y título original.
@@ -53,7 +58,7 @@
 - `./content` y `./data` son relativos al cwd (`apps/server` con `npm start -w`): fijar en T7.
 
 ## Siguiente paso
-T4 Procesamiento: ffprobe → plan (copy/transcode, FLAC → AAC) → HLS multi-audio + WebVTT, cola de jobs con progreso.
+T6 Player básico (hls.js, audio/subs, progreso, reanudar, siguiente episodio).
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
