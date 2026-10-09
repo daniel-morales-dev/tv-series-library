@@ -3,6 +3,8 @@
 **Objetivo:** plataforma propia tipo Netflix/Crunchyroll/HBO en LAN, sin login, con perfiles, Mi lista, Continuar viendo, tracking por episodio, búsqueda con autocompletado, cambio de audio/subtítulos.
 **Plan completo:** decisiones en `docs/adr/`, glosario en `CONTEXT.md`.
 **Estrategia de entrega:** `ask-on-risk` (rama por fase).
+**Prioridad:** Linux + LAN primero (encender PC → ver desde celular y TV). Windows diferido.
+**Retomar:** leer `CLAUDE.md` primero.
 
 ## Restricciones
 - Código en inglés, documentación en español, comentarios solo cuando aportan.
@@ -17,7 +19,8 @@
 - [ ] T4 Procesamiento: ffprobe → plan (copy/transcode video, FLAC/DTS → AAC) → HLS multi-audio + WebVTT; cola de jobs con progreso
 - [ ] T5 Frontend: perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial
 - [ ] T6 Player: hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio
-- [ ] T7 Empaquetado: Docker Compose (Linux), Inno Setup (Windows) con firewall y autoarranque
+- [ ] T7 Empaquetado Linux: Docker Compose `restart: unless-stopped`, Docker habilitado en systemd, puerto abierto en firewall (ufw si aplica), URL + QR en Ajustes, guía en español
+- [ ] T8 (diferido) Instalador Windows: Inno Setup con firewall y autoarranque
 
 ## Hallazgos
 - Releases BD de anime traen audio FLAC → transcodificar a AAC (ADR 0002).
@@ -27,4 +30,7 @@
 - T1: `node:sqlite` + FTS5 verificado en Node 24.14 (`mas*` → "Más allá del final").
 
 ## Siguiente paso
-T2 Backend core.
+T2 Backend core: monorepo `apps/server` (Fastify + `node:sqlite`) y `apps/web` (Vue 3 + Vite). Empezar por esquema + migraciones + API de perfiles con tests.
+
+## Hito mínimo (MVP Linux)
+T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular por WiFi.
