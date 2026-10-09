@@ -16,11 +16,11 @@
 ## Tareas
 - [x] T1 Fundación: rama, `.gitignore`, `.env.example`, glosario, ADRs 0001–0004, README — ruta: inline
 - [x] T2 Backend core: esquema + migraciones, API perfiles, catálogo con filtros, Mi lista, progreso, continuar viendo — ruta: delegada (sonnet)
-- [ ] T3 Ingesta (diseño: `docs/design/t3-ingesta.md`): escaneo + watcher, descarga completa (mtime > 60 s + ffprobe), parser de nombres, TMDB con ordenamientos alternativos (episode groups), caché de imágenes, Pendientes — ruta: delegada (sonnet)
-  - [ ] T3a Parser de nombres + tests
-  - [ ] T3b Migración 002 + cliente TMDB + asignación (episode groups) + imágenes
-  - [ ] T3c Escaneo, completitud, watcher y modo sin internet
-  - [ ] T3d API Pendientes, escaneo manual e imágenes + verificación real
+- [x] T3 Ingesta (diseño: `docs/design/t3-ingesta.md`): escaneo + watcher, descarga completa (mtime > 60 s + ffprobe), parser de nombres, TMDB con ordenamientos alternativos (episode groups), caché de imágenes, Pendientes — ruta: delegada (sonnet)
+  - [x] T3a Parser de nombres + tests
+  - [x] T3b Migración 002 + cliente TMDB + asignación (episode groups) + imágenes
+  - [x] T3c Escaneo, completitud, watcher y modo sin internet
+  - [x] T3d API Pendientes, escaneo manual e imágenes + verificación real
 - [ ] T4 Procesamiento: ffprobe → plan (copy/transcode video, FLAC/DTS → AAC) → HLS multi-audio + WebVTT; cola de jobs con progreso
 - [ ] T5 Frontend: perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial
 - [ ] T6 Player: hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio
@@ -39,8 +39,16 @@
 - T1: `node:sqlite` + FTS5 verificado en Node 24.14 (`mas*` → "Más allá del final").
 - T2: 30 tests vitest en verde, `tsc --noEmit` limpio, health/seed/titles/suggest verificados en servidor real. Commits f69b1ed, 8b1ff42, df8e511.
 
+- T3: 84 tests vitest en verde, `tsc` limpio. Escaneo real de `content/` con TMDB: Monogatari (46195, anime), temporada "Bakemonogatari" con 15 episodios, 34 archivos (15 episodios + 19 extras OP/ED/PV), 0 pendientes; reescaneo sin cambios. Commits 18770c7, fb60f80, 32ff3a1, 9d73436.
+
+## Pendientes conocidos (T3)
+- Buscar "bakemonogatari" no encuentra "Monogatari": el índice solo guarda el título localizado. Indexar nombres de temporada y título original.
+- Rutas de `media_files` son relativas a `CONTENT_DIR`; T4 debe unirlas. Pistas: `{index, codec, language, title, channels?}`, `index` sirve para `-map 0:index`.
+- Si un archivo creado sin internet no cabe luego en TMDB, pasa a Pendientes y se pierde su progreso (caso raro).
+- `./content` y `./data` son relativos al cwd (`apps/server` con `npm start -w`): fijar en T7.
+
 ## Siguiente paso
-T3a Parser de nombres. Usar `indexEntry` (search) al crear títulos y personas.
+T4 Procesamiento: ffprobe → plan (copy/transcode, FLAC → AAC) → HLS multi-audio + WebVTT, cola de jobs con progreso.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
