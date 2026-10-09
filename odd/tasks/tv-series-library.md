@@ -40,14 +40,14 @@
   - [x] T5c Página de título + panel de info del episodio (nombre, T·E, sinopsis, fecha de emisión, duración, progreso; pedido del dueño)
     - Pedidos del dueño tras ver T5b: menú ⋮ de Continuar viendo se recorta dentro de la fila (obliga a scroll horizontal y tapa el nombre del episodio) → sacarlo de la fila; más detalle en los episodios; mostrar **idioma** de audio y subtítulos por título y por episodio (p. ej. Monogatari descargado en inglés).
   - [x] T5d Mi lista, Series/Películas/Anime con filtros, Búsqueda (4fa861b; 73 tests web; revisión omitida, próxima base `4fa861b`)
-  - [ ] T5e Navegación espacial TV y responsive fino (parcial sin commit: `spatial.ts` + 84 tests; el agente se cortó por límite de sesión)
-  - [ ] T5f Pulido pedido por el dueño (2026-10-09):
+  - [x] T5e Navegación espacial TV y responsive fino (97f01ca)
+  - [x] T5f Pulido pedido por el dueño (2026-10-09):
     - Chips de estado (en cola / procesando / listo): texto no centrado en el óvalo.
     - Móvil: carátulas estiradas e iconos apretados en las tarjetas.
     - Favicon.
     - Clic en la miniatura de Continuar viendo (fuera del ▶) no hace nada.
     - Panel de episodio: scroll vertical aunque el contenido cabe; solo debe haber scroll si la sinopsis es larga.
-  - [ ] T5g Player:
+  - [x] T5g Player (97f01ca; 87 tests web; revisión omitida, próxima base `97f01ca`):
     - Clic sobre el video pausa/reanuda.
     - Iconos en vez de texto para audio/subtítulos y pantalla completa.
     - Velocidad de reproducción (0.5×–2×).
@@ -110,7 +110,7 @@
 - Decisión pendiente del dueño: "Marcar como no visto" solo limpia `title_state.finished`; el progreso `completed` de cada episodio queda y siguen apareciendo como "Visto".
 
 ## Siguiente paso
-T5e en curso. Nota: el rechazo `invalid_request` al omitir la revisión de T5c coincidió con un agente editando el árbol; con el árbol limpio funcionó → consentimiento RDD antes de lanzar otro writer. T6d (dispositivos) al final.
+Dueño revisa la UI en el PC. Luego T9 (HDD externo), T10 (aleatorio), T6d (dispositivos) y T7. Pendiente: nombre definitivo (hoy "sala") y comportamiento de "Marcar como no visto". Clic en miniatura de Continuar viendo no se reprodujo en CDP; cambio defensivo aplicado.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
