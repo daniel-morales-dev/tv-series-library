@@ -15,7 +15,7 @@
 
 ## Tareas
 - [x] T1 Fundación: rama, `.gitignore`, `.env.example`, glosario, ADRs 0001–0004, README — ruta: inline
-- [ ] T2 Backend core: esquema + migraciones, API perfiles, catálogo con filtros, Mi lista, progreso, continuar viendo
+- [x] T2 Backend core: esquema + migraciones, API perfiles, catálogo con filtros, Mi lista, progreso, continuar viendo — ruta: delegada (sonnet)
 - [ ] T3 Ingesta: escaneo recursivo + watcher, detección de descarga incompleta (tamaño estable + ffprobe válido), parser de nombres (SxxEyy, absoluto, extras OP/ED/Commentary), cliente TMDB, caché de imágenes, Pendientes
 - [ ] T4 Procesamiento: ffprobe → plan (copy/transcode video, FLAC/DTS → AAC) → HLS multi-audio + WebVTT; cola de jobs con progreso
 - [ ] T5 Frontend: perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial
@@ -29,9 +29,10 @@
 
 ## Evidencia
 - T1: `node:sqlite` + FTS5 verificado en Node 24.14 (`mas*` → "Más allá del final").
+- T2: 30 tests vitest en verde, `tsc --noEmit` limpio, health/seed/titles/suggest verificados en servidor real. Commits f69b1ed, 8b1ff42, df8e511.
 
 ## Siguiente paso
-T2 Backend core: monorepo `apps/server` (Fastify + `node:sqlite`) y `apps/web` (Vue 3 + Vite). Empezar por esquema + migraciones + API de perfiles con tests.
+T3 Ingesta: escaneo recursivo + watcher, validación de archivos completos con ffprobe, parser de nombres, cliente TMDB y Pendientes. Usar `indexEntry` (search) al crear títulos y personas.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
