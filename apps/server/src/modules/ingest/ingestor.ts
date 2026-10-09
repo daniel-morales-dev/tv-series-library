@@ -1,4 +1,5 @@
 import { watch, type FSWatcher } from 'node:fs';
+import { basename } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
 import { type Assignment, adoptSeries, assignMovie, assignSeries, matchSeries, placeEpisode } from './assign.ts';
@@ -6,7 +7,7 @@ import { type IngestContext, createLocalTitle, setSourceDir } from './metadata.t
 import { type Parsed, parsePath } from './parser.ts';
 import { type Probe, ffprobe } from './probe.ts';
 import { type ConfirmBody, confirmPending } from './pending.ts';
-import { addPending, registerFile, relinkFiles } from './register.ts';
+import { type Placement, addPending, promoteDownload, registerDownloading, registerFile, relinkFiles } from './register.ts';
 import { type VideoFile, listVideos, showDirKey } from './scanner.ts';
 import { type TmdbClient, memoize } from './tmdb.ts';
 
@@ -16,7 +17,7 @@ const DEBOUNCE_MS = 5_000;
 export interface ScanSummary {
   ingested: number;
   pending: number;
-  /** Too recent or unreadable by ffprobe: tried again on the next scan. */
+  /** Too recent or unreadable by ffprobe (still downloading): tried again on the next scan. */
   waiting: number;
   failed: number;
 }
@@ -80,11 +81,16 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     const summary: ScanSummary = { ingested: 0, pending: 0, waiting: 0, failed: 0 };
     await retryMetadata(state);
 
+    const files = await listVideos(contentDir);
+    const onDisk = new Set(files.map((f) => f.rel));
     const known = new Set([
       ...all<{ path: string }>(db, 'SELECT path FROM media_files').map((r) => r.path),
       ...all<{ path: string }>(db, 'SELECT path FROM pending_files').map((r) => r.path),
     ]);
-    for (const file of await listVideos(contentDir)) {
+    // Moves first, so a renamed folder never reaches the TMDB lookup.
+    for (const rel of relocateMoved(files, known, onDisk)) known.add(rel);
+    await promoteDownloads(files, summary);
+    for (const file of files) {
       if (known.has(file.rel)) continue;
       try {
         summary[await ingestFile(state, file)]++;
@@ -98,16 +104,68 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     return summary;
   }
 
-  async function ingestFile(state: ScanState, file: VideoFile): Promise<'ingested' | 'pending' | 'waiting'> {
-    if (now() - file.mtimeMs <= MIN_AGE_MS) return 'waiting';
-    const info = await probe(file.abs).catch(() => null);
-    if (!info) return 'waiting';
+  // A file that is not on disk any more and reappears elsewhere with the same name and size is the same file:
+  // torrent clients preallocate the final size, so this also holds while it downloads.
+  function relocateMoved(files: VideoFile[], known: Set<string>, onDisk: Set<string>): string[] {
+    const key = (name: string, size: number | null) => `${size}:${name}`;
+    const fresh = new Map<string, VideoFile[]>();
+    for (const f of files) if (!known.has(f.rel)) fresh.set(key(basename(f.rel), f.size), [...(fresh.get(key(basename(f.rel), f.size)) ?? []), f]);
+    const missing = new Map<string, { id: number; path: string }[]>();
+    for (const r of all<{ id: number; path: string; size: number | null }>(db, 'SELECT id, path, size FROM media_files WHERE size IS NOT NULL')) {
+      if (onDisk.has(r.path)) continue;
+      const k = key(basename(r.path), r.size);
+      missing.set(k, [...(missing.get(k) ?? []), r]);
+    }
+    const moved: string[] = [];
+    for (const [k, rows] of missing) {
+      const candidates = fresh.get(k);
+      if (rows.length !== 1 || candidates?.length !== 1) continue;
+      const [old, to] = [rows[0]!, candidates[0]!];
+      run(db, 'UPDATE media_files SET path = ? WHERE id = ?', to.rel, old.id);
+      inheritSourceDir(old.path, to.rel);
+      moved.push(to.rel);
+    }
+    return moved;
+  }
 
-    const facts = { rel: file.rel, size: file.size, probe: info };
+  function inheritSourceDir(oldRel: string, newRel: string): void {
+    const dirKey = (rel: string) => {
+      const parsed = parsePath(rel);
+      return parsed.kind === 'episode' || parsed.kind === 'extra' ? showDirKey(rel, parsed.show) : null;
+    };
+    const [from, to] = [dirKey(oldRel), dirKey(newRel)];
+    if (!from || !to || from === to) return;
+    const old = get<{ title_id: number; season_number: number | null }>(db, 'SELECT title_id, season_number FROM source_dirs WHERE path = ?', from);
+    if (old && !get(db, 'SELECT 1 AS x FROM source_dirs WHERE path = ?', to)) setSourceDir(db, to, old.title_id, old.season_number);
+  }
+
+  // Downloads whose file is now old enough and readable join the queue.
+  async function promoteDownloads(files: VideoFile[], summary: ScanSummary): Promise<void> {
+    const byRel = new Map(files.map((f) => [f.rel, f]));
+    for (const row of all<{ id: number; path: string }>(db, "SELECT id, path FROM media_files WHERE status = 'downloading'")) {
+      const file = byRel.get(row.path);
+      if (!file) continue;
+      const info = now() - file.mtimeMs > MIN_AGE_MS ? await probe(file.abs).catch(() => null) : null;
+      if (!info) summary.waiting++;
+      else promoteDownload(db, row.id, file.size, info);
+    }
+  }
+
+  async function ingestFile(state: ScanState, file: VideoFile): Promise<'ingested' | 'pending' | 'waiting'> {
+    const info = now() - file.mtimeMs > MIN_AGE_MS ? await probe(file.abs).catch(() => null) : null;
     const parsed = parsePath(file.rel);
     const toPending = (reason: 'unparsed' | 'no_match' | 'unmapped_episode', candidates: Parameters<typeof addPending>[5] = []) => {
+      if (!info) return 'waiting' as const; // unplaceable and unfinished: nothing is stored until it can be probed
       addPending(db, file.rel, file.size, parsed, reason, candidates);
       return 'pending' as const;
+    };
+    const store = (placement: Placement) => {
+      if (!info) {
+        registerDownloading(db, file.rel, file.size, placement);
+        return 'waiting' as const;
+      }
+      registerFile(db, { rel: file.rel, size: file.size, probe: info }, placement);
+      return 'ingested' as const;
     };
 
     if (parsed.kind === 'unparsed') return toPending('unparsed');
@@ -115,20 +173,17 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     if (parsed.kind === 'movie') {
       const out = await resolveMovie(state, parsed);
       if (out.status === 'no_match') return toPending('no_match', out.candidates);
-      registerFile(db, facts, { titleId: out.titleId, episodeId: null, extraLabel: null, parsedSeason: null, parsedNumber: null });
-      return 'ingested';
+      return store({ titleId: out.titleId, episodeId: null, extraLabel: null, parsedSeason: null, parsedNumber: null });
     }
 
     const dir = await resolveDir(state, showDirKey(file.rel, parsed.show), parsed.show);
     if (dir.status === 'no_match') return toPending('no_match', dir.candidates);
     if (parsed.kind === 'extra') {
-      registerFile(db, facts, { titleId: dir.titleId, episodeId: null, extraLabel: parsed.label, parsedSeason: null, parsedNumber: null });
-      return 'ingested';
+      return store({ titleId: dir.titleId, episodeId: null, extraLabel: parsed.label, parsedSeason: null, parsedNumber: null });
     }
     const episodeId = await placeEpisode(state.ctx, dir.titleId, dir.seasonNumber, parsed);
     if (episodeId === null) return toPending('unmapped_episode');
-    registerFile(db, facts, { titleId: dir.titleId, episodeId, extraLabel: null, parsedSeason: parsed.season, parsedNumber: parsed.number });
-    return 'ingested';
+    return store({ titleId: dir.titleId, episodeId, extraLabel: null, parsedSeason: parsed.season, parsedNumber: parsed.number });
   }
 
   // One TMDB lookup per folder per scan; without TMDB the folder becomes a placeholder title.

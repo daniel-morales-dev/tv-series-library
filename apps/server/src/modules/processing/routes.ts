@@ -26,7 +26,9 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir
   api.get('/jobs', async () => listJobs(db));
 
   api.post<{ Params: { id: number } }>('/media-files/:id/process', { schema: { params: idParams('id') } }, async (req, reply) => {
-    if (!get(db, 'SELECT 1 AS x FROM media_files WHERE id = ?', req.params.id)) return reply.code(404).send({ error: 'not_found' });
+    const file = get<{ status: string }>(db, 'SELECT status FROM media_files WHERE id = ?', req.params.id);
+    if (!file) return reply.code(404).send({ error: 'not_found' });
+    if (file.status === 'downloading') return reply.code(409).send({ error: 'downloading' });
     const jobId = enqueue(db, req.params.id);
     worker?.kick();
     return reply.code(202).send({ jobId });
@@ -35,6 +37,7 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir
   api.post<{ Params: { id: number } }>('/media-files/:id/play', { schema: { params: idParams('id') } }, async (req, reply) => {
     const file = get<{ status: string }>(db, 'SELECT status FROM media_files WHERE id = ?', req.params.id);
     if (!file) return reply.code(404).send({ error: 'not_found' });
+    if (file.status === 'downloading') return reply.code(409).send({ error: 'downloading' });
     if (file.status === 'ready') return { status: 'ready' };
     const jobId = enqueue(db, req.params.id, true);
     worker?.prioritize(req.params.id);

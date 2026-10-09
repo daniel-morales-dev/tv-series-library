@@ -19,7 +19,7 @@ export interface FileFacts {
 export function registerFile(
   db: DatabaseSync,
   f: FileFacts,
-  placement: { titleId: number; episodeId: number | null; extraLabel: string | null; parsedSeason: number | null; parsedNumber: number | null },
+  placement: Placement,
 ): void {
   const { lastInsertId } = run(
     db,
@@ -38,6 +38,43 @@ export function registerFile(
     placement.parsedNumber,
   );
   enqueue(db, lastInsertId);
+}
+
+export interface Placement {
+  titleId: number;
+  episodeId: number | null;
+  extraLabel: string | null;
+  parsedSeason: number | null;
+  parsedNumber: number | null;
+}
+
+// A placed file whose download is not finished: kept out of the queue until it can be probed.
+export function registerDownloading(db: DatabaseSync, rel: string, size: number, placement: Placement): void {
+  run(
+    db,
+    `INSERT INTO media_files (path, size, title_id, episode_id, extra_label, status, parsed_season, parsed_number)
+     VALUES (?, ?, ?, ?, ?, 'downloading', ?, ?)`,
+    rel,
+    size,
+    placement.titleId,
+    placement.episodeId,
+    placement.extraLabel,
+    placement.parsedSeason,
+    placement.parsedNumber,
+  );
+}
+
+export function promoteDownload(db: DatabaseSync, id: number, size: number, probe: ProbeResult): void {
+  run(
+    db,
+    'UPDATE media_files SET size = ?, duration_s = ?, audio_tracks = ?, subtitle_tracks = ? WHERE id = ?',
+    size,
+    probe.durationS,
+    JSON.stringify(probe.audio),
+    JSON.stringify(probe.subtitles),
+    id,
+  );
+  enqueue(db, id);
 }
 
 export function addPending(

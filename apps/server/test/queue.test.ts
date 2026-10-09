@@ -26,6 +26,17 @@ describe('enqueue', () => {
   });
 });
 
+describe('downloading files', () => {
+  it('recover and claimNext leave them alone', () => {
+    const { db } = setup();
+    const f = addFile(db, addTitle(db, 'T'), { status: 'downloading' });
+    recover(db);
+    expect(claimNext(db)).toBeUndefined();
+    expect(all(db, 'SELECT * FROM jobs')).toEqual([]);
+    expect(fileStatus(db, f).status).toBe('downloading');
+  });
+});
+
 describe('claimNext', () => {
   it('runs episodes before extras, then oldest first, and marks file and job as running', () => {
     const { db } = setup();

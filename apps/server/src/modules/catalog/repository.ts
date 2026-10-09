@@ -15,6 +15,8 @@ export interface TitleSummary {
   backdropPath: string | null;
   logoPath: string | null;
   metadataStatus: string;
+  /** Has files, and every one is still downloading. */
+  comingSoon: boolean;
 }
 
 export interface TitleFilters {
@@ -27,7 +29,9 @@ export interface TitleFilters {
 }
 
 export const SUMMARY_COLUMNS = `t.id, t.kind, t.title, t.original_title, t.overview, t.year, t.runtime_min,
-  t.rating, t.genres, t.poster_path, t.backdrop_path, t.logo_path, t.metadata_status`;
+  t.rating, t.genres, t.poster_path, t.backdrop_path, t.logo_path, t.metadata_status,
+  (EXISTS (SELECT 1 FROM media_files f WHERE f.title_id = t.id)
+    AND NOT EXISTS (SELECT 1 FROM media_files f WHERE f.title_id = t.id AND f.status <> 'downloading')) AS coming_soon`;
 
 export function toSummary(r: Record<string, any>): TitleSummary {
   return {
@@ -44,6 +48,7 @@ export function toSummary(r: Record<string, any>): TitleSummary {
     backdropPath: r.backdrop_path,
     logoPath: r.logo_path,
     metadataStatus: r.metadata_status,
+    comingSoon: r.coming_soon === 1,
   };
 }
 

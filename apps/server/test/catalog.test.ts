@@ -70,3 +70,20 @@ describe('search API', () => {
     expect((await app.inject('/api/search/suggest')).statusCode).toBe(400);
   });
 });
+
+describe('comingSoon', () => {
+  it('is true only when the title has files and all of them are downloading', async () => {
+    const { app, db } = setup();
+    const empty = addTitle(db, 'Empty', { kind: 'series' });
+    const soon = addTitle(db, 'Soon', { kind: 'series' });
+    addFile(db, soon, { status: 'downloading' });
+    const mixed = addTitle(db, 'Mixed', { kind: 'series' });
+    addFile(db, mixed, { status: 'downloading' });
+    addFile(db, mixed, { status: 'pending' });
+
+    const flags = Object.fromEntries((await app.inject('/api/titles')).json().map((t: any) => [t.title, t.comingSoon]));
+    expect(flags).toEqual({ Empty: false, Soon: true, Mixed: false });
+    expect((await app.inject(`/api/titles/${soon}`)).json()).toMatchObject({ comingSoon: true });
+    expect((await app.inject(`/api/titles/${empty}`)).json()).toMatchObject({ comingSoon: false });
+  });
+});

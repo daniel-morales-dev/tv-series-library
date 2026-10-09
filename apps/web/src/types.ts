@@ -17,6 +17,7 @@ export interface TitleSummary {
   posterPath: string | null;
   backdropPath: string | null;
   logoPath: string | null;
+  comingSoon?: boolean;
 }
 
 export interface ContinueItem {

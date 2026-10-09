@@ -1,8 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { all, get } from '../src/db/sql.ts';
+import { all, get, run } from '../src/db/sql.ts';
+import { getTitleDetail, listTitles } from '../src/modules/catalog/repository.ts';
 import { createIngestor } from '../src/modules/ingest/ingestor.ts';
 import type { Probe } from '../src/modules/ingest/probe.ts';
 import { makeFakeTmdb } from './fake-tmdb.ts';
@@ -41,7 +42,11 @@ function env({ offline = false } = {}) {
     utimesSync(abs, t, t);
     return abs;
   };
-  return { db, tmdb, make, addFile, badFiles, probed, ingestor: make() };
+  const move = (from: string, to: string) => {
+    mkdirSync(dirname(join(contentDir, to)), { recursive: true });
+    renameSync(join(contentDir, from), join(contentDir, to));
+  };
+  return { db, tmdb, make, addFile, move, badFiles, probed, ingestor: make() };
 }
 
 describe('scanner and registration', () => {
@@ -67,20 +72,16 @@ describe('scanner and registration', () => {
     expect(all(e.db, 'SELECT * FROM pending_files')).toHaveLength(0);
   });
 
-  it('skips files that are too recent or that ffprobe cannot read, saving nothing', async () => {
+  it('waits on unplaceable files that are too recent or unreadable, saving nothing', async () => {
     const e = env();
-    e.addFile(bake('01'), 10);
-    const broken = e.addFile(bake('02'));
+    e.addFile('shows/zzz/zzz 01.mkv', 10);
+    e.addFile('shows/loose.mkv', 10);
+    const broken = e.addFile('shows/Plain Show/behind the scenes.mkv');
     e.badFiles.add(broken);
 
-    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, waiting: 2 });
-    expect(all(e.db, 'SELECT * FROM titles')).toHaveLength(0);
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, pending: 0, waiting: 3 });
     expect(all(e.db, 'SELECT * FROM media_files')).toHaveLength(0);
-    expect(e.tmdb.calls).toEqual([]);
-
-    e.badFiles.clear();
-    e.addFile(bake('01'), 3600);
-    expect(await e.ingestor.scan()).toMatchObject({ ingested: 2 });
+    expect(all(e.db, 'SELECT * FROM pending_files')).toHaveLength(0);
   });
 
   it('does not touch known files or TMDB on a second scan', async () => {
@@ -196,5 +197,117 @@ describe('offline mode', () => {
     const files = all<any>(e.db, 'SELECT s.number AS s, e.number AS e FROM media_files m JOIN episodes e ON e.id = m.episode_id JOIN seasons s ON s.id = e.season_id ORDER BY s.number');
     expect(files).toEqual([{ s: 1, e: 1 }, { s: 2, e: 1 }]);
     expect(all(e.db, "SELECT * FROM search_index WHERE ref_type = 'title'")).toHaveLength(1);
+  });
+});
+
+describe('downloading files', () => {
+  const titleOf = (e: ReturnType<typeof env>) => get<{ id: number }>(e.db, 'SELECT id FROM titles')!.id;
+
+  it('registers a recent or unreadable placeable file as downloading, without a job', async () => {
+    const e = env();
+    e.addFile(bake('01'), 10);
+    const broken = e.addFile(bake('02'));
+    e.badFiles.add(broken);
+    e.addFile(bake('OP1'), 10);
+
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, pending: 0, waiting: 3 });
+    const rows = all<any>(e.db, 'SELECT status, duration_s, audio_tracks, episode_id, extra_label FROM media_files ORDER BY path');
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.status === 'downloading' && r.duration_s === null && r.audio_tracks === '[]')).toBe(true);
+    expect(rows.filter((r) => r.episode_id !== null)).toHaveLength(2);
+    expect(rows.filter((r) => r.extra_label === 'OP1')).toHaveLength(1);
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(0);
+    expect(all(e.db, 'SELECT * FROM pending_files')).toHaveLength(0);
+    expect(listTitles(e.db, { limit: 10, offset: 0 })[0]).toMatchObject({ comingSoon: true });
+    expect(getTitleDetail(e.db, titleOf(e))).toMatchObject({ comingSoon: true });
+  });
+
+  it('promotes a finished download to pending with a job, and the title stops being coming soon', async () => {
+    const e = env();
+    e.addFile(bake('01'), 10);
+    await e.ingestor.scan();
+    const before = get<any>(e.db, 'SELECT id FROM media_files')!;
+
+    e.addFile(bake('01'), 3600);
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, waiting: 0 });
+    const row = get<any>(e.db, 'SELECT id, status, duration_s, audio_tracks, subtitle_tracks FROM media_files')!;
+    expect(row).toMatchObject({ id: before.id, status: 'pending', duration_s: 1440.5 });
+    expect(JSON.parse(row.audio_tracks)).toHaveLength(1);
+    expect(all(e.db, 'SELECT media_file_id, status FROM jobs')).toEqual([{ media_file_id: before.id, status: 'queued' }]);
+    expect(getTitleDetail(e.db, titleOf(e))).toMatchObject({ comingSoon: false });
+    expect(await e.ingestor.scan()).toMatchObject({ waiting: 0 });
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(1);
+  });
+
+  it('keeps downloading while ffprobe still fails', async () => {
+    const e = env();
+    const abs = e.addFile(bake('01'));
+    e.badFiles.add(abs);
+    await e.ingestor.scan();
+    expect(await e.ingestor.scan()).toMatchObject({ waiting: 1 });
+    expect(get<any>(e.db, 'SELECT status FROM media_files')?.status).toBe('downloading');
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(0);
+  });
+});
+
+describe('moved or renamed files', () => {
+  async function ingested() {
+    const e = env();
+    for (const t of ['01', '02']) e.addFile(bake(t));
+    await e.ingestor.scan();
+    const profile = run(e.db, "INSERT INTO profiles (name) VALUES ('ana')").lastInsertId;
+    const file = get<any>(e.db, "SELECT m.id FROM media_files m WHERE m.path LIKE '%\\_01\\_%' ESCAPE '\\'")!;
+    run(e.db, "UPDATE media_files SET status = 'ready', hls_dir = 'hls/1' WHERE id = ?", file.id);
+    run(e.db, "INSERT INTO watch_progress (profile_id, media_file_id, position_s, duration_s, updated_at) VALUES (?, ?, 100, 1440, 'x')", profile, file.id);
+    e.tmdb.calls.length = 0;
+    return { e, file, titleId: get<any>(e.db, 'SELECT id FROM titles')!.id };
+  }
+
+  it('reuses the row of a renamed folder: same id, progress and HLS, no new title, no TMDB', async () => {
+    const { e, file, titleId } = await ingested();
+    e.move('shows/bakemonogatari', 'shows/baka');
+
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, pending: 0, waiting: 0, failed: 0 });
+    const rows = all<any>(e.db, 'SELECT id, path, status, hls_dir FROM media_files ORDER BY path');
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.path.startsWith('shows/baka/'))).toBe(true);
+    expect(rows.find((r) => r.id === file.id)).toMatchObject({ status: 'ready', hls_dir: 'hls/1' });
+    expect(all(e.db, 'SELECT id FROM titles')).toHaveLength(1);
+    expect(get<any>(e.db, 'SELECT COUNT(*) AS n FROM watch_progress WHERE media_file_id = ?', file.id)?.n).toBe(1);
+    expect(e.tmdb.calls).toEqual([]);
+    expect(get<any>(e.db, "SELECT title_id FROM source_dirs WHERE path = 'shows/baka'")?.title_id).toBe(titleId);
+    expect(all(e.db, 'SELECT * FROM pending_files')).toHaveLength(0);
+  });
+
+  it('lets later files of the renamed folder reuse its title without TMDB', async () => {
+    const { e, titleId } = await ingested();
+    e.move('shows/bakemonogatari', 'shows/baka');
+    e.addFile('shows/baka/[Coalgirls]_Bakemonogatari_03_(1920x1080_Blu-ray_FLAC)_[ABCD1234].mkv');
+    await e.ingestor.scan();
+    expect(all(e.db, 'SELECT id FROM titles')).toHaveLength(1);
+    expect(get<any>(e.db, 'SELECT title_id FROM media_files WHERE path LIKE ?', '%_03_%')?.title_id).toBe(titleId);
+    expect(e.tmdb.calls.filter((c) => c.startsWith('search'))).toEqual([]);
+  });
+
+  it('moves a downloading file too', async () => {
+    const e = env();
+    e.addFile(bake('01'), 10);
+    await e.ingestor.scan();
+    const id = get<any>(e.db, 'SELECT id FROM media_files')!.id;
+    e.move('shows/bakemonogatari', 'shows/baka');
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT id, status FROM media_files')).toMatchObject({ id, status: 'downloading' });
+    expect(all(e.db, 'SELECT id FROM titles')).toHaveLength(1);
+  });
+
+  it('does not merge when several missing rows share basename and size', async () => {
+    const { e, file } = await ingested();
+    const dup = get<any>(e.db, 'SELECT * FROM media_files WHERE id = ?', file.id)!;
+    run(e.db, 'INSERT INTO media_files (path, size, title_id, status) VALUES (?, ?, ?, ?)', `shows/gone/${dup.path.split('/').at(-1)}`, dup.size, dup.title_id, 'ready');
+    e.move('shows/bakemonogatari', 'shows/baka');
+
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT path FROM media_files WHERE id = ?', file.id)?.path).toBe(dup.path);
+    expect(get<any>(e.db, 'SELECT COUNT(*) AS n FROM media_files WHERE path LIKE ?', 'shows/baka/%')?.n).toBe(2);
   });
 });
