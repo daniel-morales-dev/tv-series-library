@@ -39,7 +39,7 @@
   - [x] T5b Inicio: hero, filas, tarjetas, Continuar viendo con quitar (1d49875; 31 tests web; acento violeta `#8f7bff`, nombre provisional "sala"; revisión RDD omitida por el dueño, próxima base `1d49875`)
   - [x] T5c Página de título + panel de info del episodio (nombre, T·E, sinopsis, fecha de emisión, duración, progreso; pedido del dueño)
     - Pedidos del dueño tras ver T5b: menú ⋮ de Continuar viendo se recorta dentro de la fila (obliga a scroll horizontal y tapa el nombre del episodio) → sacarlo de la fila; más detalle en los episodios; mostrar **idioma** de audio y subtítulos por título y por episodio (p. ej. Monogatari descargado en inglés).
-  - [ ] T5d Mi lista, Series/Películas/Anime con filtros, Búsqueda
+  - [x] T5d Mi lista, Series/Películas/Anime con filtros, Búsqueda (4fa861b; 73 tests web; revisión omitida, próxima base `4fa861b`)
   - [ ] T5e Navegación espacial TV y responsive fino
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
   - [x] T6a Backend: archivos de cualquier estado en el detalle + servir `apps/web/dist` con fallback SPA + tests (pistas se guardan al terminar la extracción de subs, antes del video)
@@ -98,7 +98,7 @@
 - Decisión pendiente del dueño: "Marcar como no visto" solo limpia `title_state.finished`; el progreso `completed` de cada episodio queda y siguen apareciendo como "Visto".
 
 ## Siguiente paso
-T5d en curso; luego T5e. T6d (dispositivos) al final.
+T5e en curso. Nota: el rechazo `invalid_request` al omitir la revisión de T5c coincidió con un agente editando el árbol; con el árbol limpio funcionó → consentimiento RDD antes de lanzar otro writer. T6d (dispositivos) al final.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
