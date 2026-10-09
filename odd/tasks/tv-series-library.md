@@ -79,6 +79,8 @@
 - T6b: build, 6 tests web y typecheck en verde; servidor sirve `index.html` en `/` y `/titles/1`. vue 3.5, vue-router 5, hls.js 1.7, vite 8. `vue-tsc` no funciona con TypeScript 7 → TypeScript 5.9 como devDependency en la raíz; el servidor conserva su 7.0.2.
 - `apps/server/data/library.db` está **vacía** (0 títulos): las verificaciones reales de T3/T4 usaron otra carpeta de datos. Para T6d hay que escanear `content/` de nuevo (fijar rutas de `data`/`content` sigue pendiente para T7).
 
+- Revisión RDD de T6a+T6b (base `3b31963`, riesgo medio, `slice_budget_reached`): el dueño eligió **omitir esta vez**. Verificación: autoverificación del writer + re-ejecución del padre (163 tests server, 6 web, build y tsc). Commits 2eb9741, beac387; próxima base de revisión `beac387`.
+
 ## Siguiente paso
 T6c Player en `apps/web/src/views/WatchView.vue`.
 
