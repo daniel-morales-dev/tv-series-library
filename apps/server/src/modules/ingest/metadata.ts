@@ -13,7 +13,8 @@ export interface IngestContext {
 const POSTER = 'w500';
 const BACKDROP = 'w1280';
 const PROFILE = 'w185';
-const STILL = 'w300';
+// Stills fill the episode panel and Continue Watching cards, so w300 looks blurry there.
+const STILL = 'original';
 const ANIMATION_GENRE = 16;
 const MAX_CAST = 15;
 

@@ -10,7 +10,8 @@
     "dev": "node --watch --env-file-if-exists=../../.env src/index.ts",
     "seed": "node --env-file-if-exists=../../.env src/db/seed.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "upgrade-stills": "node --env-file-if-exists=../../.env src/db/upgrade-stills.ts"
   },
   "dependencies": {
     "fastify": "^5.12.5"

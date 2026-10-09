@@ -36,7 +36,7 @@ describe('assignSeries with episode groups', () => {
     const seasons = all<any>(db, 'SELECT s.number, s.name, COUNT(e.id) AS n FROM seasons s JOIN episodes e ON e.season_id = s.id GROUP BY s.id');
     expect(seasons).toEqual([{ number: 1, name: 'Bakemonogatari', n: 15 }]);
     expect(get<any>(db, 'SELECT name FROM episodes WHERE number = 13')?.name).toBe('Tsubasa Cat 3');
-    expect(get<any>(db, 'SELECT still_path FROM episodes WHERE number = 12')?.still_path).toBe('w300/still12.jpg');
+    expect(get<any>(db, 'SELECT still_path FROM episodes WHERE number = 12')?.still_path).toBe('original/still12.jpg');
     expect(get<any>(db, 'SELECT still_path FROM episodes WHERE number = 13')?.still_path).toBeNull(); // image 404 is skipped
     expect(get<any>(db, 'SELECT * FROM source_dirs')).toMatchObject({ path: 'shows/bakemonogatari', season_number: 1 });
     expect(suggest(db, 'monog')[0]).toMatchObject({ type: 'title', label: 'Monogatari' });
