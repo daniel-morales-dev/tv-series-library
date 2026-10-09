@@ -20,3 +20,15 @@ export function isUniqueViolation(err: unknown): boolean {
 export function parseJsonArray(value: string | null): unknown[] {
   return value ? (JSON.parse(value) as unknown[]) : [];
 }
+
+export function transaction<T>(db: DatabaseSync, fn: () => T): T {
+  db.exec('BEGIN');
+  try {
+    const result = fn();
+    db.exec('COMMIT');
+    return result;
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}

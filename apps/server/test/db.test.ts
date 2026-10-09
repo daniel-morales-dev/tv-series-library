@@ -6,7 +6,7 @@ import { setup } from './helpers.ts';
 describe('database', () => {
   it('applies migrations and records the version', () => {
     const db = openDb(':memory:');
-    expect(get<{ user_version: number }>(db, 'PRAGMA user_version')?.user_version).toBe(1);
+    expect(get<{ user_version: number }>(db, 'PRAGMA user_version')?.user_version).toBe(2);
   });
 
   it('enforces foreign keys with cascade', () => {
