@@ -1,0 +1,6 @@
+{
+  "name": "tv-series-library",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*"]
+}

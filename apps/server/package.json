@@ -1,0 +1,23 @@
+{
+  "name": "@tv-series-library/server",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node --env-file-if-exists=../../.env src/index.ts",
+    "dev": "node --watch --env-file-if-exists=../../.env src/index.ts",
+    "seed": "node --env-file-if-exists=../../.env src/db/seed.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "fastify": "^5.12.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}
