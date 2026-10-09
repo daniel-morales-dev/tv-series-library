@@ -39,6 +39,40 @@ describe('parsePath: shows', () => {
   it('derives the show from the file name when it sits directly under shows/', () => {
     expect(parsePath('shows/Some.Show.S01E02.mkv')).toEqual({ kind: 'episode', show: 'Some Show', season: 1, number: 2 });
   });
+
+  describe('trailing season marker on the show name', () => {
+    const frieren = (name: string) => `shows/[Cifer] Sousou no Frieren S1 [BD 1080p Opus]/${name}`;
+
+    it('moves the marker from the folder into the episode season', () => {
+      expect(parsePath(frieren('[Cifer] Sousou no Frieren S1 - 01 [BD 1080P Ma10p Opus].mkv'))).toEqual({
+        kind: 'episode',
+        show: 'Sousou no Frieren',
+        season: 1,
+        number: 1,
+      });
+    });
+
+    it('strips the marker from extras in NC/ folders', () => {
+      expect(parsePath(frieren('NC/[Cifer] Sousou no Frieren S1 - NCED [BD 1080P Ma10p Opus].mkv'))).toEqual({
+        kind: 'extra',
+        show: 'Sousou no Frieren',
+        label: 'NCED',
+      });
+    });
+
+    it.each([
+      ['shows/Show S02/Show - 05.mkv', 2],
+      ['shows/Show Season 3/Show - 05.mkv', 3],
+      ['shows/Show 2nd Season/Show - 05.mkv', 2],
+      ['shows/Show S2 - 05.mkv', 2],
+    ])('%s', (path, season) => {
+      expect(parsePath(path)).toEqual({ kind: 'episode', show: 'Show', season, number: 5 });
+    });
+
+    it('lets an explicit season in the file name win over the marker', () => {
+      expect(parsePath('shows/Show S2/Show S1E05.mkv')).toEqual({ kind: 'episode', show: 'Show', season: 1, number: 5 });
+    });
+  });
 });
 
 describe('parsePath: films', () => {

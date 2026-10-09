@@ -24,6 +24,14 @@ export function cleanName(raw: string): string {
 
 const stem = (file: string) => basename(file, extname(file));
 
+// Trailing season marker on a show name: "Show S2", "Show Season 3", "Show 2nd Season".
+const SEASON_MARKER = /\s+(?:S(\d{1,2})|Season\s+(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)\s+Season)$/i;
+function splitSeasonMarker(name: string): { show: string; season: number | null } {
+  const m = SEASON_MARKER.exec(name);
+  if (!m) return { show: name, season: null };
+  return { show: name.slice(0, m.index), season: Number(m[1] ?? m[2] ?? m[3]) };
+}
+
 function parseMovie(parts: string[]): Parsed {
   const raw = parts.length >= 3 ? parts[1]! : stem(parts[parts.length - 1]!);
   const years = [...raw.matchAll(/(?<!\d)((?:19|20)\d{2})(?!\d)/g)].filter((m) => m.index > 0);
@@ -56,7 +64,7 @@ function parseShow(parts: string[]): Parsed {
   }
   const extra = tokens.findIndex((t) => EXTRA.test(t));
   if (extra >= 0) {
-    const name = show(extra);
+    const name = splitSeasonMarker(show(extra)).show;
     return name ? { kind: 'extra', show: name, label: tokens[extra]! } : UNPARSED;
   }
   const season = seasonDir ? Number(seasonDir[1]) : null;
@@ -65,8 +73,10 @@ function parseShow(parts: string[]): Parsed {
   return withShow(show(abs), { season, number: Number(/\d+/.exec(tokens[abs]!)![0]) });
 }
 
-function withShow(show: string, ep: { season: number | null; number: number }): Parsed {
-  return show ? { kind: 'episode', show, ...ep } : UNPARSED;
+// The file's own season wins; the show's trailing marker only fills a missing one.
+function withShow(name: string, ep: { season: number | null; number: number }): Parsed {
+  const { show, season } = splitSeasonMarker(name);
+  return show ? { kind: 'episode', show, ...ep, season: ep.season ?? season } : UNPARSED;
 }
 
 // `relPath` is relative to the content dir, with `/` separators.
