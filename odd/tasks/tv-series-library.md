@@ -35,7 +35,11 @@
     - [x] T4d3 Bajo consumo: `os.setPriority(pid, 19)` al ffmpeg (sin `ionice`: con nice 19 el I/O baja a la menor prioridad best-effort), `-threads` de x264 por `FFMPEG_THREADS` (default 4), un job a la vez.
     - [x] T4d4 Verificación real: medir CPU/RAM y velocidad vs tiempo real con 4 hilos; reproducir mientras procesa.
 - [ ] T5 Frontend: perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial
-- [ ] T6 Player: hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio
+- [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
+  - [x] T6a Backend: archivos de cualquier estado en el detalle + servir `apps/web/dist` con fallback SPA + tests (pistas se guardan al terminar la extracción de subs, antes del video)
+  - [ ] T6b `apps/web` (Vue 3 + Vite + hls.js): andamiaje, cliente API, pantallas mínimas temporales (perfil, títulos, detalle)
+  - [ ] T6c Player: play/espera, audio/subs, progreso, reanudar, siguiente episodio
+  - [ ] T6d Verificación real: celular y TV por WiFi (archivo listo y en proceso)
 - [ ] T7 Empaquetado Linux: Docker Compose `restart: unless-stopped`, Docker habilitado en systemd, puerto abierto en firewall (ufw si aplica), URL + QR en Ajustes, **guía en español en el README: cómo correrlo en la laptop Linux y cómo entrar desde celular y TV** (decisión del dueño: la guía se escribe aquí, no antes)
 - [ ] T8 (diferido) Instalador Windows: Inno Setup con firewall y autoarranque
 
@@ -70,8 +74,10 @@
 - Si un archivo creado sin internet no cabe luego en TMDB, pasa a Pendientes y se pierde su progreso (caso raro).
 - `./content` y `./data` son relativos al cwd (`apps/server` con `npm start -w`): fijar en T7.
 
+- T6a: 163 tests en verde, `tsc` limpio (usar `../../node_modules/.bin/tsc`; `npx tsc` toma una versión vieja). URL mal escapada → 400 de Fastify antes del handler. Variable nueva `WEB_DIR` (default `../web/dist`), falta documentarla en `.env.example`.
+
 ## Siguiente paso
-T6 Player básico (hls.js, `POST /api/media-files/:id/play` y reintentar `master.m3u8` hasta que exista).
+T6b `apps/web`: andamiaje Vue 3 + Vite + hls.js, cliente API y pantallas mínimas.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.

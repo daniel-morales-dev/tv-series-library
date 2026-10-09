@@ -215,6 +215,22 @@ describe('play while processing', () => {
     expect(readFileSync(join(e.dataDir, 'hls', String(id), 'master.m3u8'), 'utf8')).toContain('NAME="jpn"');
   });
 
+  it('stores the planned tracks before the video run, so a player can use them while processing', async () => {
+    let db!: ReturnType<typeof setup>['db'];
+    let during: any;
+    const e = env(async (args) => {
+      if (!args.includes('-var_stream_map')) return void args.forEach((a) => /\.(vtt|ass|ttf)$/.test(a) && writeFileSync(a, 'x'));
+      during = get<any>(db, 'SELECT status, subtitle_tracks, audio_tracks FROM media_files');
+      writeFileSync(join(outDir(args), 'master.m3u8'), '#EXTM3U');
+    });
+    db = e.db;
+    e.source();
+    await e.worker.drain();
+    expect(during.status).toBe('processing');
+    expect(JSON.parse(during.subtitle_tracks)[0]).toMatchObject({ supported: true, vtt: 'subs/0.vtt' });
+    expect(JSON.parse(during.audio_tracks)[0]).toMatchObject({ language: 'jpn', playlist: 'a0/index.m3u8' });
+  });
+
   it('requeues the running job of another file, restarting it, when a play request arrives', async () => {
     let release!: () => void;
     const started: string[] = [];

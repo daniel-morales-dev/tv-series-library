@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { type ProbeStreams, type RunFfmpeg, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
 import { SourceMissingError, processMedia } from './process.ts';
-import { claimNext, complete, fail, recover, requeue, setProgress } from './queue.ts';
+import { claimNext, complete, fail, recover, requeue, setProgress, setTracks } from './queue.ts';
 
 const POLL_MS = 5_000;
 const PROGRESS_EVERY_MS = 1_000;
@@ -58,6 +58,7 @@ export function createWorker(opts: WorkerOptions): Worker {
     running.set(job.id, entry);
     try {
       const result = await processMedia(deps, { id: job.mediaFileId, path: job.path }, {
+        onTracks: (tracks) => setTracks(db, job, tracks),
         signal: AbortSignal.any([abort.signal, entry.ctl.signal]),
         onProgress: (fraction) => {
           if (now() - lastWrite < PROGRESS_EVERY_MS) return;

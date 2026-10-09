@@ -20,7 +20,7 @@ describe('catalog API', () => {
     expect((await app.inject('/api/titles?kind=book')).statusCode).toBe(400);
   });
 
-  it('returns detail with seasons, ready files, saga and per-profile state', async () => {
+  it('returns detail with seasons, files of any status, saga and per-profile state', async () => {
     const { app, db } = setup();
     const collectionId = run(db, "INSERT INTO collections (tmdb_id, name) VALUES (1, 'Saga')").lastInsertId;
     const titleId = addTitle(db, 'Show', { kind: 'series' });
@@ -35,7 +35,7 @@ describe('catalog API', () => {
 
     const plain = (await app.inject(`/api/titles/${titleId}`)).json();
     expect(plain.seasons[0].episodes).toHaveLength(1);
-    expect(plain.files).toHaveLength(1);
+    expect(plain.files.map((f: any) => [f.id, f.status])).toEqual([[file, 'ready'], [file + 1, 'pending']]);
     expect(plain.credits[0]).toMatchObject({ name: 'Actor', character: 'Hero' });
     expect(plain.collection.titles).toHaveLength(1);
     expect(plain.inMyList).toBeUndefined();

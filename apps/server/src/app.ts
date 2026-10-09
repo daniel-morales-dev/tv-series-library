@@ -9,6 +9,7 @@ import { profileRoutes } from './modules/profiles/routes.ts';
 import { myListRoutes } from './modules/my-list/routes.ts';
 import { progressRoutes } from './modules/progress/routes.ts';
 import { searchRoutes } from './modules/search/routes.ts';
+import { webRoutes } from './http/web.ts';
 
 export interface AppOptions {
   db: DatabaseSync;
@@ -18,9 +19,11 @@ export interface AppOptions {
   ingestor?: Ingestor;
   /** Absent when PROCESSING=off: files stay queued. */
   worker?: Worker;
+  /** Built web app to serve; absent in tests and API-only runs. */
+  webDir?: string;
 }
 
-export function buildApp({ db, logger = false, dataDir = './data', ingestor, worker }: AppOptions) {
+export function buildApp({ db, logger = false, dataDir = './data', ingestor, worker, webDir }: AppOptions) {
   const app = Fastify({ logger });
 
   app.register(
@@ -36,6 +39,8 @@ export function buildApp({ db, logger = false, dataDir = './data', ingestor, wor
     },
     { prefix: '/api' },
   );
+
+  if (webDir) webRoutes(app, webDir);
 
   app.addHook('onClose', async () => worker?.stop());
 

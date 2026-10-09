@@ -33,7 +33,7 @@ export class SourceMissingError extends Error {
 export async function processMedia(
   deps: ProcessDeps,
   file: { id: number; path: string },
-  opts: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {},
+  opts: { onProgress?: (fraction: number) => void; onTracks?: (tracks: Omit<ProcessResult, 'hlsDir'>) => void; signal?: AbortSignal } = {},
 ): Promise<ProcessResult> {
   const src = join(deps.contentDir, file.path);
   if (!(await stat(src).catch(() => null))?.isFile()) throw new SourceMissingError(file.path);
@@ -43,6 +43,12 @@ export async function processMedia(
   const rel = `hls/${file.id}`;
   const finalDir = join(deps.dataDir, rel);
   const tmpDir = `${finalDir}.tmp`;
+  const tracks = {
+    audio: plan.audio.map((a) => ({ index: a.index, codec: a.codec, language: a.language, title: a.title, channels: a.channels, playlist: a.playlist })),
+    subtitles: plan.subtitles.map((s) => ({
+      index: s.index, codec: s.codec, language: s.language, title: s.title, supported: s.supported, vtt: s.vtt, ass: s.ass,
+    })),
+  };
 
   await rm(tmpDir, { recursive: true, force: true });
   try {
@@ -50,6 +56,8 @@ export async function processMedia(
     const { signal } = opts;
     // Subtitles and fonts first, so they exist as soon as playback can start.
     if (plan.subtitles.some((s) => s.supported) || plan.fonts.length > 0) await deps.runFfmpeg(extractArgs(plan, src, tmpDir), { signal });
+
+    opts.onTracks?.(tracks);
 
     // ffmpeg writes the master once, early: name the audio tracks right away so playback shows them.
     let named = false;
@@ -73,11 +81,5 @@ export async function processMedia(
     throw err;
   }
 
-  return {
-    hlsDir: rel,
-    audio: plan.audio.map((a) => ({ index: a.index, codec: a.codec, language: a.language, title: a.title, channels: a.channels, playlist: a.playlist })),
-    subtitles: plan.subtitles.map((s) => ({
-      index: s.index, codec: s.codec, language: s.language, title: s.title, supported: s.supported, vtt: s.vtt, ass: s.ass,
-    })),
-  };
+  return { hlsDir: rel, ...tracks };
 }

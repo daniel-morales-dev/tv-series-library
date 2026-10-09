@@ -119,10 +119,11 @@ export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number)
 
   const files = all<Record<string, any>>(
     db,
-    "SELECT * FROM media_files WHERE title_id = ? AND status = 'ready' ORDER BY id",
+    'SELECT * FROM media_files WHERE title_id = ? ORDER BY id',
     id,
   ).map((f) => ({
     id: f.id,
+    status: f.status,
     episodeId: f.episode_id,
     extraLabel: f.extra_label,
     durationS: f.duration_s,

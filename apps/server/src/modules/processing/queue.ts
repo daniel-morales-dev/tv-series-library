@@ -92,6 +92,17 @@ export function setProgress(db: DatabaseSync, jobId: number, progress: number): 
   run(db, `UPDATE jobs SET progress = ?, updated_at = ${NOW} WHERE id = ?`, progress, jobId);
 }
 
+// Track outputs are known once subtitles are extracted, long before the video finishes.
+export function setTracks(db: DatabaseSync, job: ClaimedJob, tracks: Omit<ProcessResult, 'hlsDir'>): void {
+  run(
+    db,
+    'UPDATE media_files SET audio_tracks = ?, subtitle_tracks = ? WHERE id = ?',
+    JSON.stringify(tracks.audio),
+    JSON.stringify(tracks.subtitles),
+    job.mediaFileId,
+  );
+}
+
 export function complete(db: DatabaseSync, job: ClaimedJob, result: ProcessResult): void {
   transaction(db, () => {
     run(db, `UPDATE jobs SET status = 'done', progress = 1, error = NULL, updated_at = ${NOW} WHERE id = ?`, job.id);
