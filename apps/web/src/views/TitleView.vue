@@ -32,8 +32,8 @@ const extras = computed(() => detail.value?.files.filter((f) => f.extraLabel) ??
 </script>
 
 <template>
-  <main>
-    <p><RouterLink class="btn" to="/titles">← Títulos</RouterLink></p>
+  <main class="legacy">
+    <p><RouterLink class="btn" to="/browse">← Inicio</RouterLink></p>
     <p v-if="error" class="error">{{ error }}</p>
     <p v-else-if="!detail" class="muted">Cargando…</p>
     <template v-else>
@@ -75,6 +75,7 @@ const extras = computed(() => detail.value?.files.filter((f) => f.extraLabel) ??
 </template>
 
 <style scoped>
+.legacy { padding-top: calc(var(--header-h) + 16px); }
 .head { display: flex; gap: 20px; flex-wrap: wrap; }
 .head img { width: 160px; border-radius: 8px; align-self: flex-start; }
 .head > div { flex: 1 1 280px; }

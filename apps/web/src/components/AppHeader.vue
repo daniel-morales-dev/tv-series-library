@@ -1,0 +1,192 @@
+<script setup lang="ts">
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { api } from '../api.ts';
+import { useDismiss } from '../dismiss.ts';
+import { currentProfile, ensureProfile, hasHero } from '../session.ts';
+import { theme, toggleTheme } from '../theme.ts';
+import type { Suggestion } from '../types.ts';
+import Avatar from './Avatar.vue';
+import Icon from './Icon.vue';
+
+const route = useRoute();
+const router = useRouter();
+
+const nav = [
+  { label: 'Inicio', to: '/browse', exact: true },
+  { label: 'Series', to: '/browse/series' },
+  { label: 'Películas', to: '/browse/movies' },
+  { label: 'Anime', to: '/browse/anime' },
+  { label: 'Mi lista', to: '/my-list' },
+];
+const isOn = (n: (typeof nav)[number]) => (n.exact ? route.path === n.to : route.path.startsWith(n.to));
+
+const scrolled = ref(false);
+const onScroll = () => (scrolled.value = window.scrollY > 24);
+
+// Search
+const searchOpen = ref(false);
+const q = ref('');
+const suggestions = ref<Suggestion[]>([]);
+const searchRoot = ref<HTMLElement | null>(null);
+const input = ref<HTMLInputElement | null>(null);
+let debounce: ReturnType<typeof setTimeout> | undefined;
+let ticket = 0;
+useDismiss(searchRoot, closeSearch);
+
+function closeSearch() {
+  searchOpen.value = false;
+  suggestions.value = [];
+}
+async function openSearch() {
+  searchOpen.value = true;
+  await nextTick();
+  input.value?.focus();
+}
+watch(q, (value) => {
+  clearTimeout(debounce);
+  const text = value.trim();
+  if (!text) return void (suggestions.value = []);
+  const mine = ++ticket;
+  debounce = setTimeout(async () => {
+    try {
+      const found = await api.suggest(text);
+      if (mine === ticket) suggestions.value = found;
+    } catch {
+      if (mine === ticket) suggestions.value = [];
+    }
+  }, 200);
+});
+function submit() {
+  const text = q.value.trim();
+  if (!text) return;
+  closeSearch();
+  router.push({ path: '/search', query: { q: text } });
+}
+function pick(s: Suggestion) {
+  closeSearch();
+  q.value = '';
+  router.push(s.type === 'title' ? `/title/${s.id}` : { path: '/search', query: { q: s.label } });
+}
+
+// Profile menu
+const menuOpen = ref(false);
+const menuRoot = ref<HTMLElement | null>(null);
+useDismiss(menuRoot, () => (menuOpen.value = false));
+
+onMounted(() => {
+  ensureProfile();
+  onScroll();
+  window.addEventListener('scroll', onScroll, { passive: true });
+});
+onBeforeUnmount(() => {
+  window.removeEventListener('scroll', onScroll);
+  clearTimeout(debounce);
+});
+watch(() => route.fullPath, () => (menuOpen.value = false));
+</script>
+
+<template>
+  <header class="top" :class="{ solid: scrolled || !hasHero }">
+    <RouterLink to="/browse" class="logo" aria-label="Inicio">sala</RouterLink>
+
+    <nav class="nav" aria-label="Principal">
+      <RouterLink v-for="n in nav" :key="n.to" :to="n.to" :class="{ on: isOn(n) }" :aria-current="isOn(n) ? 'page' : undefined">
+        {{ n.label }}
+      </RouterLink>
+    </nav>
+
+    <div ref="searchRoot" class="search" :class="{ open: searchOpen }">
+      <button class="icon" aria-label="Buscar" @click="searchOpen ? closeSearch() : openSearch()">
+        <Icon :name="searchOpen ? 'close' : 'search'" />
+      </button>
+      <input
+        v-show="searchOpen"
+        ref="input"
+        v-model="q"
+        type="search"
+        placeholder="Títulos, personas…"
+        autocomplete="off"
+        aria-label="Buscar"
+        @keydown.enter="submit"
+      />
+      <ul v-if="searchOpen && suggestions.length" class="sug">
+        <li v-for="s in suggestions" :key="`${s.type}${s.id}`">
+          <button @click="pick(s)">
+            <span>{{ s.label }}</span>
+            <small>{{ s.type === 'title' ? 'Título' : 'Persona' }}</small>
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <div ref="menuRoot" class="profile">
+      <button class="avatar-btn" aria-label="Perfil" aria-haspopup="menu" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen">
+        <Avatar :profile="currentProfile" />
+      </button>
+      <div v-if="menuOpen" class="menu" role="menu">
+        <p class="who">{{ currentProfile?.name ?? '' }}</p>
+        <RouterLink role="menuitem" to="/"><Icon name="swap" :size="20" /> Cambiar de perfil</RouterLink>
+        <button role="menuitem" @click="toggleTheme(currentProfile?.id ?? null)">
+          <Icon :name="theme === 'dark' ? 'sun' : 'moon'" :size="20" /> {{ theme === 'dark' ? 'Tema claro' : 'Tema oscuro' }}
+        </button>
+      </div>
+    </div>
+  </header>
+</template>
+
+<style scoped>
+.top {
+  position: fixed; inset: 0 0 auto; z-index: 50; display: flex; align-items: center; gap: clamp(12px, 2.4vw, 36px);
+  height: var(--header-h); padding: 0 var(--gutter); color: #fff;
+  background: linear-gradient(rgba(6, 6, 10, 0.78), transparent); transition: background 0.25s, box-shadow 0.25s;
+}
+.top.solid { background: var(--header-solid); backdrop-filter: blur(14px); box-shadow: 0 1px 0 var(--line); color: var(--text); }
+.logo { font-size: 1.7rem; font-weight: 800; letter-spacing: -0.04em; color: var(--accent); line-height: 1; }
+.nav { display: flex; gap: clamp(4px, 1vw, 12px); flex: 1; min-width: 0; }
+.nav a { padding: 8px 12px; border-radius: 999px; font-size: 0.95rem; font-weight: 500; opacity: 0.78; white-space: nowrap; transition: opacity 0.15s, background 0.15s; }
+.nav a:hover { opacity: 1; background: rgba(128, 128, 150, 0.2); }
+.nav a.on { opacity: 1; font-weight: 700; box-shadow: inset 0 -3px 0 var(--accent); border-radius: 6px 6px 0 0; }
+
+.icon, .avatar-btn { display: grid; place-items: center; min-height: 0; padding: 0; background: none; color: inherit; border-radius: 50%; }
+.icon { width: 44px; height: 44px; }
+.icon:hover { background: rgba(128, 128, 150, 0.25); }
+.avatar-btn { width: 44px; height: 44px; }
+.avatar-btn:hover { background: rgba(128, 128, 150, 0.25); }
+
+.search { position: relative; display: flex; align-items: center; }
+.search input {
+  width: min(280px, 40vw); min-height: 44px; margin-left: 4px; padding: 0 16px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg-raised); color: var(--text);
+}
+.sug {
+  position: absolute; top: 52px; right: 0; width: min(340px, 90vw); margin: 0; padding: 6px; list-style: none;
+  background: var(--bg-raised); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); color: var(--text);
+}
+.sug button { display: flex; justify-content: space-between; gap: 12px; width: 100%; min-height: 0; padding: 11px 14px; border-radius: 8px; background: none; text-align: left; }
+.sug button:hover, .sug button:focus-visible { background: var(--bg-hover); }
+.sug small { color: var(--text-dim); }
+
+.profile { position: relative; }
+.menu {
+  position: absolute; top: 54px; right: 0; width: 250px; padding: 8px; background: var(--bg-raised); color: var(--text);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
+}
+.who { margin: 0; padding: 8px 12px 10px; font-weight: 700; border-bottom: 1px solid var(--line); }
+.menu a, .menu button {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 0; padding: 12px; margin-top: 4px;
+  border-radius: 8px; background: none; text-align: left; font-size: 0.95rem; color: var(--text);
+}
+.menu a:hover, .menu button:hover, .menu a:focus-visible, .menu button:focus-visible { background: var(--bg-hover); }
+
+@media (max-width: 720px) {
+  .top { flex-wrap: wrap; align-content: center; gap: 0 12px; padding-top: 6px; background: linear-gradient(rgba(6, 6, 10, 0.9), rgba(6, 6, 10, 0.4)); }
+  .top.solid { background: var(--header-solid); }
+  .logo { flex: 1; }
+  .nav { order: 3; flex: 0 0 100%; overflow-x: auto; scrollbar-width: none; margin: 0 -6px; padding-bottom: 4px; }
+  .nav::-webkit-scrollbar { display: none; }
+  .search.open { position: static; }
+  .search.open .sug { right: var(--gutter); }
+  .search.open input { position: absolute; left: var(--gutter); right: calc(var(--gutter) + 100px); top: 8px; width: auto; }
+}
+</style>

@@ -1,20 +1,99 @@
-:root { color-scheme: dark; }
+:root {
+  --accent: #8f7bff; /* the one line that sets the brand colour */
+  --accent-ink: #120d2e;
+  --bg: #0b0b0f;
+  --bg-raised: #14141b;
+  --bg-card: #1b1b24;
+  --bg-hover: #262633;
+  --line: rgba(255, 255, 255, 0.1);
+  --text: #f3f3f8;
+  --text-dim: #a4a4b5;
+  --danger: #ff7b7b;
+  --focus: #ffffff;
+  --header-solid: rgba(11, 11, 15, 0.94);
+  --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+  --radius: 14px;
+  --gutter: clamp(16px, 4vw, 56px);
+  --header-h: 72px;
+  color-scheme: dark;
+}
+[data-theme='light'] {
+  --accent-ink: #ffffff;
+  --accent: #6a54f0;
+  --bg: #f4f3f8;
+  --bg-raised: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #e8e6f1;
+  --line: rgba(20, 16, 40, 0.12);
+  --text: #16141f;
+  --text-dim: #5d5a70;
+  --danger: #c93636;
+  --focus: #16141f;
+  --header-solid: rgba(244, 243, 248, 0.94);
+  --shadow: 0 14px 34px rgba(30, 20, 70, 0.18);
+  color-scheme: light;
+}
+
 * { box-sizing: border-box; }
+html { font-size: 18px; }
+@media (min-width: 1600px) { html { font-size: 22px; } }
 body {
   margin: 0;
-  background: #0f0f12;
-  color: #f2f2f5;
-  font: 20px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font: 1rem/1.45 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 64px; }
 h1 { font-size: 1.8rem; margin: 0 0 16px; }
 h2 { font-size: 1.3rem; margin: 28px 0 8px; }
 a { color: inherit; text-decoration: none; }
+img { display: block; }
+.muted { color: var(--text-dim); }
+.error { color: var(--danger); }
+
+/* Legacy controls (title + player screens until T5c). */
 .btn, button {
   display: inline-block; min-height: 56px; padding: 12px 22px; border: 0; border-radius: 10px;
-  background: #2b2b35; color: inherit; font: inherit; cursor: pointer;
+  background: var(--bg-hover); color: inherit; font: inherit; cursor: pointer;
 }
-.btn:hover, button:hover, .btn:focus-visible, button:focus-visible { background: #3d3d4d; outline: 3px solid #7aa7ff; }
-input { min-height: 56px; padding: 0 16px; border-radius: 10px; border: 1px solid #44444f; background: #1a1a20; color: inherit; font: inherit; }
-.muted { color: #a0a0ad; }
-.error { color: #ff8a8a; }
+.btn:hover, button:hover { background: var(--bg-card); }
+input { min-height: 56px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-raised); color: inherit; font: inherit; }
+
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+
+/* New design system */
+.page { padding: calc(var(--header-h) + 28px) var(--gutter) 80px; max-width: 1800px; margin: 0 auto; }
+.page > h1 { font-size: clamp(1.6rem, 3vw, 2.2rem); letter-spacing: -0.01em; }
+
+.pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  min-height: 48px; padding: 0 1.4rem; border-radius: 999px; border: 0;
+  font: 600 1rem/1 inherit; cursor: pointer; white-space: nowrap;
+  background: var(--bg-hover); color: var(--text);
+  transition: background 0.15s, transform 0.15s;
+}
+.pill:hover { background: var(--line); }
+.pill.primary { background: var(--accent); color: var(--accent-ink); }
+.pill.primary:hover { background: var(--accent); filter: brightness(1.12); }
+.pill.glass { background: rgba(255, 255, 255, 0.16); color: #fff; backdrop-filter: blur(8px); }
+.pill.glass:hover { background: rgba(255, 255, 255, 0.28); }
+
+.round {
+  display: inline-grid; place-items: center; width: 44px; height: 44px; min-height: 0; padding: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.55); border-radius: 50%;
+  background: rgba(20, 20, 28, 0.75); color: #fff; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.round:hover { background: rgba(60, 60, 78, 0.95); border-color: #fff; }
+.round.fill { background: #fff; color: #111; border-color: #fff; }
+.round.fill:hover { background: #e4e4ee; }
+.round.on { border-color: var(--accent); color: var(--accent); }
+
+.state { padding: 18vh 0; text-align: center; color: var(--text-dim); }
+.state h2 { color: var(--text); margin: 0 0 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}
+@media (max-width: 720px) { :root { --header-h: 108px; } }

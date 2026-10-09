@@ -1,14 +1,39 @@
 export interface Profile {
   id: number;
   name: string;
+  avatar: string | null;
 }
 
 export interface TitleSummary {
   id: number;
   kind: 'movie' | 'series' | 'anime';
   title: string;
+  originalTitle: string | null;
+  overview: string | null;
   year: number | null;
+  runtimeMin: number | null;
+  rating: number | null;
+  genres: string[];
   posterPath: string | null;
+  backdropPath: string | null;
+  logoPath: string | null;
+}
+
+export interface ContinueItem {
+  title: TitleSummary;
+  mediaFileId: number;
+  positionS: number;
+  durationS: number | null;
+  season: number | null;
+  episode: number | null;
+  episodeName: string | null;
+  updatedAt: string;
+}
+
+export interface Suggestion {
+  type: 'title' | 'person';
+  id: number;
+  label: string;
 }
 
 export type FileState = 'pending' | 'processing' | 'ready' | 'error';
@@ -59,7 +84,6 @@ export interface Season {
 }
 
 export interface TitleDetail extends TitleSummary {
-  overview: string | null;
   seasons: Season[];
   files: MediaFile[];
   progress?: WatchProgress[];

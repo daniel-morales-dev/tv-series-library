@@ -79,7 +79,7 @@ async function start() {
   teardown();
   const mine = run;
   if (!profileId) return void router.replace('/');
-  if (!titleId.value) return void router.replace('/titles');
+  if (!titleId.value) return void router.replace('/browse');
   phase.value = 'loading';
   try {
     const d = await api.title(titleId.value, profileId);
@@ -178,7 +178,7 @@ function goNext() {
   clearInterval(nextTimer);
   router.replace({ path: `/watch/${n.fileId}`, query: { title: titleId.value } });
 }
-const back = () => router.push(`/titles/${titleId.value}`);
+const back = () => router.push(`/title/${titleId.value}`);
 
 // Fullscreen the container, not the <video>, so the menus and the next-episode prompt stay visible.
 const root = ref<HTMLElement>();
@@ -242,7 +242,7 @@ watch([fileId, titleId], start, { immediate: true });
       />
     </video>
 
-    <RouterLink class="btn top left" :to="`/titles/${titleId || ''}`">← Volver</RouterLink>
+    <RouterLink class="btn top left" :to="`/title/${titleId || ''}`">← Volver</RouterLink>
 
     <p v-if="phase === 'loading'" class="center muted">Cargando…</p>
     <p v-else-if="phase === 'preparing'" class="center">Preparando… {{ percent }} %</p>
