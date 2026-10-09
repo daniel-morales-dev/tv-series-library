@@ -37,7 +37,7 @@
 - [ ] T5 Frontend (diseño: `docs/design/t5-frontend.md`): perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial — ruta: delegada (sonnet). Pedido del dueño 2026-10-09: ver la UI/UX antes de las pruebas en dispositivos (T6d va al final).
   - [x] T5a Base: tokens, tema, layout, header con búsqueda, perfiles, rutas
   - [x] T5b Inicio: hero, filas, tarjetas, Continuar viendo con quitar (1d49875; 31 tests web; acento violeta `#8f7bff`, nombre provisional "sala"; revisión RDD omitida por el dueño, próxima base `1d49875`)
-  - [ ] T5c Página de título + panel de info del episodio (nombre, T·E, sinopsis, fecha de emisión, duración, progreso; pedido del dueño)
+  - [x] T5c Página de título + panel de info del episodio (nombre, T·E, sinopsis, fecha de emisión, duración, progreso; pedido del dueño)
     - Pedidos del dueño tras ver T5b: menú ⋮ de Continuar viendo se recorta dentro de la fila (obliga a scroll horizontal y tapa el nombre del episodio) → sacarlo de la fila; más detalle en los episodios; mostrar **idioma** de audio y subtítulos por título y por episodio (p. ej. Monogatari descargado en inglés).
   - [ ] T5d Mi lista, Series/Películas/Anime con filtros, Búsqueda
   - [ ] T5e Navegación espacial TV y responsive fino
@@ -94,8 +94,11 @@
 - Prueba del dueño en PC: el player abre pero no arrancaba solo (`play()` antes de que hls.js leyera el manifiesto) → corregido en 06c20e4. El dueño rechazó las pantallas temporales: quiere la UI completa (T5) ya. Procesado: una sola vez por archivo (queda en `data/hls/<id>`).
 - Correr local: `npm run build -w apps/web` y `CONTENT_DIR=../../content DATA_DIR=../../data npm start -w apps/server` → http://localhost:8080.
 
+- T5c (bf3fe4c): 52 tests web, 164 server. Continuar viendo trae `episodeId` + `stillPath`. Monogatari real: audio `jpn` (FLAC), subtítulos `eng`. Revisión RDD omitida por el dueño; próxima base `bf3fe4c`.
+- Decisión pendiente del dueño: "Marcar como no visto" solo limpia `title_state.finished`; el progreso `completed` de cada episodio queda y siguen apareciendo como "Visto".
+
 ## Siguiente paso
-T5a + T5b (base + inicio). Luego T5c–T5e. T6d (dispositivos) al final.
+T5d en curso; luego T5e. T6d (dispositivos) al final.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
