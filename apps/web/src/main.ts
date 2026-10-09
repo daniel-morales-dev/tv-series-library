@@ -11,9 +11,9 @@ const router = createRouter({
   routes: [
     { path: '/', component: () => import('./views/ProfilesView.vue'), meta: { chrome: false } },
     { path: '/browse', component: () => import('./views/HomeView.vue') },
-    { path: '/browse/:kind(series|movies|anime)', component: () => import('./views/GridView.vue') },
-    { path: '/my-list', component: () => import('./views/GridView.vue') },
-    { path: '/search', component: () => import('./views/GridView.vue') },
+    { path: '/browse/:kind(series|movies|anime)', component: () => import('./views/BrowseView.vue') },
+    { path: '/my-list', component: () => import('./views/MyListView.vue') },
+    { path: '/search', component: () => import('./views/SearchView.vue') },
     { path: '/title/:id(\\d+)', component: () => import('./views/TitleView.vue') },
     { path: '/watch/:mediaFileId(\\d+)', component: () => import('./views/WatchView.vue'), meta: { chrome: false } },
     { path: '/titles', redirect: '/browse' },

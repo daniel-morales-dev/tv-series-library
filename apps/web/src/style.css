@@ -97,3 +97,29 @@ input { min-height: 56px; padding: 0 16px; border-radius: 10px; border: 1px soli
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
 @media (max-width: 720px) { :root { --header-h: 108px; } }
+
+/* Listing pages (Mi lista, browse, search) */
+.page-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 18px; }
+.page-head h1 { margin: 0; }
+.count { color: var(--text-dim); font-size: 0.95rem; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 26px; }
+.chips { display: flex; flex: 1 1 320px; gap: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; padding: 4px; margin: -4px; }
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  flex: none; min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line);
+  background: transparent; color: var(--text-dim); font-size: 0.95rem; font-weight: 600;
+}
+.chip:hover { background: var(--bg-hover); color: var(--text); }
+.chip[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.field {
+  min-height: 44px; padding: 0 38px 0 16px; border-radius: 999px; border: 1px solid var(--line); color: var(--text);
+  background: var(--bg-raised) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23999' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 15px center;
+  font: inherit; font-size: 0.95rem; appearance: none; cursor: pointer;
+}
+.field:hover { background-color: var(--bg-hover); }
+.poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(120px, 14vw, 220px), 1fr)); gap: 28px 18px; margin: 0; padding: 8px 0 0; list-style: none; }
+.state p { max-width: 46ch; margin: 0 auto 22px; }
+@media (max-width: 720px) {
+  .toolbar .field { flex: 1 1 140px; min-width: 0; }
+  .page-head { margin-bottom: 12px; }
+}

@@ -16,6 +16,7 @@ export const api = {
     request<Profile>(`/profiles/${id}`, { method: 'PATCH', headers: JSON_HEADERS, body: JSON.stringify({ name }) }),
   deleteProfile: (id: number) => request<void>(`/profiles/${id}`, { method: 'DELETE' }),
   titles: (kind?: string) => request<TitleSummary[]>(`/titles?limit=200&sort=recent${kind ? `&kind=${kind}` : ''}`),
+  titlesBy: (params: string) => request<TitleSummary[]>(`/titles?${params}`),
   suggest: (q: string) => request<Suggestion[]>(`/search/suggest?q=${encodeURIComponent(q)}`),
   continueWatching: (pid: number) => request<ContinueItem[]>(`/profiles/${pid}/continue-watching`),
   removeContinue: (pid: number, titleId: number) => request<void>(`/profiles/${pid}/continue-watching/${titleId}`, { method: 'DELETE' }),

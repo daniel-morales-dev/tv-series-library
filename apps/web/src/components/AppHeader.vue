@@ -43,10 +43,21 @@ async function openSearch() {
   await nextTick();
   input.value?.focus();
 }
+// On the results page the box shows the current search; that echo must not pop the suggestions open.
+const echoed = () => route.path === '/search' && q.value === String(route.query.q ?? '');
+watch(
+  () => (route.path === '/search' ? String(route.query.q ?? '') : null),
+  (shown) => {
+    if (shown === null) return;
+    q.value = shown;
+    searchOpen.value = shown !== '';
+  },
+  { immediate: true },
+);
 watch(q, (value) => {
   clearTimeout(debounce);
   const text = value.trim();
-  if (!text) return void (suggestions.value = []);
+  if (!text || echoed()) return void (suggestions.value = []);
   const mine = ++ticket;
   debounce = setTimeout(async () => {
     try {

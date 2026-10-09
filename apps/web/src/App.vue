@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
 import AppHeader from './components/AppHeader.vue';
+import ToastHost from './components/ToastHost.vue';
 
 const route = useRoute();
 </script>
@@ -8,4 +9,5 @@ const route = useRoute();
 <template>
   <AppHeader v-if="route.meta.chrome !== false" />
   <RouterView />
+  <ToastHost />
 </template>
