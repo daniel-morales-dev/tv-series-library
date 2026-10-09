@@ -35,9 +35,10 @@
     - [x] T4d3 Bajo consumo: `os.setPriority(pid, 19)` al ffmpeg (sin `ionice`: con nice 19 el I/O baja a la menor prioridad best-effort), `-threads` de x264 por `FFMPEG_THREADS` (default 4), un job a la vez.
     - [x] T4d4 Verificación real: medir CPU/RAM y velocidad vs tiempo real con 4 hilos; reproducir mientras procesa.
 - [ ] T5 Frontend (diseño: `docs/design/t5-frontend.md`): perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial — ruta: delegada (sonnet). Pedido del dueño 2026-10-09: ver la UI/UX antes de las pruebas en dispositivos (T6d va al final).
-  - [ ] T5a Base: tokens, tema, layout, header con búsqueda, perfiles, rutas
-  - [ ] T5b Inicio: hero, filas, tarjetas, Continuar viendo con quitar
+  - [x] T5a Base: tokens, tema, layout, header con búsqueda, perfiles, rutas
+  - [x] T5b Inicio: hero, filas, tarjetas, Continuar viendo con quitar (1d49875; 31 tests web; acento violeta `#8f7bff`, nombre provisional "sala"; revisión RDD omitida por el dueño, próxima base `1d49875`)
   - [ ] T5c Página de título + panel de info del episodio (nombre, T·E, sinopsis, fecha de emisión, duración, progreso; pedido del dueño)
+    - Pedidos del dueño tras ver T5b: menú ⋮ de Continuar viendo se recorta dentro de la fila (obliga a scroll horizontal y tapa el nombre del episodio) → sacarlo de la fila; más detalle en los episodios; mostrar **idioma** de audio y subtítulos por título y por episodio (p. ej. Monogatari descargado en inglés).
   - [ ] T5d Mi lista, Series/Películas/Anime con filtros, Búsqueda
   - [ ] T5e Navegación espacial TV y responsive fino
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
