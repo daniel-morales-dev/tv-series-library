@@ -66,7 +66,7 @@ function play(p: HeroPick) {
         </ul>
         <p v-if="p.title.overview" class="overview">{{ p.title.overview }}</p>
         <div class="btns">
-          <button class="pill primary" @click="play(p)">
+          <button class="pill primary" data-autofocus @click="play(p)">
             <Icon name="play" /> {{ p.resume ? 'Continuar' : 'Reproducir' }}
           </button>
           <RouterLink class="pill glass" :to="`/title/${p.title.id}`"><Icon name="info" /> Más info</RouterLink>
@@ -97,7 +97,7 @@ function play(p: HeroPick) {
 .slide::after { background: linear-gradient(transparent 55%, var(--bg) 100%), linear-gradient(rgba(6, 6, 10, 0.55), transparent 22%); }
 .copy {
   position: absolute; z-index: 2; left: var(--gutter); bottom: clamp(60px, 14vh, 150px);
-  width: min(620px, calc(100% - 2 * var(--gutter))); display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
+  width: min(34rem, calc(100% - 2 * var(--gutter))); display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
 }
 .logo { max-width: min(420px, 80%); max-height: 150px; object-fit: contain; object-position: left bottom; filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.6)); }
 .name { margin: 0; font-size: clamp(2.2rem, 5vw, 4rem); line-height: 1.02; letter-spacing: -0.02em; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6); }
@@ -107,7 +107,7 @@ function play(p: HeroPick) {
   margin: 0; max-width: 56ch; font-size: clamp(0.95rem, 1.2vw, 1.1rem); line-height: 1.5; color: #e9e9f2;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
 }
-.btns { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+.btns { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 6px; }
 .dots { position: absolute; z-index: 3; right: var(--gutter); bottom: 34px; display: flex; gap: 8px; }
 .dots button { width: 10px; height: 10px; min-height: 0; padding: 0; border-radius: 999px; background: rgba(255, 255, 255, 0.4); transition: width 0.25s, background 0.25s; }
 .dots button:hover { background: rgba(255, 255, 255, 0.7); }

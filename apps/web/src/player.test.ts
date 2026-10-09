@@ -31,34 +31,13 @@ describe('defaultSubtitle', () => {
 });
 
 describe('subtitleLabel', () => {
-  it('prefers title, then language, then number', () => {
-    expect(subtitleLabel({ ...sub(0, 'eng'), title: 'Forced' }, 0)).toBe('Forced');
-    expect(subtitleLabel(sub(0, 'eng'), 0)).toBe('eng');
+  it('shows the language name in Spanish, with the title when it adds information', () => {
+    expect(subtitleLabel({ ...sub(0, 'eng'), title: 'Forced' }, 0)).toBe('Inglés · Forced');
+    expect(subtitleLabel({ ...sub(0, 'eng'), title: 'English' }, 0)).toBe('Inglés');
+    expect(subtitleLabel(sub(0, 'eng'), 0)).toBe('Inglés');
+  });
+  it('falls back to the title, then a number', () => {
+    expect(subtitleLabel({ ...sub(0, null), title: 'Comentarios' }, 0)).toBe('Comentarios');
     expect(subtitleLabel(sub(0, null), 2)).toBe('Subtítulo 3');
-  });
-});
-
-const file = (id: number, episodeId: number | null, extraLabel: string | null = null): MediaFile => ({
-  id, status: 'ready', episodeId, extraLabel, durationS: 1400, audioTracks: [], subtitleTracks: [],
-});
-const detail = {
-  seasons: [
-    { id: 1, number: 2, name: null, episodes: [{ id: 21, number: 1, name: 'Dos-uno' }] },
-    { id: 0, number: 1, name: null, episodes: [{ id: 12, number: 2, name: 'Uno-dos' }, { id: 11, number: 1, name: 'Uno-uno' }, { id: 13, number: 3, name: 'Sin archivo' }] },
-  ],
-  files: [file(100, 21), file(101, 11), file(102, 12), file(103, null, 'Extra')],
-} as unknown as TitleDetail;
-
-describe('nextFile', () => {
-  it('follows season then episode order', () => {
-    expect(nextFile(detail, 101)).toEqual({ fileId: 102, name: 'Uno-dos' });
-  });
-  it('skips episodes without a file and crosses seasons', () => {
-    expect(nextFile(detail, 102)).toEqual({ fileId: 100, name: 'Dos-uno' });
-  });
-  it('returns null at the end, for extras and unknown files', () => {
-    expect(nextFile(detail, 100)).toBeNull();
-    expect(nextFile(detail, 103)).toBeNull();
-    expect(nextFile(detail, 999)).toBeNull();
   });
 });

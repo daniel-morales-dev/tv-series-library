@@ -16,14 +16,14 @@ const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].fil
 
 <template>
   <article class="card">
-    <RouterLink :to="`/title/${title.id}`" class="cover" :aria-label="title.title">
+    <RouterLink :to="`/title/${title.id}`" draggable="false" class="cover" :aria-label="title.title">
       <img v-if="title.posterPath" :src="imageUrl(title.posterPath)" :alt="title.title" loading="lazy" draggable="false" />
       <span v-else class="fallback">{{ title.title }}</span>
     </RouterLink>
     <div class="over">
       <p class="name">{{ title.title }}</p>
       <p class="meta">{{ meta }}</p>
-      <div class="acts">
+      <div class="acts" data-spatial-skip>
         <button class="round fill" aria-label="Reproducir" @click="playTitle(router, title.id)"><Icon name="play" /></button>
         <button
           class="round"
@@ -63,9 +63,9 @@ const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].fil
 .card:hover, .card:focus-within { transform: scale(1.07); z-index: 4; box-shadow: var(--shadow); }
 .card:hover .over, .card:focus-within .over { opacity: 1; }
 .card:has(.cover:focus-visible) { outline: 3px solid var(--focus); outline-offset: 3px; }
+/* Touch: no hover bar; tapping the cover opens the title, whose page holds play and list actions. */
 @media (hover: none) {
-  .over { opacity: 1; padding-top: 28px; }
-  .name, .meta { display: none; }
-  .card:hover { transform: none; }
+  .over { display: none; }
+  .card:hover, .card:focus-within { transform: none; box-shadow: none; }
 }
 </style>

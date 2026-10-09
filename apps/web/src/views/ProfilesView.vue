@@ -84,8 +84,8 @@ async function remove() {
 
     <template v-else>
       <ul class="tiles">
-        <li v-for="p in profiles" :key="p.id">
-          <button class="tile" :class="{ manage }" @click="choose(p)">
+        <li v-for="(p, i) in profiles" :key="p.id">
+          <button class="tile" :class="{ manage }" :data-autofocus="i === 0 || undefined" @click="choose(p)">
             <span class="face" :style="{ '--size': '100%' }">
               <Avatar :profile="p" />
               <span v-if="manage" class="edit"><Icon name="pencil" :size="34" /></span>

@@ -31,11 +31,11 @@ watch(() => props.items.length, () => nextTick(update));
   <section v-if="items.length" class="row">
     <h2>{{ title }}</h2>
     <div class="wrap">
-      <button v-show="canLeft" class="arrow left" aria-label="Anterior" @click="page(-1)"><Icon name="left" :size="34" /></button>
+      <button v-show="canLeft" class="arrow left" tabindex="-1" aria-label="Anterior" @click="page(-1)"><Icon name="left" :size="34" /></button>
       <ul ref="scroller" class="scroller" @scroll.passive="update">
         <li v-for="it in items" :key="keyOf(it)"><slot :item="it" /></li>
       </ul>
-      <button v-show="canRight" class="arrow right" aria-label="Siguiente" @click="page(1)"><Icon name="right" :size="34" /></button>
+      <button v-show="canRight" class="arrow right" tabindex="-1" aria-label="Siguiente" @click="page(1)"><Icon name="right" :size="34" /></button>
     </div>
   </section>
 </template>

@@ -30,4 +30,5 @@ function act() {
 }
 .undo:hover { background: var(--accent); filter: brightness(1.12); }
 @keyframes rise { from { transform: translateY(12px); opacity: 0; } }
+@media (max-width: 600px) { .host { bottom: calc(80px + env(safe-area-inset-bottom)); } }
 </style>

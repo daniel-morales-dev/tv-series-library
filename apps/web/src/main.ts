@@ -2,6 +2,7 @@ import { createApp } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import App from './App.vue';
 import { getProfileId } from './api.ts';
+import { installSpatialNav } from './spatial.ts';
 import { loadTheme } from './theme.ts';
 import './style.css';
 
@@ -24,4 +25,5 @@ const router = createRouter({
 router.beforeEach((to) => (to.path !== '/' && !getProfileId() ? '/' : true));
 
 loadTheme(getProfileId());
+installSpatialNav(router);
 createApp(App).use(router).mount('#app');

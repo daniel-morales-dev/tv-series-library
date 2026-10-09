@@ -4,6 +4,7 @@ import { imageUrl } from '../api.ts';
 import type { FileStatus } from '../fileStatus.ts';
 import { fileLanguages } from '../languages.ts';
 import { remainingLabel } from '../library.ts';
+import { isBackKey } from '../spatial.ts';
 import { ACTION_LABEL, airDateLabel, episodeAction, runtimeLabel, type EpisodeRow } from '../titlePage.ts';
 import Icon from './Icon.vue';
 import LangLine from './LangLine.vue';
@@ -21,7 +22,7 @@ const meta = computed(() => [airDateLabel(props.row.airDate), runtimeLabel(props
 const langs = computed(() => (props.row.file ? fileLanguages(props.row.file) : { audio: [], subs: [] }));
 
 function onKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' || e.key === 'Backspace') {
+  if (isBackKey(e)) {
     e.preventDefault();
     emit('close');
   } else if (e.key === 'Tab' && dialog.value) {
@@ -62,9 +63,9 @@ onBeforeUnmount(() => {
           <p class="synopsis">{{ row.overview || 'Este episodio todavía no tiene sinopsis.' }}</p>
           <LangLine :langs="langs" />
           <p class="st">
-            <span v-if="status" class="chip" :class="status.kind">{{ status.label }}</span>
-            <span v-if="!row.file" class="chip queued">sin archivo</span>
-            <span v-if="row.progress?.completed" class="chip seen">Visto</span>
+            <span v-if="status" class="badge" :class="status.kind">{{ status.label }}</span>
+            <span v-if="!row.file" class="badge queued">sin archivo</span>
+            <span v-if="row.progress?.completed" class="badge seen">Visto</span>
             <span v-else-if="left" class="muted">{{ left }}</span>
           </p>
           <div class="btns">
@@ -83,29 +84,30 @@ onBeforeUnmount(() => {
   background: rgba(4, 4, 8, 0.72); backdrop-filter: blur(4px); animation: fade 0.16s ease;
 }
 .panel {
-  width: min(760px, 100%); max-height: min(92vh, 900px); overflow-y: auto; border-radius: 18px; outline: 0;
+  display: flex; flex-direction: column; width: min(760px, 100%); max-height: 90vh; overflow: hidden; border-radius: 18px; outline: 0;
   background: var(--bg-raised); color: var(--text); box-shadow: var(--shadow); animation: rise 0.2s ease;
 }
-.still { position: relative; aspect-ratio: 16 / 9; background: linear-gradient(160deg, var(--bg-hover), var(--bg-card)); }
+.still { position: relative; flex: none; aspect-ratio: 16 / 9; max-height: 36vh; background: linear-gradient(160deg, var(--bg-hover), var(--bg-card)); }
 .still img { width: 100%; height: 100%; object-fit: cover; }
 .still::after { content: ''; position: absolute; inset: 0; background: linear-gradient(transparent 55%, var(--bg-raised)); pointer-events: none; }
 .x { position: absolute; z-index: 1; top: 12px; right: 12px; }
-.body { display: flex; flex-direction: column; gap: 10px; padding: 0 clamp(18px, 4vw, 34px) clamp(20px, 4vw, 32px); margin-top: -34px; position: relative; z-index: 1; }
+.body { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow-y: auto; padding: 0 clamp(18px, 4vw, 34px) clamp(20px, 4vw, 32px); margin-top: -34px; position: relative; z-index: 1; }
+.body > * { flex: none; }
 .num { margin: 0; font-weight: 700; color: var(--accent); }
 h2 { margin: 0; font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.15; letter-spacing: -0.01em; }
 .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; color: var(--text-dim); font-size: 0.92rem; }
 .synopsis { margin: 4px 0; max-width: 62ch; line-height: 1.6; }
 .st { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; font-size: 0.9rem; }
-.btns { display: flex; gap: 12px; margin-top: 8px; }
-.chip { padding: 3px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
-.chip.ready { color: #4cc38a; }
-.chip.processing { color: #e8b84a; }
-.chip.error { color: var(--danger); }
-.chip.seen { background: var(--accent); color: var(--accent-ink); }
+.btns { display: flex; gap: 16px; margin-top: 8px; }
+.badge { display: inline-flex; align-items: center; min-height: 0; height: 1.7em; padding: 0 0.85em; white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
+.badge.ready { color: #4cc38a; }
+.badge.processing { color: #e8b84a; }
+.badge.error { color: var(--danger); }
+.badge.seen { background: var(--accent); color: var(--accent-ink); }
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
 @media (max-width: 720px) {
   .scrim { align-items: end; padding: 0; }
-  .panel { max-height: 94vh; border-radius: 18px 18px 0 0; }
+  .panel { max-height: 92vh; border-radius: 18px 18px 0 0; }
 }
 </style>

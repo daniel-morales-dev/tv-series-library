@@ -87,8 +87,12 @@ async function removeContinue(titleId: number) {
 .rows { --card-w: clamp(128px, 13.5vw, 230px); position: relative; z-index: 2; padding-bottom: 80px; }
 .rows.over { margin-top: clamp(-90px, -9vh, -40px); }
 .cont { --cc-w: clamp(250px, 24vw, 410px); }
+@media (min-width: 1600px) {
+  .rows { --card-w: 15vw; }
+  .cont { --cc-w: 26vw; }
+}
 @media (max-width: 720px) {
-  .rows { --card-w: 122px; }
+  .rows { --card-w: 132px; }
   .rows.over { margin-top: -8px; }
   .cont { --cc-w: 72vw; }
 }

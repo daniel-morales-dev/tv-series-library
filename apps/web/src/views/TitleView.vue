@@ -132,9 +132,10 @@ async function closeEpisode() {
         <LangLine :langs="langs" class="hero-langs" />
         <p v-if="detail.overview" class="overview">{{ detail.overview }}</p>
         <div class="btns">
-          <RouterLink v-if="plan" class="pill primary" :to="watchTo(plan.fileId)"><Icon name="play" /> {{ plan.label }}</RouterLink>
+          <RouterLink v-if="plan" class="pill primary" data-autofocus :to="watchTo(plan.fileId)"><Icon name="play" /> {{ plan.label }}</RouterLink>
           <button
             class="round"
+            data-autofocus
             :class="{ on: listed }"
             :aria-label="listed ? 'Quitar de Mi lista' : 'Agregar a Mi lista'"
             :aria-pressed="listed"
@@ -191,8 +192,8 @@ async function closeEpisode() {
               <span v-if="r.overview" class="syn">{{ r.overview }}</span>
               <span class="foot">
                 <LangLine v-if="r.file" :langs="fileLanguages(r.file)" class="muted" />
-                <span v-if="status(r.file)" class="chip" :class="status(r.file)!.kind">{{ status(r.file)!.label }}</span>
-                <span v-else class="chip queued">sin archivo</span>
+                <span v-if="status(r.file)" class="badge" :class="status(r.file)!.kind">{{ status(r.file)!.label }}</span>
+                <span v-else class="badge queued">sin archivo</span>
                 <span v-if="episodeAction(r) === 'resume'" class="muted left">{{ remainingLabel(r.progress!.positionS, r.progress!.durationS) }}</span>
               </span>
             </button>
@@ -208,7 +209,7 @@ async function closeEpisode() {
               <Icon name="play" :size="22" />
               <span class="x-name">{{ f.extraLabel }}</span>
               <span class="x-sub">{{ runtimeLabel(null, f.durationS) ?? '' }}</span>
-              <span class="chip" :class="status(f)!.kind">{{ status(f)!.label }}</span>
+              <span class="badge" :class="status(f)!.kind">{{ status(f)!.label }}</span>
             </RouterLink>
           </li>
         </ul>
@@ -261,7 +262,7 @@ async function closeEpisode() {
   margin: 0; max-width: 60ch; font-size: clamp(0.95rem, 1.2vw, 1.05rem); line-height: 1.5; color: #e9e9f2;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
 }
-.btns { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 6px; }
+.btns { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 6px; }
 .pill:disabled { opacity: 0.6; cursor: default; }
 
 .content { position: relative; z-index: 2; padding: 0 var(--gutter) 80px; max-width: 1500px; margin: 0 auto; }
@@ -295,10 +296,10 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .syn { color: var(--text-dim); font-size: 0.92rem; line-height: 1.5; max-width: 80ch; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
 .left { font-size: 0.85rem; }
-.chip { padding: 2px 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
-.chip.ready { color: #4cc38a; }
-.chip.processing { color: #e8b84a; }
-.chip.error { color: var(--danger); }
+.badge { display: inline-flex; align-items: center; min-height: 0; height: 1.7em; padding: 0 0.85em; white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
+.badge.ready { color: #4cc38a; }
+.badge.processing { color: #e8b84a; }
+.badge.error { color: var(--danger); }
 
 .extras { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 .extra { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 2px 10px; padding: 10px 14px; border-radius: 12px; background: var(--bg-card); }
@@ -306,7 +307,7 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .extra > :first-child { grid-row: span 2; color: var(--accent); }
 .x-name { font-weight: 600; }
 .x-sub { grid-column: 2; font-size: 0.8rem; color: var(--text-dim); }
-.extra .chip { grid-row: span 2; grid-column: 3; }
+.extra .badge { grid-row: span 2; grid-column: 3; }
 
 .cast { margin: 0; padding: 0 0 6px; list-style: none; display: flex; gap: 20px; overflow-x: auto; scrollbar-width: thin; }
 .cast li { flex: none; width: 110px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; }

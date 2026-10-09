@@ -11,7 +11,7 @@ const art = props.title.backdropPath ?? props.title.posterPath;
 
 <template>
   <article class="lc">
-    <RouterLink :to="`/title/${title.id}`" class="thumb" :aria-label="title.title">
+    <RouterLink :to="`/title/${title.id}`" class="thumb" draggable="false" :aria-label="title.title">
       <img v-if="art" :src="imageUrl(art)" alt="" loading="lazy" draggable="false" :class="{ poster: !title.backdropPath }" />
       <span v-else class="fallback">{{ title.title }}</span>
     </RouterLink>

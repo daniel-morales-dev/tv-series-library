@@ -1,3 +1,4 @@
+import { languageName } from './languages.ts';
 import type { SubtitleTrack, TitleDetail, WatchProgress } from './types.ts';
 
 /** Seconds to start from: the saved spot unless finished or barely started. */
@@ -11,7 +12,13 @@ export function defaultSubtitle(tracks: SubtitleTrack[]): number {
   return tracks.findIndex((t) => t.supported && /^(es|spa)/i.test(t.language ?? ''));
 }
 
-export const subtitleLabel = (t: SubtitleTrack, i: number): string => t.title || t.language || `Subtítulo ${i + 1}`;
+/** "Inglés", or "Inglés · Forced" when the track title says more than the language itself. */
+export function subtitleLabel(t: SubtitleTrack, i: number): string {
+  const lang = languageName(t.language);
+  if (lang === 'Desconocido') return t.title || `Subtítulo ${i + 1}`;
+  const plain = [lang, t.language, new Intl.DisplayNames(['en'], { type: 'language' }).of(t.language!)].map((x) => x?.toLowerCase());
+  return t.title && !plain.includes(t.title.toLowerCase()) ? `${lang} · ${t.title}` : lang;
+}
 
 /** Next episode with a file, in season → episode order. Extras and unknown files have none. */
 export function nextFile(detail: TitleDetail, fileId: number): { fileId: number; name: string } | null {

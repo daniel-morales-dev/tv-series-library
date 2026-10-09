@@ -9,7 +9,7 @@
   --text: #f3f3f8;
   --text-dim: #a4a4b5;
   --danger: #ff7b7b;
-  --focus: #ffffff;
+  --focus: var(--accent);
   --header-solid: rgba(11, 11, 15, 0.94);
   --shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
   --radius: 14px;
@@ -28,7 +28,6 @@
   --text: #16141f;
   --text-dim: #5d5a70;
   --danger: #c93636;
-  --focus: #16141f;
   --header-solid: rgba(244, 243, 248, 0.94);
   --shadow: 0 14px 34px rgba(30, 20, 70, 0.18);
   color-scheme: light;
@@ -36,7 +35,11 @@
 
 * { box-sizing: border-box; }
 html { font-size: 18px; }
-@media (min-width: 1600px) { html { font-size: 22px; } }
+/* TV / 1080p+: bigger type for 3 m viewing and ~5% safe area so nothing touches the screen edges. */
+@media (min-width: 1600px) {
+  html { font-size: 22px; }
+  :root { --gutter: 5vw; --header-h: 88px; }
+}
 body {
   margin: 0;
   background: var(--bg);
@@ -60,7 +63,10 @@ img { display: block; }
 .btn:hover, button:hover { background: var(--bg-card); }
 input { min-height: 56px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-raised); color: inherit; font: inherit; }
 
+/* Focus must read from the couch: thick accent ring (only cards scale, buttons never do) and room above so the fixed header never covers it. */
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+a[href], button, input, select, [tabindex] { scroll-margin: calc(var(--header-h) + 32px) 48px 56px; }
+input:focus-visible { outline-offset: 2px; }
 
 /* New design system */
 .page { padding: calc(var(--header-h) + 28px) var(--gutter) 80px; max-width: 1800px; margin: 0 auto; }
@@ -97,6 +103,7 @@ input { min-height: 56px; padding: 0 16px; border-radius: 10px; border: 1px soli
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; scroll-behavior: auto !important; }
 }
 @media (max-width: 720px) { :root { --header-h: 108px; } }
+@media (max-width: 600px) { :root { --header-h: 64px; } body:has(.tabbar) { padding-bottom: calc(60px + env(safe-area-inset-bottom)); } }
 
 /* Listing pages (Mi lista, browse, search) */
 .page-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; margin-bottom: 18px; }
@@ -117,9 +124,10 @@ input { min-height: 56px; padding: 0 16px; border-radius: 10px; border: 1px soli
   font: inherit; font-size: 0.95rem; appearance: none; cursor: pointer;
 }
 .field:hover { background-color: var(--bg-hover); }
-.poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(120px, 14vw, 220px), 1fr)); gap: 28px 18px; margin: 0; padding: 8px 0 0; list-style: none; }
+.poster-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(120px, 14vw, 12.5rem), 1fr)); gap: 28px 18px; margin: 0; padding: 8px 0 0; list-style: none; }
 .state p { max-width: 46ch; margin: 0 auto 22px; }
 @media (max-width: 720px) {
   .toolbar .field { flex: 1 1 140px; min-width: 0; }
   .page-head { margin-bottom: 12px; }
 }
+@media (min-width: 1600px) { .page { max-width: none; } }

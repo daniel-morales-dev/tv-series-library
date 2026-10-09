@@ -93,5 +93,5 @@ async function remove(t: TitleSummary) {
 
 <style scoped>
 .state { padding: 10vh 0; }
-.list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(250px, 22vw, 400px), 1fr)); gap: 30px 22px; margin: 0; padding: 0; list-style: none; }
+.list-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(250px, 22vw, 22rem), 1fr)); gap: 30px 22px; margin: 0; padding: 0; list-style: none; }
 </style>

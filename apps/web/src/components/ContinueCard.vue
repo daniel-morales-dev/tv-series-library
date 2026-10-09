@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { imageUrl } from '../api.ts';
 import { popoverPosition } from '../popover.ts';
+import { isBackKey } from '../spatial.ts';
 import { episodeLabel, progressPct, remainingLabel } from '../library.ts';
 import type { ContinueItem } from '../types.ts';
 import Icon from './Icon.vue';
@@ -26,7 +27,8 @@ const onDown = (e: Event) => {
   if (!menuEl.value?.contains(t) && !dotsBtn.value?.contains(t)) close();
 };
 const onKey = (e: Event) => {
-  if ((e as KeyboardEvent).key !== 'Escape') return;
+  if (!isBackKey(e as KeyboardEvent)) return;
+  e.preventDefault();
   close();
   dotsBtn.value?.focus();
 };
@@ -57,7 +59,7 @@ const image = computed(() => props.item.stillPath ?? props.item.title.backdropPa
 
 <template>
   <article class="cc">
-    <RouterLink :to="to" class="thumb" :aria-label="`Continuar ${item.title.title}`">
+    <RouterLink :to="to" class="thumb" draggable="false" :aria-label="`Continuar ${item.title.title}`">
       <img v-if="image" :src="imageUrl(image)" alt="" loading="lazy" draggable="false" />
       <span v-if="left" class="left">{{ left }}</span>
       <span class="play"><Icon name="play" :size="30" /></span>
@@ -102,7 +104,7 @@ const image = computed(() => props.item.stillPath ?? props.item.title.backdropPa
   background: rgba(8, 8, 12, 0.82); color: #fff; font-size: 0.78rem; font-weight: 600;
 }
 .play {
-  position: absolute; inset: 0; display: grid; place-items: center; color: #fff;
+  position: absolute; inset: 0; pointer-events: none; display: grid; place-items: center; color: #fff;
   background: rgba(8, 8, 12, 0.45); opacity: 0; transition: opacity 0.15s;
 }
 .play :deep(svg) { padding: 12px; box-sizing: content-box; border-radius: 50%; border: 2px solid #fff; }

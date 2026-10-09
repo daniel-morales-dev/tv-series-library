@@ -12,12 +12,12 @@ import Icon from './Icon.vue';
 const route = useRoute();
 const router = useRouter();
 
-const nav = [
-  { label: 'Inicio', to: '/browse', exact: true },
-  { label: 'Series', to: '/browse/series' },
-  { label: 'Películas', to: '/browse/movies' },
-  { label: 'Anime', to: '/browse/anime' },
-  { label: 'Mi lista', to: '/my-list' },
+const nav: { label: string; to: string; icon: 'home' | 'tv' | 'film' | 'star' | 'bookmark'; exact?: boolean }[] = [
+  { label: 'Inicio', to: '/browse', icon: 'home', exact: true },
+  { label: 'Series', to: '/browse/series', icon: 'tv' },
+  { label: 'Películas', to: '/browse/movies', icon: 'film' },
+  { label: 'Anime', to: '/browse/anime', icon: 'star' },
+  { label: 'Mi lista', to: '/my-list', icon: 'bookmark' },
 ];
 const isOn = (n: (typeof nav)[number]) => (n.exact ? route.path === n.to : route.path.startsWith(n.to));
 
@@ -32,7 +32,11 @@ const searchRoot = ref<HTMLElement | null>(null);
 const input = ref<HTMLInputElement | null>(null);
 let debounce: ReturnType<typeof setTimeout> | undefined;
 let ticket = 0;
-useDismiss(searchRoot, closeSearch);
+useDismiss(searchRoot, () => {
+  const was = searchOpen.value;
+  closeSearch();
+  return was;
+});
 
 function closeSearch() {
   searchOpen.value = false;
@@ -83,7 +87,11 @@ function pick(s: Suggestion) {
 // Profile menu
 const menuOpen = ref(false);
 const menuRoot = ref<HTMLElement | null>(null);
-useDismiss(menuRoot, () => (menuOpen.value = false));
+useDismiss(menuRoot, () => {
+  const was = menuOpen.value;
+  menuOpen.value = false;
+  return was;
+});
 
 onMounted(() => {
   ensureProfile();
@@ -121,7 +129,7 @@ watch(() => route.fullPath, () => (menuOpen.value = false));
         aria-label="Buscar"
         @keydown.enter="submit"
       />
-      <ul v-if="searchOpen && suggestions.length" class="sug">
+      <ul v-if="searchOpen && suggestions.length" class="sug" data-suggestions>
         <li v-for="s in suggestions" :key="`${s.type}${s.id}`">
           <button @click="pick(s)">
             <span>{{ s.label }}</span>
@@ -144,6 +152,13 @@ watch(() => route.fullPath, () => (menuOpen.value = false));
       </div>
     </div>
   </header>
+
+  <nav class="tabbar" aria-label="Secciones">
+    <RouterLink v-for="n in nav" :key="n.to" :to="n.to" :class="{ on: isOn(n) }" :aria-current="isOn(n) ? 'page' : undefined">
+      <Icon :name="n.icon" :size="24" />
+      <span>{{ n.label }}</span>
+    </RouterLink>
+  </nav>
 </template>
 
 <style scoped>
@@ -190,6 +205,9 @@ watch(() => route.fullPath, () => (menuOpen.value = false));
 }
 .menu a:hover, .menu button:hover, .menu a:focus-visible, .menu button:focus-visible { background: var(--bg-hover); }
 
+.tabbar { display: none; }
+.top :focus-visible { outline-offset: 2px; }
+
 @media (max-width: 720px) {
   .top { flex-wrap: wrap; align-content: center; gap: 0 12px; padding-top: 6px; background: linear-gradient(rgba(6, 6, 10, 0.9), rgba(6, 6, 10, 0.4)); }
   .top.solid { background: var(--header-solid); }
@@ -199,5 +217,22 @@ watch(() => route.fullPath, () => (menuOpen.value = false));
   .search.open { position: static; }
   .search.open .sug { right: var(--gutter); }
   .search.open input { position: absolute; left: var(--gutter); right: calc(var(--gutter) + 100px); top: 8px; width: auto; }
+}
+/* Phones: the sections move to a bottom tab bar (thumb reach, nothing clips); the header keeps logo, search and profile. */
+@media (max-width: 600px) {
+  .top { flex-wrap: nowrap; padding-top: 0; background: linear-gradient(rgba(6, 6, 10, 0.85), transparent); }
+  .top.solid { background: var(--header-solid); }
+  .nav { display: none; }
+  .search.open input { top: 10px; }
+  .tabbar {
+    position: fixed; inset: auto 0 0; z-index: 50; display: flex; padding-bottom: env(safe-area-inset-bottom);
+    background: var(--header-solid); backdrop-filter: blur(14px); box-shadow: 0 -1px 0 var(--line);
+  }
+  .tabbar a {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    min-height: 60px; padding: 6px 2px; color: var(--text-dim); font-size: 0.68rem; font-weight: 600;
+  }
+  .tabbar a.on { color: var(--accent); }
+  .tabbar :focus-visible { outline-offset: -4px; }
 }
 </style>
