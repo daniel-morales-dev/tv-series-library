@@ -16,6 +16,7 @@ Reemplaza las pantallas temporales de T6b. Referencias del dueño: Netflix (estr
    - Filas horizontales: **Continuar viendo** (miniatura, barra de progreso, "Xm restantes", T·E y nombre del episodio, menú ⋮ → *Quitar de Continuar viendo*), **Mi lista**, **Agregados recientemente**, una fila por **género**.
    - Tarjeta: póster o backdrop; al enfocar/hover crece y muestra Reproducir, + Mi lista y Más info.
 4. **Título** (`/title/:id`): hero con backdrop, Reproducir/Continuar (siguiente episodio según el progreso), + Mi lista, marcar como terminado; selector de temporada; episodios con miniatura (`still`), duración, sinopsis, barra de progreso y estado de procesamiento; extras aparte; reparto.
+   - **Info del episodio** (pedido del dueño): clic en un episodio (o en su ⓘ) abre un panel/modal estilo Netflix/Crunchyroll con miniatura grande, "T1 · E3", nombre, sinopsis completa, fecha de emisión, duración, progreso ("Xm restantes" o "Visto") y estado de procesamiento, con botones **Reproducir / Continuar / Ver de nuevo**. El ▶ sobre la miniatura reproduce directo. Escape/Atrás cierra. Mismo panel desde la tarjeta de Continuar viendo ("Ir al episodio").
 5. **Mi lista** (`/my-list`): grilla como Crunchyroll, con quitar.
 6. **Series / Películas / Anime** (`/browse/:kind`): grilla con filtros de género, año y orden.
 7. **Búsqueda** (`/search?q=`): resultados en grilla.

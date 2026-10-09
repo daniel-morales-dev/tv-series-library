@@ -37,7 +37,7 @@
 - [ ] T5 Frontend (diseño: `docs/design/t5-frontend.md`): perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial — ruta: delegada (sonnet). Pedido del dueño 2026-10-09: ver la UI/UX antes de las pruebas en dispositivos (T6d va al final).
   - [ ] T5a Base: tokens, tema, layout, header con búsqueda, perfiles, rutas
   - [ ] T5b Inicio: hero, filas, tarjetas, Continuar viendo con quitar
-  - [ ] T5c Página de título
+  - [ ] T5c Página de título + panel de info del episodio (nombre, T·E, sinopsis, fecha de emisión, duración, progreso; pedido del dueño)
   - [ ] T5d Mi lista, Series/Películas/Anime con filtros, Búsqueda
   - [ ] T5e Navegación espacial TV y responsive fino
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
