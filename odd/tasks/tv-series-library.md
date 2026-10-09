@@ -60,7 +60,7 @@
   - Catálogo: `comingSoon: true` cuando el título no tiene archivos fuera de `downloading`. Web: insignia "Próximamente" en tarjetas y página de título; sin Reproducir; episodios en descarga con chip "descargando".
   - Fuera de alcance: fila propia "Próximamente" en Inicio; limpiar filas cuyo archivo desapareció sin reemplazo (es T9).
   - [x] T11a Backend: migración 004, registro `downloading`, promoción, mover/renombrar, `comingSoon`, 409 en play + tests (2d5afba; 176 tests, RED observado; migración probada en copia de la BD real: 34 archivos, progreso y jobs intactos, `foreign_key_check` vacío). Desvíos: `POST /process` también responde 409; `comingSoon` opcional en el tipo web (T11b lo vuelve obligatorio y ajusta fixtures); archivos no asignables y recientes consultan TMDB en cada reescaneo (~61 s) mientras sigan recientes. `migrate()` ahora apaga `foreign_keys` y verifica `foreign_key_check` antes del COMMIT. Revisión RDD (base `97f01ca`, riesgo medio, `slice_budget_reached`): omitida por el dueño; próxima base `2d5afba`.
-  - [ ] T11b Web: insignia, sin Reproducir, chip "descargando" + tests
+  - [x] T11b Web: insignia, sin Reproducir, chip "descargando" + tests (9b74a4d; 95 tests web, RED observado, build ok; sin probar en navegador; el 409 se muestra en el estado de error del player, no en toast)
   - [ ] T11c Verificación real con Frieren (antes y después de renombrar a `frieren`)
 - [ ] T10 Aleatorio (pedido del dueño): botón para reproducir un anime/episodio al azar de lo que hay guardado.
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
