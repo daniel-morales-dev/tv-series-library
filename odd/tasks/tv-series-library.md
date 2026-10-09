@@ -34,7 +34,12 @@
     - [x] T4d2 Migración 003 `jobs.priority`; `POST /api/media-files/:id/play`: si está listo responde `ready`; si no, encola con prioridad y **interrumpe** el job en curso (vuelve a la cola, reinicia de 0) para procesar este ya.
     - [x] T4d3 Bajo consumo: `os.setPriority(pid, 19)` al ffmpeg (sin `ionice`: con nice 19 el I/O baja a la menor prioridad best-effort), `-threads` de x264 por `FFMPEG_THREADS` (default 4), un job a la vez.
     - [x] T4d4 Verificación real: medir CPU/RAM y velocidad vs tiempo real con 4 hilos; reproducir mientras procesa.
-- [ ] T5 Frontend: perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial
+- [ ] T5 Frontend (diseño: `docs/design/t5-frontend.md`): perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial — ruta: delegada (sonnet). Pedido del dueño 2026-10-09: ver la UI/UX antes de las pruebas en dispositivos (T6d va al final).
+  - [ ] T5a Base: tokens, tema, layout, header con búsqueda, perfiles, rutas
+  - [ ] T5b Inicio: hero, filas, tarjetas, Continuar viendo con quitar
+  - [ ] T5c Página de título
+  - [ ] T5d Mi lista, Series/Películas/Anime con filtros, Búsqueda
+  - [ ] T5e Navegación espacial TV y responsive fino
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
   - [x] T6a Backend: archivos de cualquier estado en el detalle + servir `apps/web/dist` con fallback SPA + tests (pistas se guardan al terminar la extracción de subs, antes del video)
   - [x] T6b `apps/web` (Vue 3 + Vite + hls.js): andamiaje, cliente API, pantallas mínimas temporales (perfil, títulos, detalle)
@@ -85,8 +90,11 @@
 
 - Revisión RDD de T6c (base `beac387`, riesgo medio, `slice_budget_reached`): omitida por el dueño. Commit 3bd8e9d; próxima base `3bd8e9d`.
 
+- Prueba del dueño en PC: el player abre pero no arrancaba solo (`play()` antes de que hls.js leyera el manifiesto) → corregido en 06c20e4. El dueño rechazó las pantallas temporales: quiere la UI completa (T5) ya. Procesado: una sola vez por archivo (queda en `data/hls/<id>`).
+- Correr local: `npm run build -w apps/web` y `CONTENT_DIR=../../content DATA_DIR=../../data npm start -w apps/server` → http://localhost:8080.
+
 ## Siguiente paso
-T6d: reescanear `content/`, procesar al menos un episodio y probar en celular y TV por WiFi.
+T5a + T5b (base + inicio). Luego T5c–T5e. T6d (dispositivos) al final.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
