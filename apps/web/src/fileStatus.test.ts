@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { fileStatus, needsPolling } from './fileStatus.ts';
 import type { Job, MediaFile } from './types.ts';
 
-const file = (status: MediaFile['status']): MediaFile => ({ id: 1, status, episodeId: 1, extraLabel: null, durationS: null });
+const file = (status: MediaFile['status']): MediaFile => ({ id: 1, status, episodeId: 1, extraLabel: null, durationS: null, audioTracks: [], subtitleTracks: [] });
 const job = (status: Job['status'], progress = 0, error: string | null = null): Job => ({ id: 1, mediaFileId: 1, status, progress, error });
 
 describe('fileStatus', () => {

@@ -52,7 +52,7 @@ const extras = computed(() => detail.value?.files.filter((f) => f.extraLabel) ??
           <li v-for="e in s.episodes" :key="e.id">
             <span class="ep">{{ e.number }}. {{ e.name }}</span>
             <span v-if="!filesOf(e.id).length" class="muted">sin archivo</span>
-            <RouterLink v-for="f in filesOf(e.id)" :key="f.id" class="btn" :class="status(f).kind" :to="`/watch/${f.id}`">
+            <RouterLink v-for="f in filesOf(e.id)" :key="f.id" class="btn" :class="status(f).kind" :to="`/watch/${f.id}?title=${detail.id}`">
               {{ status(f).label }}<small v-if="status(f).detail"> · {{ status(f).detail }}</small>
             </RouterLink>
           </li>
@@ -64,7 +64,7 @@ const extras = computed(() => detail.value?.files.filter((f) => f.extraLabel) ??
         <ul>
           <li v-for="f in extras" :key="f.id">
             <span class="ep">{{ f.extraLabel }}</span>
-            <RouterLink class="btn" :class="status(f).kind" :to="`/watch/${f.id}`">
+            <RouterLink class="btn" :class="status(f).kind" :to="`/watch/${f.id}?title=${detail.id}`">
               {{ status(f).label }}<small v-if="status(f).detail"> · {{ status(f).detail }}</small>
             </RouterLink>
           </li>

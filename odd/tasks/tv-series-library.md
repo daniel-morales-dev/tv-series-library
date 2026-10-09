@@ -38,7 +38,7 @@
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
   - [x] T6a Backend: archivos de cualquier estado en el detalle + servir `apps/web/dist` con fallback SPA + tests (pistas se guardan al terminar la extracción de subs, antes del video)
   - [x] T6b `apps/web` (Vue 3 + Vite + hls.js): andamiaje, cliente API, pantallas mínimas temporales (perfil, títulos, detalle)
-  - [ ] T6c Player: play/espera, audio/subs, progreso, reanudar, siguiente episodio
+  - [x] T6c Player: play/espera, audio/subs, progreso, reanudar, siguiente episodio
   - [ ] T6d Verificación real: celular y TV por WiFi (archivo listo y en proceso)
 - [ ] T7 Empaquetado Linux: Docker Compose `restart: unless-stopped`, Docker habilitado en systemd, puerto abierto en firewall (ufw si aplica), URL + QR en Ajustes, **guía en español en el README: cómo correrlo en la laptop Linux y cómo entrar desde celular y TV** (decisión del dueño: la guía se escribe aquí, no antes)
 - [ ] T8 (diferido) Instalador Windows: Inno Setup con firewall y autoarranque
@@ -81,8 +81,10 @@
 
 - Revisión RDD de T6a+T6b (base `3b31963`, riesgo medio, `slice_budget_reached`): el dueño eligió **omitir esta vez**. Verificación: autoverificación del writer + re-ejecución del padre (163 tests server, 6 web, build y tsc). Commits 2eb9741, beac387; próxima base de revisión `beac387`.
 
+- T6c: 16 tests web, typecheck y build en verde (sin evidencia RED: tests y lógica se escribieron juntos). Ruta `/watch/:mediaFileId?title=<titleId>`. Pantalla completa sobre el contenedor (no el `<video>`) para que el menú y "Siguiente" sigan visibles; botón nativo oculto con `controlslist`. Riesgos a probar en T6d: autoplay bloqueado en iOS/TV, iOS sin menú de audio (HLS nativo), subtítulos asociados por posición, chunk de hls.js de 581 kB.
+
 ## Siguiente paso
-T6c Player en `apps/web/src/views/WatchView.vue`.
+T6d: reescanear `content/`, procesar al menos un episodio y probar en celular y TV por WiFi.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
