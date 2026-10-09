@@ -52,7 +52,16 @@
     - Iconos en vez de texto para audio/subtítulos y pantalla completa.
     - Velocidad de reproducción (0.5×–2×).
 - [ ] T9 Biblioteca en varias ubicaciones (pedido del dueño): contenido en el PC **y** en un HDD externo que se conecta y desconecta. Varias carpetas de contenido; si el disco no está, sus títulos aparecen como "no disponible" sin borrar progreso ni metadata, y vuelven al reconectar. Decidir dónde viven los HLS procesados (en el mismo disco o en `data/`).
-- [ ] T11 **Próximamente** (pedido del dueño 2026-10-09): listar series cuya carpeta existe pero sus videos aún se descargan (ffprobe falla / mtime reciente), con insignia "Próximamente" en vez de esconderlas. Caso real: `content/shows/[Cifer] Sousou no Frieren S1 [BD 1080p Opus]` descargando. Hoy la ingesta solo reintenta los archivos incompletos y el título no aparece. Diseño a decidir: crear el título con metadata TMDB al ver la carpeta + archivos en estado "descargando"; fila/insignia en Inicio; sin Reproducir hasta que haya un episodio listo. Ojo: el dueño renombrará la carpeta a "frieren" → las rutas de `media_files` cambian; verificar que el reescaneo reasocie sin duplicar el título ni perder progreso.
+- [x] T12 "Marcar como no visto" borra el progreso de cada episodio del título para ese perfil (decisión del dueño 2026-10-09) — ruta: delegada (haiku); 9c30ede, RED observado, 165 tests
+- [ ] T11 **Próximamente** (pedido del dueño 2026-10-09): listar series cuya carpeta existe pero sus videos aún se descargan (ffprobe falla / mtime reciente), con insignia "Próximamente" en vez de esconderlas. Caso real: `content/shows/[Cifer] Sousou no Frieren S1 [BD 1080p Opus]` descargando. El dueño renombrará la carpeta a "frieren" → el reescaneo debe reasociar sin duplicar el título ni perder progreso. Ruta: delegada (sonnet). Diseño:
+  - Archivo en descarga = fila en `media_files` con estado nuevo `downloading` (sin datos de ffprobe; episodio asignado desde el nombre). Migración 004 reconstruye `media_files` para ampliar el `CHECK`. Al ingerir, un archivo reciente o ilegible para ffprobe que se pueda asignar (carpeta → TMDB, número de episodio) se registra como `downloading` en vez de solo esperar. Sin asignación (no parseable / sin match) sigue como hoy: esperar.
+  - Cada escaneo revisa las filas `downloading`: si ya pasan mtime + ffprobe → se completan (duración, pistas), pasan a `pending` y se encolan. Nunca se encola un `downloading`; `POST /play` sobre uno responde 409.
+  - **Mover/renombrar:** un archivo nuevo cuyo nombre base y tamaño coinciden con una fila cuya ruta ya no existe en disco **es esa fila**: se actualiza `path` (conserva id, HLS, progreso). La carpeta nueva hereda `source_dirs` (título y temporada) de la vieja, sin consultar TMDB. Vale para cualquier estado, no solo `downloading` (los clientes torrent preasignan el tamaño final, así que coincide).
+  - Catálogo: `comingSoon: true` cuando el título no tiene archivos fuera de `downloading`. Web: insignia "Próximamente" en tarjetas y página de título; sin Reproducir; episodios en descarga con chip "descargando".
+  - Fuera de alcance: fila propia "Próximamente" en Inicio; limpiar filas cuyo archivo desapareció sin reemplazo (es T9).
+  - [ ] T11a Backend: migración 004, registro `downloading`, promoción, mover/renombrar, `comingSoon`, 409 en play + tests
+  - [ ] T11b Web: insignia, sin Reproducir, chip "descargando" + tests
+  - [ ] T11c Verificación real con Frieren (antes y después de renombrar a `frieren`)
 - [ ] T10 Aleatorio (pedido del dueño): botón para reproducir un anime/episodio al azar de lo que hay guardado.
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
   - [x] T6a Backend: archivos de cualquier estado en el detalle + servir `apps/web/dist` con fallback SPA + tests (pistas se guardan al terminar la extracción de subs, antes del video)
@@ -117,7 +126,7 @@ T5 cerrada (97f01ca). Orden propuesto, **sin empezar ninguna**:
 3. **T10 Aleatorio** (pequeña).
 4. **T6d** prueba en celular y TV, luego **T7** empaquetado Linux.
 Cómo trabajar (orden del dueño): el padre (Opus) solo diseña, coordina, revisa y hace commits; implementación delegada a **Sonnet 5.5**, tareas mecánicas a **Haiku 5.5**. Commits como Daniel Morales <mralejo99@gmail.com>, **sin** `Co-Authored-By`. Cada tramo: el dueño ha elegido omitir la revisión RDD; preguntar igual con el sobre de consentimiento antes de lanzar el siguiente writer. Writers sin comandos git.
-Decisiones pendientes del dueño: nombre de la app (hoy "sala"); "Marcar como no visto" (hoy no borra `completed` por episodio). Por confirmar: clic en miniatura de Continuar viendo (no se reprodujo en CDP; cambio defensivo aplicado).
+Nombre de la app: queda "sala" por ahora (dueño 2026-10-09). Por confirmar: clic en miniatura de Continuar viendo (no se reprodujo en CDP; cambio defensivo aplicado).
 Correr local: `npm run build -w apps/web` y `CONTENT_DIR=../../content DATA_DIR=../../data npm start -w apps/server` → http://localhost:8080.
 
 ## Hito mínimo (MVP Linux)
