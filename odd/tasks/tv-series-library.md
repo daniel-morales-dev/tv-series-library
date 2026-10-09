@@ -11,6 +11,7 @@
 - Sin módulos nativos de Node (instalador Windows): `node:sqlite`.
 - `content/`, `data/`, `.env` y `*.torrent` fuera de git.
 - No exigir renombrar archivos (rompe el seeding).
+- Offline-first: TMDB solo al importar; todo (metadata, imágenes, fuentes, JS) servido localmente.
 
 ## Tareas
 - [x] T1 Fundación: rama, `.gitignore`, `.env.example`, glosario, ADRs 0001–0004, README — ruta: inline
@@ -33,4 +34,4 @@
 T2 Backend core: monorepo `apps/server` (Fastify + `node:sqlite`) y `apps/web` (Vue 3 + Vite). Empezar por esquema + migraciones + API de perfiles con tests.
 
 ## Hito mínimo (MVP Linux)
-T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular por WiFi.
+T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.

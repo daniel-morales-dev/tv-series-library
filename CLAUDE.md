@@ -15,6 +15,7 @@ Windows (instalador `.exe`, ADR 0003) queda **diferido**: no invertir en él has
 - Sin módulos nativos de Node: usar `node:sqlite`.
 - Cambio pequeño y probado por tarea; tests con vitest.
 - Nunca subir `.env`, `content/`, `data/` ni `*.torrent` (ya están en `.gitignore`).
+- **Offline-first:** internet solo se usa al importar (TMDB). Metadata e imágenes se guardan en SQLite y `data/`. El frontend no carga nada de CDNs (fuentes, iconos y scripts van empaquetados). Sin internet en la importación, el archivo queda reproducible con el título del nombre del archivo y la metadata se reintenta luego.
 - Nunca imprimir ni copiar el token de TMDB en logs, commits o chat.
 
 ## Datos del entorno
