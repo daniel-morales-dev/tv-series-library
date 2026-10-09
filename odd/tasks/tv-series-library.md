@@ -40,7 +40,19 @@
   - [x] T5c Página de título + panel de info del episodio (nombre, T·E, sinopsis, fecha de emisión, duración, progreso; pedido del dueño)
     - Pedidos del dueño tras ver T5b: menú ⋮ de Continuar viendo se recorta dentro de la fila (obliga a scroll horizontal y tapa el nombre del episodio) → sacarlo de la fila; más detalle en los episodios; mostrar **idioma** de audio y subtítulos por título y por episodio (p. ej. Monogatari descargado en inglés).
   - [x] T5d Mi lista, Series/Películas/Anime con filtros, Búsqueda (4fa861b; 73 tests web; revisión omitida, próxima base `4fa861b`)
-  - [ ] T5e Navegación espacial TV y responsive fino
+  - [ ] T5e Navegación espacial TV y responsive fino (parcial sin commit: `spatial.ts` + 84 tests; el agente se cortó por límite de sesión)
+  - [ ] T5f Pulido pedido por el dueño (2026-10-09):
+    - Chips de estado (en cola / procesando / listo): texto no centrado en el óvalo.
+    - Móvil: carátulas estiradas e iconos apretados en las tarjetas.
+    - Favicon.
+    - Clic en la miniatura de Continuar viendo (fuera del ▶) no hace nada.
+    - Panel de episodio: scroll vertical aunque el contenido cabe; solo debe haber scroll si la sinopsis es larga.
+  - [ ] T5g Player:
+    - Clic sobre el video pausa/reanuda.
+    - Iconos en vez de texto para audio/subtítulos y pantalla completa.
+    - Velocidad de reproducción (0.5×–2×).
+- [ ] T9 Biblioteca en varias ubicaciones (pedido del dueño): contenido en el PC **y** en un HDD externo que se conecta y desconecta. Varias carpetas de contenido; si el disco no está, sus títulos aparecen como "no disponible" sin borrar progreso ni metadata, y vuelven al reconectar. Decidir dónde viven los HLS procesados (en el mismo disco o en `data/`).
+- [ ] T10 Aleatorio (pedido del dueño): botón para reproducir un anime/episodio al azar de lo que hay guardado.
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
   - [x] T6a Backend: archivos de cualquier estado en el detalle + servir `apps/web/dist` con fallback SPA + tests (pistas se guardan al terminar la extracción de subs, antes del video)
   - [x] T6b `apps/web` (Vue 3 + Vite + hls.js): andamiaje, cliente API, pantallas mínimas temporales (perfil, títulos, detalle)
