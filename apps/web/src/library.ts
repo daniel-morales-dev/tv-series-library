@@ -68,7 +68,7 @@ interface PlayableDetail {
 
 /** File to start a title from: first ready episode (or movie file); otherwise the first file of any state. */
 export function firstFileId(d: PlayableDetail): number | null {
-  const main = d.files.filter((f) => !f.extraLabel);
+  const main = d.files.filter((f) => !f.extraLabel && f.status !== 'downloading');
   const ordered = d.seasons
     .flatMap((s) => [...s.episodes].sort((a, b) => a.number - b.number))
     .flatMap((e) => main.filter((f) => f.episodeId === e.id));

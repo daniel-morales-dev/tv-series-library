@@ -2,7 +2,13 @@ import type { ContinueItem, Job, Profile, Suggestion, TitleDetail, TitleSummary 
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, init);
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) {
+    if (res.status === 409) {
+      const body = await res.json().catch(() => null);
+      if (body?.error === 'downloading') throw new Error('downloading');
+    }
+    throw new Error(`${res.status}`);
+  }
   return res.status === 204 ? (undefined as T) : res.json();
 }
 
@@ -29,6 +35,11 @@ export const api = {
   jobs: () => request<Job[]>('/jobs'),
   play: (mediaFileId: number) => request<{ status: 'ready' | 'processing' }>(`/media-files/${mediaFileId}/play`, { method: 'POST' }),
 };
+
+export function playErrorMessage(e: unknown): string {
+  if (!(e instanceof Error) || e.message === '404') return 'No se pudo cargar el video.';
+  return e.message === 'downloading' ? 'Este episodio aún se está descargando.' : `No se pudo preparar el video (${e.message}).`;
+}
 
 export function saveProgress(profileId: number, mediaFileId: number, positionS: number, durationS: number): void {
   fetch(`/api/profiles/${profileId}/progress`, {

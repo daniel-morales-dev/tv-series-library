@@ -2,7 +2,7 @@
 import Hls from 'hls.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, getProfileId, saveProgress, streamUrl } from '../api.ts';
+import { api, getProfileId, playErrorMessage, saveProgress, streamUrl } from '../api.ts';
 import { isBackKey } from '../spatial.ts';
 import { languageName } from '../languages.ts';
 import { defaultSubtitle, nextFile, resumePosition, subtitleLabel } from '../player.ts';
@@ -113,7 +113,7 @@ async function start() {
     subIndex.value = defaultSubtitle(subs.value);
     applySubtitle();
   } catch (e) {
-    if (run === mine) fail(e instanceof Error && e.message !== '404' ? `No se pudo preparar el video (${e.message}).` : 'No se pudo cargar el video.');
+    if (run === mine) fail(playErrorMessage(e));
   }
 }
 

@@ -15,7 +15,7 @@ import type { ContinueItem, TitleSummary } from './types.ts';
 
 const t = (id: number, over: Partial<TitleSummary> = {}): TitleSummary => ({
   id, kind: 'series', title: `T${id}`, originalTitle: null, overview: null, year: 2020, runtimeMin: null,
-  rating: null, genres: [], posterPath: null, backdropPath: `w1280/${id}.jpg`, logoPath: null, ...over,
+  rating: null, genres: [], posterPath: null, backdropPath: `w1280/${id}.jpg`, logoPath: null, comingSoon: false, ...over,
 });
 const cont = (title: TitleSummary): ContinueItem => ({
   title, mediaFileId: title.id * 10, positionS: 100, durationS: 1000, season: 1, episode: 2, episodeName: 'x', episodeId: 2, stillPath: null, updatedAt: '',

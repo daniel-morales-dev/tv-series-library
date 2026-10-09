@@ -28,6 +28,9 @@ export function buildEpisodes(d: TitleDetail): SeasonRows[] {
     }));
 }
 
+/** A downloading file has no video yet; the server answers 409 if it is played. */
+export const isPlayable = (f: MediaFile | null): f is MediaFile => !!f && f.status !== 'downloading';
+
 export type PlayAction = 'play' | 'resume' | 'rewatch';
 export const ACTION_LABEL: Record<PlayAction, string> = { play: 'Reproducir', resume: 'Continuar', rewatch: 'Ver de nuevo' };
 
@@ -47,9 +50,10 @@ export interface PlayPlan {
 
 /** What the title's main button does: first unfinished episode, or the first one again when all are done. */
 export function playPlan(d: TitleDetail): PlayPlan | null {
-  const rows = buildEpisodes(d).flatMap((s) => s.rows).filter((r) => r.file);
+  if (d.comingSoon) return null;
+  const rows = buildEpisodes(d).flatMap((s) => s.rows).filter((r) => isPlayable(r.file));
   if (!rows.length) {
-    const f = d.files.find((x) => !x.extraLabel && x.episodeId === null);
+    const f = d.files.find((x) => !x.extraLabel && x.episodeId === null && isPlayable(x));
     if (!f) return null;
     const action = progressAction(d.progress?.find((p) => p.mediaFileId === f.id));
     return { fileId: f.id, action, label: action === 'resume' ? 'Continuar' : ACTION_LABEL[action] };

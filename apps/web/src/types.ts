@@ -17,7 +17,7 @@ export interface TitleSummary {
   posterPath: string | null;
   backdropPath: string | null;
   logoPath: string | null;
-  comingSoon?: boolean;
+  comingSoon: boolean;
 }
 
 export interface ContinueItem {
@@ -39,7 +39,7 @@ export interface Suggestion {
   label: string;
 }
 
-export type FileState = 'pending' | 'processing' | 'ready' | 'error';
+export type FileState = 'pending' | 'downloading' | 'processing' | 'ready' | 'error';
 
 export interface AudioTrack {
   index: number;

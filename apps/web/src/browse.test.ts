@@ -4,7 +4,7 @@ import type { TitleSummary } from './types.ts';
 
 const t = (id: number, over: Partial<TitleSummary> = {}): TitleSummary => ({
   id, kind: 'anime', title: `T${id}`, originalTitle: null, overview: null, year: 2020, runtimeMin: null,
-  rating: null, genres: [], posterPath: null, backdropPath: null, logoPath: null, ...over,
+  rating: null, genres: [], posterPath: null, backdropPath: null, logoPath: null, comingSoon: false, ...over,
 });
 
 describe('parseFilters / filtersToQuery', () => {

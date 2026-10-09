@@ -14,6 +14,7 @@ const art = props.title.backdropPath ?? props.title.posterPath;
     <RouterLink :to="`/title/${title.id}`" class="thumb" draggable="false" :aria-label="title.title">
       <img v-if="art" :src="imageUrl(art)" alt="" loading="lazy" draggable="false" :class="{ poster: !title.backdropPath }" />
       <span v-else class="fallback">{{ title.title }}</span>
+      <span v-if="title.comingSoon" class="soon tag">Próximamente</span>
     </RouterLink>
     <div class="info">
       <div class="text">
@@ -36,6 +37,7 @@ const art = props.title.backdropPath ?? props.title.posterPath;
 .thumb img.poster { object-position: 50% 22%; }
 .thumb:hover { transform: scale(1.03); box-shadow: var(--shadow); }
 .thumb:focus-visible { outline-offset: 3px; }
+.tag { position: absolute; left: 8px; top: 8px; }
 .fallback { display: grid; place-items: center; height: 100%; padding: 12px; text-align: center; font-weight: 700; background: linear-gradient(160deg, var(--bg-hover), var(--bg-card)); }
 .info { display: flex; align-items: flex-start; gap: 8px; margin-top: 12px; }
 .text { flex: 1; min-width: 0; }

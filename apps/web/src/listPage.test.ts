@@ -4,7 +4,7 @@ import type { TitleDetail, TitleSummary } from './types.ts';
 
 const s = (id: number, over: Partial<TitleSummary> = {}): TitleSummary => ({
   id, kind: 'anime', title: `T${id}`, originalTitle: null, overview: null, year: 2020, runtimeMin: null,
-  rating: null, genres: [], posterPath: null, backdropPath: null, logoPath: null, ...over,
+  rating: null, genres: [], posterPath: null, backdropPath: null, logoPath: null, comingSoon: false, ...over,
 });
 const file = (id: number, episodeId: number | null) => ({ id, status: 'ready' as const, episodeId, extraLabel: null, durationS: 100, audioTracks: [], subtitleTracks: [] });
 const ep = (id: number, number: number) => ({ id, number, name: null, overview: null, runtimeMin: null, stillPath: null, airDate: null });

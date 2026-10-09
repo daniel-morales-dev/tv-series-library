@@ -19,12 +19,13 @@ const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].fil
     <RouterLink :to="`/title/${title.id}`" draggable="false" class="cover" :aria-label="title.title">
       <img v-if="title.posterPath" :src="imageUrl(title.posterPath)" :alt="title.title" loading="lazy" draggable="false" />
       <span v-else class="fallback">{{ title.title }}</span>
+      <span v-if="title.comingSoon" class="soon tag">Próximamente</span>
     </RouterLink>
     <div class="over">
       <p class="name">{{ title.title }}</p>
       <p class="meta">{{ meta }}</p>
       <div class="acts" data-spatial-skip>
-        <button class="round fill" aria-label="Reproducir" @click="playTitle(router, title.id)"><Icon name="play" /></button>
+        <button v-if="!title.comingSoon" class="round fill" aria-label="Reproducir" @click="playTitle(router, title.id)"><Icon name="play" /></button>
         <button
           class="round"
           :class="{ on: listed }"
@@ -47,6 +48,7 @@ const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].fil
 }
 .cover { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; }
 .cover img { width: 100%; height: 100%; object-fit: cover; }
+.tag { position: absolute; left: 8px; top: 8px; }
 .fallback {
   display: grid; place-items: center; height: 100%; padding: 12px; text-align: center; font-weight: 700;
   background: linear-gradient(160deg, var(--bg-hover), var(--bg-card));

@@ -61,15 +61,16 @@ function play(p: HeroPick) {
       <div class="copy">
         <img v-if="p.title.logoPath" class="logo" :src="imageUrl(p.title.logoPath)" :alt="p.title.title" />
         <h1 v-else class="name">{{ p.title.title }}</h1>
+        <span v-if="p.title.comingSoon" class="soon">Próximamente</span>
         <ul class="meta">
           <li v-for="m in meta(p)" :key="m">{{ m }}</li>
         </ul>
         <p v-if="p.title.overview" class="overview">{{ p.title.overview }}</p>
         <div class="btns">
-          <button class="pill primary" data-autofocus @click="play(p)">
+          <button v-if="!p.title.comingSoon" class="pill primary" data-autofocus @click="play(p)">
             <Icon name="play" /> {{ p.resume ? 'Continuar' : 'Reproducir' }}
           </button>
-          <RouterLink class="pill glass" :to="`/title/${p.title.id}`"><Icon name="info" /> Más info</RouterLink>
+          <RouterLink class="pill glass" :to="`/title/${p.title.id}`" :data-autofocus="p.title.comingSoon || undefined"><Icon name="info" /> Más info</RouterLink>
         </div>
       </div>
     </div>

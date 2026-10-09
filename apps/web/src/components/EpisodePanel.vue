@@ -5,7 +5,7 @@ import type { FileStatus } from '../fileStatus.ts';
 import { fileLanguages } from '../languages.ts';
 import { remainingLabel } from '../library.ts';
 import { isBackKey } from '../spatial.ts';
-import { ACTION_LABEL, airDateLabel, episodeAction, runtimeLabel, type EpisodeRow } from '../titlePage.ts';
+import { ACTION_LABEL, airDateLabel, episodeAction, isPlayable, runtimeLabel, type EpisodeRow } from '../titlePage.ts';
 import Icon from './Icon.vue';
 import LangLine from './LangLine.vue';
 
@@ -17,7 +17,7 @@ const image = computed(() => props.row.stillPath ?? props.fallback);
 const action = computed(() => episodeAction(props.row));
 const label = computed(() => (action.value === 'resume' ? `Continuar` : ACTION_LABEL[action.value]));
 const left = computed(() => (action.value === 'resume' && props.row.progress ? remainingLabel(props.row.progress.positionS, props.row.progress.durationS) : null));
-const to = computed(() => (props.row.file ? { path: `/watch/${props.row.file.id}`, query: { title: props.titleId } } : null));
+const to = computed(() => (isPlayable(props.row.file) ? { path: `/watch/${props.row.file.id}`, query: { title: props.titleId } } : null));
 const meta = computed(() => [airDateLabel(props.row.airDate), runtimeLabel(props.row.runtimeMin, props.row.file?.durationS ?? null)].filter(Boolean));
 const langs = computed(() => (props.row.file ? fileLanguages(props.row.file) : { audio: [], subs: [] }));
 
@@ -70,7 +70,7 @@ onBeforeUnmount(() => {
           </p>
           <div class="btns">
             <RouterLink v-if="to" data-primary class="pill primary" :to="to"><Icon name="play" /> {{ label }}</RouterLink>
-            <button v-else class="pill" disabled>Sin archivo</button>
+            <button v-else class="pill" disabled>{{ row.file ? 'Descargando' : 'Sin archivo' }}</button>
           </div>
         </div>
       </div>
@@ -101,7 +101,7 @@ h2 { margin: 0; font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.15; letter
 .btns { display: flex; gap: 16px; margin-top: 8px; }
 .badge { display: inline-flex; align-items: center; min-height: 0; height: 1.7em; padding: 0 0.85em; white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
 .badge.ready { color: #4cc38a; }
-.badge.processing { color: #e8b84a; }
+.badge.processing, .badge.downloading { color: #e8b84a; }
 .badge.error { color: var(--danger); }
 .badge.seen { background: var(--accent); color: var(--accent-ink); }
 @keyframes fade { from { opacity: 0; } }

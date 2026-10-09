@@ -9,7 +9,7 @@ import { fileStatus, needsPolling } from '../fileStatus.ts';
 import { fileLanguages, titleLanguages } from '../languages.ts';
 import { KIND_LABEL, initial, progressPct, remainingLabel } from '../library.ts';
 import { hasHero, inMyList, loadMyList, toggleMyList } from '../session.ts';
-import { airDateLabel, buildEpisodes, castOf, episodeAction, playPlan, runtimeLabel, type EpisodeRow } from '../titlePage.ts';
+import { airDateLabel, buildEpisodes, castOf, episodeAction, isPlayable, playPlan, runtimeLabel, type EpisodeRow } from '../titlePage.ts';
 import type { Job, MediaFile, TitleDetail } from '../types.ts';
 
 const route = useRoute();
@@ -126,6 +126,7 @@ async function closeEpisode() {
       <div class="copy">
         <img v-if="detail.logoPath" class="logo" :src="imageUrl(detail.logoPath)" :alt="detail.title" />
         <h1 v-else class="name">{{ detail.title }}</h1>
+        <span v-if="detail.comingSoon" class="soon">Próximamente</span>
         <ul class="meta">
           <li v-for="m in meta" :key="m">{{ m }}</li>
         </ul>
@@ -144,6 +145,7 @@ async function closeEpisode() {
           >
             <Icon :name="listed ? 'check' : 'plus'" />
           </button>
+          <span v-if="detail.comingSoon" class="muted">Se está descargando</span>
           <button class="pill glass" :disabled="busy" :aria-pressed="!!detail.finished" @click="toggleFinished">
             <Icon :name="detail.finished ? 'close' : 'check'" :size="20" /> {{ detail.finished ? 'No visto' : 'Marcar como visto' }}
           </button>
@@ -171,14 +173,14 @@ async function closeEpisode() {
         </div>
 
         <ol class="list">
-          <li v-for="r in season.rows" :key="r.id" class="row" :class="{ off: !r.file }">
+          <li v-for="r in season.rows" :key="r.id" class="row" :class="{ off: !isPlayable(r.file) }">
             <component
-              :is="r.file ? 'RouterLink' : 'div'"
+              :is="isPlayable(r.file) ? 'RouterLink' : 'div'"
               class="thumb"
-              v-bind="r.file ? { to: watchTo(r.file.id), 'aria-label': `Reproducir episodio ${r.number}` } : {}"
+              v-bind="isPlayable(r.file) ? { to: watchTo(r.file.id), 'aria-label': `Reproducir episodio ${r.number}` } : {}"
             >
               <img v-if="stillOf(r)" :src="imageUrl(stillOf(r)!)" alt="" loading="lazy" draggable="false" />
-              <span v-if="r.file" class="play"><Icon name="play" :size="30" /></span>
+              <span v-if="isPlayable(r.file)" class="play"><Icon name="play" :size="30" /></span>
               <span v-if="r.progress?.completed" class="seen">Visto</span>
               <span v-else-if="episodeAction(r) === 'resume'" class="bar">
                 <i :style="{ width: `${progressPct(r.progress!.positionS, r.progress!.durationS)}%` }" />
@@ -205,12 +207,12 @@ async function closeEpisode() {
         <h2 id="ex-h">Extras</h2>
         <ul class="extras">
           <li v-for="f in extras" :key="f.id">
-            <RouterLink class="extra" :to="watchTo(f.id)">
+            <component :is="isPlayable(f) ? 'RouterLink' : 'div'" class="extra" v-bind="isPlayable(f) ? { to: watchTo(f.id) } : {}">
               <Icon name="play" :size="22" />
               <span class="x-name">{{ f.extraLabel }}</span>
               <span class="x-sub">{{ runtimeLabel(null, f.durationS) ?? '' }}</span>
               <span class="badge" :class="status(f)!.kind">{{ status(f)!.label }}</span>
-            </RouterLink>
+            </component>
           </li>
         </ul>
       </section>
@@ -298,7 +300,7 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .left { font-size: 0.85rem; }
 .badge { display: inline-flex; align-items: center; min-height: 0; height: 1.7em; padding: 0 0.85em; white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
 .badge.ready { color: #4cc38a; }
-.badge.processing { color: #e8b84a; }
+.badge.processing, .badge.downloading { color: #e8b84a; }
 .badge.error { color: var(--danger); }
 
 .extras { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
