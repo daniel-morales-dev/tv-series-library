@@ -52,6 +52,7 @@
     - Iconos en vez de texto para audio/subtítulos y pantalla completa.
     - Velocidad de reproducción (0.5×–2×).
 - [ ] T9 Biblioteca en varias ubicaciones (pedido del dueño): contenido en el PC **y** en un HDD externo que se conecta y desconecta. Varias carpetas de contenido; si el disco no está, sus títulos aparecen como "no disponible" sin borrar progreso ni metadata, y vuelven al reconectar. Decidir dónde viven los HLS procesados (en el mismo disco o en `data/`).
+- [ ] T11 **Próximamente** (pedido del dueño 2026-10-09): listar series cuya carpeta existe pero sus videos aún se descargan (ffprobe falla / mtime reciente), con insignia "Próximamente" en vez de esconderlas. Caso real: `content/shows/[Cifer] Sousou no Frieren S1 [BD 1080p Opus]` descargando. Hoy la ingesta solo reintenta los archivos incompletos y el título no aparece. Diseño a decidir: crear el título con metadata TMDB al ver la carpeta + archivos en estado "descargando"; fila/insignia en Inicio; sin Reproducir hasta que haya un episodio listo. Ojo: el dueño renombrará la carpeta a "frieren" → las rutas de `media_files` cambian; verificar que el reescaneo reasocie sin duplicar el título ni perder progreso.
 - [ ] T10 Aleatorio (pedido del dueño): botón para reproducir un anime/episodio al azar de lo que hay guardado.
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
   - [x] T6a Backend: archivos de cualquier estado en el detalle + servir `apps/web/dist` con fallback SPA + tests (pistas se guardan al terminar la extracción de subs, antes del video)
@@ -109,8 +110,15 @@
 - T5c (bf3fe4c): 52 tests web, 164 server. Continuar viendo trae `episodeId` + `stillPath`. Monogatari real: audio `jpn` (FLAC), subtítulos `eng`. Revisión RDD omitida por el dueño; próxima base `bf3fe4c`.
 - Decisión pendiente del dueño: "Marcar como no visto" solo limpia `title_state.finished`; el progreso `completed` de cada episodio queda y siguen apareciendo como "Visto".
 
-## Siguiente paso
-Dueño revisa la UI en el PC. Luego T9 (HDD externo), T10 (aleatorio), T6d (dispositivos) y T7. Pendiente: nombre definitivo (hoy "sala") y comportamiento de "Marcar como no visto". Clic en miniatura de Continuar viendo no se reprodujo en CDP; cambio defensivo aplicado.
+## Siguiente paso (punto de entrada para una sesión nueva)
+T5 cerrada (97f01ca). Orden propuesto, **sin empezar ninguna**:
+1. **T11 Próximamente** (Frieren descargándose ahora; el dueño lo quiere pronto).
+2. **T9 HDD externo** — necesita diseño corto antes de código (ver bullet de T9).
+3. **T10 Aleatorio** (pequeña).
+4. **T6d** prueba en celular y TV, luego **T7** empaquetado Linux.
+Cómo trabajar (orden del dueño): el padre (Opus) solo diseña, coordina, revisa y hace commits; implementación delegada a **Sonnet 5.5**, tareas mecánicas a **Haiku 5.5**. Commits como Daniel Morales <mralejo99@gmail.com>, **sin** `Co-Authored-By`. Cada tramo: el dueño ha elegido omitir la revisión RDD; preguntar igual con el sobre de consentimiento antes de lanzar el siguiente writer. Writers sin comandos git.
+Decisiones pendientes del dueño: nombre de la app (hoy "sala"); "Marcar como no visto" (hoy no borra `completed` por episodio). Por confirmar: clic en miniatura de Continuar viendo (no se reprodujo en CDP; cambio defensivo aplicado).
+Correr local: `npm run build -w apps/web` y `CONTENT_DIR=../../content DATA_DIR=../../data npm start -w apps/server` → http://localhost:8080.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
