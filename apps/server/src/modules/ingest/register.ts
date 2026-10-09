@@ -1,11 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { all, run } from '../../db/sql.ts';
+import { all, get, run } from '../../db/sql.ts';
 import { type Candidate, placeEpisode } from './assign.ts';
 import type { IngestContext } from './metadata.ts';
 import { type Parsed, parsePath } from './parser.ts';
 import type { ProbeResult } from './probe.ts';
 import { showDirKey } from './scanner.ts';
-import { get } from '../../db/sql.ts';
+import { enqueue } from '../processing/queue.ts';
 
 export type PendingReason = 'unparsed' | 'no_match' | 'unmapped_episode';
 
@@ -15,13 +15,13 @@ export interface FileFacts {
   probe: ProbeResult;
 }
 
-// status 'pending' is the processing queue state: T4 turns it into HLS.
+// A registered file starts 'pending' with a queued process job that turns it into HLS.
 export function registerFile(
   db: DatabaseSync,
   f: FileFacts,
   placement: { titleId: number; episodeId: number | null; extraLabel: string | null; parsedSeason: number | null; parsedNumber: number | null },
 ): void {
-  run(
+  const { lastInsertId } = run(
     db,
     `INSERT INTO media_files (path, size, title_id, episode_id, extra_label, status, duration_s, audio_tracks,
        subtitle_tracks, parsed_season, parsed_number)
@@ -37,6 +37,7 @@ export function registerFile(
     placement.parsedSeason,
     placement.parsedNumber,
   );
+  enqueue(db, lastInsertId);
 }
 
 export function addPending(

@@ -26,7 +26,7 @@ export interface AudioPlan extends TrackInfo {
   /** Position among the audio tracks; names the output folder `a<n>`. */
   n: number;
   mode: 'copy' | 'aac';
-  /** Output channels of a transcoded track; copies keep the source layout. */
+  /** Channels the player gets: capped at 6 when transcoding, as-is for copies. */
   channels: number;
   bitrate: string | null;
   playlist: string;
@@ -79,7 +79,7 @@ export function buildPlan(info: StreamInfo): Plan {
     video: { index: info.video.index, mode: videoMode(info.video) },
     audio: info.audio.map((a, n) => {
       const copy = a.codec !== null && COPY_AUDIO.has(a.codec);
-      const channels = Math.min(a.channels ?? 2, MAX_CHANNELS);
+      const channels = copy ? (a.channels ?? 2) : Math.min(a.channels ?? 2, MAX_CHANNELS);
       return {
         ...a,
         n,
