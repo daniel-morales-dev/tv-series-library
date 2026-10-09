@@ -9,19 +9,20 @@ const contentDir = process.env.CONTENT_DIR ?? './content';
 const port = Number(process.env.PORT ?? 8080);
 
 const db = openDb(join(dataDir, 'library.db'));
-const app = buildApp({ db, logger: true });
 
-await app.listen({ host: '0.0.0.0', port });
-
+let ingestor;
 if (process.env.INGEST !== 'off') {
   const token = process.env.TMDB_READ_ACCESS_TOKEN;
-  if (!token) app.log.warn('TMDB_READ_ACCESS_TOKEN is not set: ingesting offline');
-  const ingestor = createIngestor({
+  ingestor = createIngestor({
     db,
     dataDir,
     contentDir,
     tmdb: token ? createTmdbClient(token) : unavailableTmdb(),
     log: (level, message) => app.log[level](message),
   });
-  ingestor.start(Number(process.env.INGEST_SCAN_INTERVAL_MIN ?? 5));
+  if (!token) console.warn('TMDB_READ_ACCESS_TOKEN is not set: ingesting offline');
 }
+
+const app = buildApp({ db, logger: true, dataDir, ingestor });
+await app.listen({ host: '0.0.0.0', port });
+ingestor?.start(Number(process.env.INGEST_SCAN_INTERVAL_MIN ?? 5));

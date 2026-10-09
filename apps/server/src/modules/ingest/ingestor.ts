@@ -5,6 +5,7 @@ import { type Assignment, adoptSeries, assignMovie, assignSeries, matchSeries, p
 import { type IngestContext, createLocalTitle, setSourceDir } from './metadata.ts';
 import { type Parsed, parsePath } from './parser.ts';
 import { type Probe, ffprobe } from './probe.ts';
+import { type ConfirmBody, confirmPending } from './pending.ts';
 import { addPending, registerFile, relinkFiles } from './register.ts';
 import { type VideoFile, listVideos, showDirKey } from './scanner.ts';
 import { type TmdbClient, memoize } from './tmdb.ts';
@@ -31,6 +32,7 @@ export interface IngestorOptions {
 }
 
 export interface Ingestor {
+  confirm(id: number, body: ConfirmBody): Promise<{ titleId: number; placed: number }>;
   /** Concurrent callers share the scan in flight; a request made during a scan triggers one more pass. */
   scan(): Promise<ScanSummary>;
   start(intervalMin: number): void;
@@ -227,5 +229,8 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     timers = {};
   }
 
-  return { scan, start, stop };
+  const confirm = (id: number, body: ConfirmBody) =>
+    confirmPending({ ctx: { db, tmdb: memoize(opts.tmdb), dataDir }, probe, contentDir }, id, body);
+
+  return { scan, start, stop, confirm };
 }

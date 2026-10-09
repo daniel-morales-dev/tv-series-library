@@ -1,12 +1,22 @@
 import Fastify from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
+import type { Ingestor } from './modules/ingest/ingestor.ts';
+import { ingestRoutes } from './modules/ingest/routes.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
 import { profileRoutes } from './modules/profiles/routes.ts';
 import { myListRoutes } from './modules/my-list/routes.ts';
 import { progressRoutes } from './modules/progress/routes.ts';
 import { searchRoutes } from './modules/search/routes.ts';
 
-export function buildApp({ db, logger = false }: { db: DatabaseSync; logger?: boolean }) {
+export interface AppOptions {
+  db: DatabaseSync;
+  logger?: boolean;
+  dataDir?: string;
+  /** Absent when ingestion is off: scan and confirm answer 503. */
+  ingestor?: Ingestor;
+}
+
+export function buildApp({ db, logger = false, dataDir = './data', ingestor }: AppOptions) {
   const app = Fastify({ logger });
 
   app.register(
@@ -17,6 +27,7 @@ export function buildApp({ db, logger = false }: { db: DatabaseSync; logger?: bo
       searchRoutes(api, db);
       myListRoutes(api, db);
       progressRoutes(api, db);
+      ingestRoutes(api, db, dataDir, ingestor);
     },
     { prefix: '/api' },
   );
