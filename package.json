@@ -2,5 +2,10 @@
   "name": "tv-series-library",
   "private": true,
   "type": "module",
-  "workspaces": ["apps/*"]
+  "workspaces": [
+    "apps/*"
+  ],
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
 }

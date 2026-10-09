@@ -37,7 +37,7 @@
 - [ ] T5 Frontend: perfiles, header, hero, filas vertical/horizontal, detalle con temporadas, Mi lista en grilla, búsqueda, filtros, tema claro/oscuro, responsive, navegación espacial
 - [ ] T6 Player (diseño: `docs/design/t6-player.md`): hls.js, audio/subs, guardar progreso, reanudar, siguiente episodio — ruta: delegada (sonnet)
   - [x] T6a Backend: archivos de cualquier estado en el detalle + servir `apps/web/dist` con fallback SPA + tests (pistas se guardan al terminar la extracción de subs, antes del video)
-  - [ ] T6b `apps/web` (Vue 3 + Vite + hls.js): andamiaje, cliente API, pantallas mínimas temporales (perfil, títulos, detalle)
+  - [x] T6b `apps/web` (Vue 3 + Vite + hls.js): andamiaje, cliente API, pantallas mínimas temporales (perfil, títulos, detalle)
   - [ ] T6c Player: play/espera, audio/subs, progreso, reanudar, siguiente episodio
   - [ ] T6d Verificación real: celular y TV por WiFi (archivo listo y en proceso)
 - [ ] T7 Empaquetado Linux: Docker Compose `restart: unless-stopped`, Docker habilitado en systemd, puerto abierto en firewall (ufw si aplica), URL + QR en Ajustes, **guía en español en el README: cómo correrlo en la laptop Linux y cómo entrar desde celular y TV** (decisión del dueño: la guía se escribe aquí, no antes)
@@ -76,8 +76,11 @@
 
 - T6a: 163 tests en verde, `tsc` limpio (usar `../../node_modules/.bin/tsc`; `npx tsc` toma una versión vieja). URL mal escapada → 400 de Fastify antes del handler. Variable nueva `WEB_DIR` (default `../web/dist`), falta documentarla en `.env.example`.
 
+- T6b: build, 6 tests web y typecheck en verde; servidor sirve `index.html` en `/` y `/titles/1`. vue 3.5, vue-router 5, hls.js 1.7, vite 8. `vue-tsc` no funciona con TypeScript 7 → TypeScript 5.9 como devDependency en la raíz; el servidor conserva su 7.0.2.
+- `apps/server/data/library.db` está **vacía** (0 títulos): las verificaciones reales de T3/T4 usaron otra carpeta de datos. Para T6d hay que escanear `content/` de nuevo (fijar rutas de `data`/`content` sigue pendiente para T7).
+
 ## Siguiente paso
-T6b `apps/web`: andamiaje Vue 3 + Vite + hls.js, cliente API y pantallas mínimas.
+T6c Player en `apps/web/src/views/WatchView.vue`.
 
 ## Hito mínimo (MVP Linux)
 T2 → T3 → T4 → T6 (player básico) → T5 (UI completa) → T7. Primer hito verificable: ver un episodio desde el celular **y** la TV por WiFi, con el router sin internet.
