@@ -6,8 +6,9 @@ import { all, get, run } from '../src/db/sql.ts';
 import { getTitleDetail, listTitles } from '../src/modules/catalog/repository.ts';
 import { createIngestor } from '../src/modules/ingest/ingestor.ts';
 import type { Probe } from '../src/modules/ingest/probe.ts';
+import { relinkFiles } from '../src/modules/ingest/register.ts';
 import { makeFakeTmdb } from './fake-tmdb.ts';
-import { setup } from './helpers.ts';
+import { addProfile, setup } from './helpers.ts';
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true })));
@@ -309,5 +310,56 @@ describe('moved or renamed files', () => {
     await e.ingestor.scan();
     expect(get<any>(e.db, 'SELECT path FROM media_files WHERE id = ?', file.id)?.path).toBe(dup.path);
     expect(get<any>(e.db, 'SELECT COUNT(*) AS n FROM media_files WHERE path LIKE ?', 'shows/baka/%')?.n).toBe(2);
+  });
+});
+
+describe('seasons group upgrade', () => {
+  it('rebuilds a series imported with official seasons, keeping media_files rows and progress', async () => {
+    const e = env();
+    const early = 'shows/Seasoned Show/Seasoned Show - S01E05.mkv';
+    const absolute = 'shows/Seasoned Show/Seasoned Show - 30.mkv';
+    e.addFile(early);
+    e.addFile(absolute);
+    await e.ingestor.scan();
+    const titleId = get<{ id: number }>(e.db, 'SELECT id FROM titles')!.id;
+    const place = (path: string) =>
+      get<any>(e.db, 'SELECT s.number AS s, e.number AS e FROM media_files m JOIN episodes e ON e.id = m.episode_id JOIN seasons s ON s.id = e.season_id WHERE m.path = ?', path);
+    expect(place(absolute)).toEqual({ s: 2, e: 2 });
+
+    // Back to the state before this feature: official season 1 (38 episodes), nothing decided yet.
+    run(e.db, 'DELETE FROM seasons WHERE title_id = ?', titleId);
+    run(e.db, 'UPDATE titles SET seasons_group_id = NULL, episode_group_id = NULL WHERE id = ?', titleId);
+    const dataDir = mkdtempSync(join(tmpdir(), 'tvlib-'));
+    roots.push(dataDir);
+    await relinkFiles({ db: e.db, tmdb: e.tmdb, dataDir }, titleId);
+    expect(place(absolute)).toEqual({ s: 1, e: 30 });
+    expect(get<any>(e.db, 'SELECT COUNT(*) AS n FROM seasons')?.n).toBe(1);
+
+    const kept = get<any>(e.db, 'SELECT id FROM media_files WHERE path = ?', absolute)!.id;
+    run(e.db, "UPDATE media_files SET status = 'ready', hls_dir = 'hls/x' WHERE id = ?", kept);
+    const profile = addProfile(e.db);
+    run(e.db, "INSERT INTO watch_progress VALUES (?, ?, 120, 1440, 0, '2026-01-01T00:00:00Z')", profile, kept);
+    const before = all<any>(e.db, 'SELECT id, path, status, hls_dir FROM media_files ORDER BY id');
+
+    await e.make(makeFakeTmdb()).scan();
+
+    expect(all<any>(e.db, 'SELECT id, path, status, hls_dir FROM media_files ORDER BY id')).toEqual(before);
+    expect(all<any>(e.db, 'SELECT number FROM seasons ORDER BY number').map((s) => s.number)).toEqual([0, 1, 2]);
+    expect(place(early)).toEqual({ s: 1, e: 5 });
+    expect(place(absolute)).toEqual({ s: 2, e: 2 });
+    expect(get<any>(e.db, 'SELECT position_s FROM watch_progress WHERE media_file_id = ?', kept)?.position_s).toBe(120);
+    expect(all(e.db, 'SELECT * FROM pending_files')).toHaveLength(0);
+    expect(get<any>(e.db, 'SELECT seasons_group_id AS g FROM titles')?.g).toBe('g_s_seasons');
+  });
+
+  it('marks a series without a better group as decided and leaves it alone', async () => {
+    const e = env();
+    e.addFile('shows/Plain Show/Plain Show - S01E01.mkv');
+    await e.ingestor.scan();
+    run(e.db, 'UPDATE titles SET seasons_group_id = NULL');
+    await e.make(makeFakeTmdb()).scan();
+    expect(get<any>(e.db, 'SELECT seasons_group_id AS g FROM titles')?.g).toBe('');
+    expect(all(e.db, 'SELECT id FROM seasons')).toHaveLength(1);
+    expect(get<any>(e.db, 'SELECT COUNT(*) AS n FROM media_files WHERE episode_id IS NOT NULL')?.n).toBe(1);
   });
 });

@@ -114,6 +114,56 @@ describe('assignSeries without groups', () => {
   });
 });
 
+describe('assignSeries with a "Seasons" episode group', () => {
+  const seasonsOf = (db: any) =>
+    all<any>(db, 'SELECT s.number, s.name, COUNT(e.id) AS n FROM seasons s JOIN episodes e ON e.season_id = s.id GROUP BY s.id ORDER BY s.number');
+  const epAt = (db: any, id: number | null) =>
+    get<any>(db, 'SELECT s.number AS s, e.number AS e FROM episodes e JOIN seasons s ON s.id = e.season_id WHERE e.id = ?', id!);
+
+  it('builds the seasons from the group when it splits the series further than the official ones', async () => {
+    const { context, db } = ctx();
+    expect(await assignSeries(context, 'shows/Seasoned Show', 'Seasoned Show')).toMatchObject({ status: 'matched', seasonNumber: null });
+    expect(seasonsOf(db)).toEqual([
+      { number: 0, name: 'Especiales', n: 3 },
+      { number: 1, name: 'Temporada 1', n: 28 },
+      { number: 2, name: 'Temporada 2', n: 10 },
+    ]);
+    expect(get<any>(db, 'SELECT seasons_group_id AS g FROM titles')?.g).toBe('g_s_seasons');
+    expect(get<any>(db, 'SELECT name, still_path FROM episodes WHERE number = 4 AND season_id = (SELECT id FROM seasons WHERE number = 2)')).toEqual({ name: 'Episodio 4', still_path: 'original/still4.jpg' });
+  });
+
+  it('keeps the official seasons when the group does not have more of them', async () => {
+    const { context, db } = ctx();
+    await assignSeries(context, 'shows/Same Count', 'Same Count');
+    expect(all(db, 'SELECT id FROM seasons')).toHaveLength(0); // official seasons are imported on demand
+    expect(get<any>(db, 'SELECT seasons_group_id AS g FROM titles')?.g).toBe('');
+    const titleId = get<{ id: number }>(db, 'SELECT id FROM titles')!.id;
+    expect(epAt(db, await placeEpisode(context, titleId, null, { season: 2, number: 1 }))).toEqual({ s: 2, e: 1 });
+  });
+
+  it('lets the folder-name group win over the seasons group', async () => {
+    const { context, db } = ctx();
+    await assignSeries(context, 'shows/bakemonogatari', 'bakemonogatari');
+    expect(seasonsOf(db)).toEqual([{ number: 1, name: 'Bakemonogatari', n: 15 }]);
+    expect(get<any>(db, 'SELECT seasons_group_id AS g, episode_group_id AS eg FROM titles')).toEqual({ g: '', eg: 'g_air' });
+  });
+
+  it('places S1 - 05 in season 1 and absolute numbers across the group seasons, never in specials', async () => {
+    const { context, db, tmdb } = ctx();
+    await assignSeries(context, 'shows/Seasoned Show', 'Seasoned Show');
+    const titleId = get<{ id: number }>(db, 'SELECT id FROM titles')!.id;
+    const at = async (season: number | null, number: number) => epAt(db, await placeEpisode(context, titleId, null, { season, number }));
+    expect(await at(1, 5)).toEqual({ s: 1, e: 5 });
+    expect(await at(null, 28)).toEqual({ s: 1, e: 28 });
+    expect(await at(null, 30)).toEqual({ s: 2, e: 2 });
+    expect(await at(null, 38)).toEqual({ s: 2, e: 10 });
+    expect(await at(0, 2)).toEqual({ s: 0, e: 2 });
+    expect(await placeEpisode(context, titleId, null, { season: null, number: 39 })).toBeNull();
+    expect(await placeEpisode(context, titleId, null, { season: 3, number: 1 })).toBeNull();
+    expect(tmdb.calls.filter((c) => c.startsWith('season:'))).toEqual([]);
+  });
+});
+
 describe('assignMovie', () => {
   it('creates the movie and its collection', async () => {
     const { context, db } = ctx();

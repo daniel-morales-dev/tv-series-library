@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
 import { type Assignment, adoptSeries, assignMovie, assignSeries, matchSeries, placeEpisode } from './assign.ts';
-import { type IngestContext, createLocalTitle, setSourceDir } from './metadata.ts';
+import { type IngestContext, createLocalTitle, findSeasonsGroup, importSeasonsGroup, markOfficialSeasons, setSourceDir } from './metadata.ts';
 import { type Parsed, parsePath } from './parser.ts';
 import { type Probe, ffprobe } from './probe.ts';
 import { type ConfirmBody, confirmPending } from './pending.ts';
@@ -245,6 +245,21 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
         let titleId = t.id;
         for (const d of dirs) titleId = (await adoptSeries(state.ctx, d.path, found.tv, found.group, titleId)).titleId;
         await relinkFiles(state.ctx, titleId);
+      }
+      // Series imported with official seasons are checked once for a better "Seasons" group. Folder-matched
+      // groups keep priority. Files are re-placed (same media_files rows) after the seasons are rebuilt.
+      for (const t of all<{ id: number; tmdb_id: number; episode_group_id: string | null }>(
+        db,
+        "SELECT id, tmdb_id, episode_group_id FROM titles WHERE tmdb_type = 'tv' AND seasons_group_id IS NULL AND metadata_status = 'ready'",
+      )) {
+        const seasons = t.episode_group_id ? null : await findSeasonsGroup(state.ctx, await state.ctx.tmdb.tv(t.tmdb_id));
+        if (!seasons) {
+          markOfficialSeasons(db, t.id);
+          continue;
+        }
+        run(db, 'DELETE FROM seasons WHERE title_id = ?', t.id);
+        await importSeasonsGroup(state.ctx, t.id, seasons);
+        await relinkFiles(state.ctx, t.id);
       }
       const orphans = all<{ title_id: number }>(
         db,

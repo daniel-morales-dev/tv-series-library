@@ -1,10 +1,13 @@
-import { get } from '../../db/sql.ts';
+import { all, get } from '../../db/sql.ts';
 import {
   type IngestContext,
   findEpisodeId,
   hasSeason,
   ensureLocalEpisode,
+  findSeasonsGroup,
   importGroupSeason,
+  importSeasonsGroup,
+  markOfficialSeasons,
   importMovie,
   importTmdbSeason,
   importTv,
@@ -92,7 +95,14 @@ export async function adoptSeries(
   reuseTitleId?: number,
 ): Promise<Matched> {
   const titleId = await importTv(ctx, tv, reuseTitleId);
-  if (group) await importGroupSeason(ctx, titleId, group.episodeGroupId, group.seasonNumber, group.group);
+  if (group) {
+    await importGroupSeason(ctx, titleId, group.episodeGroupId, group.seasonNumber, group.group);
+    markOfficialSeasons(ctx.db, titleId);
+  } else if (get(ctx.db, 'SELECT 1 FROM titles WHERE id = ? AND seasons_group_id IS NULL', titleId)) {
+    const seasons = await findSeasonsGroup(ctx, tv);
+    if (seasons) await importSeasonsGroup(ctx, titleId, seasons);
+    else markOfficialSeasons(ctx.db, titleId);
+  }
   setSourceDir(ctx.db, dirRel, titleId, group?.seasonNumber ?? null);
   return { status: 'matched', titleId, seasonNumber: group?.seasonNumber ?? null };
 }
@@ -110,9 +120,12 @@ export async function assignSeries(ctx: IngestContext, dirRel: string, folder: s
   return adoptSeries(ctx, dirRel, found.tv, found.group);
 }
 
-function locateAbsolute(tv: TvDetails, n: number): { season: number; episode: number } | null {
+function locateAbsolute(
+  seasons: { season_number: number; episode_count: number }[],
+  n: number,
+): { season: number; episode: number } | null {
   let rest = n;
-  const regular = tv.seasons.filter((s) => s.season_number > 0).sort((a, b) => a.season_number - b.season_number);
+  const regular = seasons.filter((s) => s.season_number > 0).sort((a, b) => a.season_number - b.season_number);
   for (const s of regular) {
     if (rest <= s.episode_count) return { season: s.season_number, episode: rest };
     rest -= s.episode_count;
@@ -127,15 +140,31 @@ export async function placeEpisode(
   seasonNumber: number | null,
   parsed: { season: number | null; number: number },
 ): Promise<number | null> {
-  const title = get<{ tmdb_id: number | null }>(ctx.db, 'SELECT tmdb_id FROM titles WHERE id = ?', titleId);
+  const title = get<{ tmdb_id: number | null; seasons_group_id: string | null }>(
+    ctx.db,
+    'SELECT tmdb_id, seasons_group_id FROM titles WHERE id = ?',
+    titleId,
+  );
   if (!title) return null;
   if (title.tmdb_id === null) return ensureLocalEpisode(ctx.db, titleId, seasonNumber ?? parsed.season ?? 1, parsed.number);
   if (seasonNumber !== null) return findEpisodeId(ctx.db, titleId, seasonNumber, parsed.number);
 
+  if (title.seasons_group_id) {
+    // All the group's seasons are already stored; nothing is imported on demand from the official ones.
+    const stored = all<{ season_number: number; episode_count: number }>(
+      ctx.db,
+      `SELECT s.number AS season_number, COUNT(e.id) AS episode_count FROM seasons s
+       LEFT JOIN episodes e ON e.season_id = s.id WHERE s.title_id = ? GROUP BY s.id`,
+      titleId,
+    );
+    const at = parsed.season !== null ? { season: parsed.season, episode: parsed.number } : locateAbsolute(stored, parsed.number);
+    return at ? findEpisodeId(ctx.db, titleId, at.season, at.episode) : null;
+  }
+
   const target =
     parsed.season !== null
       ? { season: parsed.season, episode: parsed.number }
-      : locateAbsolute(await ctx.tmdb.tv(title.tmdb_id), parsed.number);
+      : locateAbsolute((await ctx.tmdb.tv(title.tmdb_id)).seasons, parsed.number);
   if (!target) return null;
   if (!hasSeason(ctx.db, titleId, target.season)) {
     const season = await ctx.tmdb.tvSeason(title.tmdb_id, target.season);

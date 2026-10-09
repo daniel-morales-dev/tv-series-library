@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { get, run, transaction } from '../../db/sql.ts';
 import { indexEntry } from '../search/repository.ts';
 import { type ImageWant, saveImages } from './images.ts';
-import type { Credits, EpisodeSubGroup, MovieDetails, SeasonDetails, TmdbClient, TmdbEpisode, TvDetails } from './tmdb.ts';
+import type { Credits, EpisodeGroupDetails, EpisodeSubGroup, MovieDetails, SeasonDetails, TmdbClient, TmdbEpisode, TvDetails } from './tmdb.ts';
 
 export interface IngestContext {
   db: DatabaseSync;
@@ -257,6 +257,32 @@ export async function importGroupSeason(
     group.episodes.forEach((e, i) => upsertEpisode(ctx.db, seasonId, i + 1, e, saved(STILL, e.still_path)));
     run(ctx.db, 'UPDATE titles SET episode_group_id = ? WHERE id = ?', episodeGroupId, titleId);
   });
+}
+
+// TMDB type 6 = "Seasons". It replaces the official seasons only when it splits the series into more of them
+// (e.g. a 38-episode season 1 that is really 28 + 10).
+const SEASONS_GROUP_TYPE = 6;
+
+export async function findSeasonsGroup(ctx: IngestContext, tv: TvDetails): Promise<EpisodeGroupDetails | null> {
+  const official = tv.seasons.filter((s) => s.season_number > 0).length;
+  for (const ref of (tv.episode_groups?.results ?? []).filter((r) => r.type === SEASONS_GROUP_TYPE)) {
+    const detail = await ctx.tmdb.episodeGroup(ref.id);
+    if (detail.groups.filter((g) => g.order > 0).length > official) return detail;
+  }
+  return null;
+}
+
+export async function importSeasonsGroup(ctx: IngestContext, titleId: number, detail: EpisodeGroupDetails): Promise<void> {
+  for (const g of detail.groups) {
+    // TMDB names these "Season N" in English; the library shows Spanish names like the official seasons.
+    const name = g.order === 0 ? 'Especiales' : /^season\s*\d+$/i.test(g.name) ? `Temporada ${g.order}` : g.name;
+    await importGroupSeason(ctx, titleId, detail.id, g.order, { ...g, name });
+  }
+  run(ctx.db, 'UPDATE titles SET seasons_group_id = ? WHERE id = ?', detail.id, titleId);
+}
+
+export function markOfficialSeasons(db: DatabaseSync, titleId: number): void {
+  run(db, "UPDATE titles SET seasons_group_id = '' WHERE id = ?", titleId);
 }
 
 export async function importTmdbSeason(ctx: IngestContext, titleId: number, season: SeasonDetails): Promise<void> {
