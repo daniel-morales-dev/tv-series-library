@@ -115,11 +115,13 @@ function attach(f: MediaFile, startAt: number) {
   if (v.canPlayType('application/vnd.apple.mpegurl')) {
     v.src = url;
     if (startAt > 0) v.addEventListener('loadedmetadata', () => (v.currentTime = startAt), { once: true });
+    v.play().catch(() => {});
   } else if (Hls.isSupported()) {
     const h = (hls = new Hls({ startPosition: startAt > 0 ? startAt : -1 }));
     h.on(Hls.Events.MANIFEST_PARSED, () => {
       audio.value = h.audioTracks.map((t, i) => ({ id: i, name: t.name || t.lang || `Audio ${i + 1}` }));
       audioIndex.value = Math.max(h.audioTrack, 0);
+      v.play().catch(() => {}); // autoplay may still be blocked; the user can press play
     });
     h.on(Hls.Events.ERROR, (_e, data) => {
       if (!data.fatal) return;
@@ -129,7 +131,6 @@ function attach(f: MediaFile, startAt: number) {
     });
     h.loadSource(url);
     h.attachMedia(v);
-    v.play().catch(() => {}); // autoplay may be blocked; the user can press play
   } else {
     fail('Este navegador no puede reproducir el video.');
   }
