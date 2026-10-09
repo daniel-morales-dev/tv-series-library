@@ -78,6 +78,13 @@ export function setFinished(db: DatabaseSync, profileId: number, titleId: number
         at,
         titleId,
       );
+    } else {
+      run(
+        db,
+        `DELETE FROM watch_progress WHERE profile_id = ? AND media_file_id IN (SELECT id FROM media_files WHERE title_id = ?)`,
+        profileId,
+        titleId,
+      );
     }
     db.exec('COMMIT');
   } catch (err) {

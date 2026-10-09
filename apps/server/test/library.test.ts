@@ -151,8 +151,28 @@ describe('finished', () => {
     expect((await app.inject(`/api/titles/${t}?profileId=${p}`)).json().finished).toBe(true);
 
     await put(app, `/api/profiles/${p}/titles/${t}/finished`, { finished: false });
-    expect(all<any>(db, 'SELECT completed FROM watch_progress').map((r) => r.completed)).toEqual([1, 1]);
+    expect(all<any>(db, 'SELECT completed FROM watch_progress')).toEqual([]);
     expect((await app.inject(`/api/titles/${t}?profileId=${p}`)).json().finished).toBe(false);
+  });
+
+  it('false clears per-episode progress of that profile and title only', async () => {
+    const { app, db } = setup();
+    const p = addProfile(db, 'a');
+    const other = addProfile(db, 'b');
+    const t = addTitle(db, 'Show', { kind: 'series' });
+    const e1 = addEpisode(db, t, 1, 1);
+    const e2 = addEpisode(db, t, 1, 2);
+    const otherTitleFile = addFile(db, addTitle(db, 'Film'));
+    progress(db, p, e1, 100, 1000, '2026-01-01T00:00:00Z');
+    progress(db, p, e2, 100, 1000, '2026-01-01T00:00:00Z');
+    progress(db, p, otherTitleFile, 100, 1000, '2026-01-01T00:00:00Z');
+    progress(db, other, e1, 100, 1000, '2026-01-01T00:00:00Z');
+
+    expect((await put(app, `/api/profiles/${p}/titles/${t}/finished`, { finished: false })).statusCode).toBe(204);
+    expect(all<any>(db, 'SELECT profile_id, media_file_id FROM watch_progress ORDER BY profile_id, media_file_id')).toEqual([
+      { profile_id: p, media_file_id: otherTitleFile },
+      { profile_id: other, media_file_id: e1 },
+    ]);
   });
 
   it('validates body and existence', async () => {
