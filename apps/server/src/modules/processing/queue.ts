@@ -30,16 +30,31 @@ const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 const RECENT_FINISHED = 50;
 
 // Queues one process job for a file; an active (queued or running) job is reused.
-export function enqueue(db: DatabaseSync, mediaFileId: number): number {
+// `prioritized` puts it ahead of every other active job (the latest request wins).
+export function enqueue(db: DatabaseSync, mediaFileId: number, prioritized = false): number {
   return transaction(db, () => {
+    const priority = prioritized
+      ? get<{ p: number }>(db, "SELECT COALESCE(MAX(priority), 0) + 1 AS p FROM jobs WHERE status IN ('queued', 'running')")!.p
+      : 0;
     const active = get<{ id: number }>(
       db,
       "SELECT id FROM jobs WHERE type = 'process' AND media_file_id = ? AND status IN ('queued', 'running')",
       mediaFileId,
     );
-    if (active) return active.id;
+    if (active) {
+      if (prioritized) run(db, 'UPDATE jobs SET priority = ? WHERE id = ?', priority, active.id);
+      return active.id;
+    }
     run(db, "UPDATE media_files SET status = 'pending', error = NULL WHERE id = ?", mediaFileId);
-    return run(db, "INSERT INTO jobs (type, media_file_id) VALUES ('process', ?)", mediaFileId).lastInsertId;
+    return run(db, "INSERT INTO jobs (type, media_file_id, priority) VALUES ('process', ?, ?)", mediaFileId, priority).lastInsertId;
+  });
+}
+
+// A preempted job goes back to the queue (not to error) and starts over later.
+export function requeue(db: DatabaseSync, job: ClaimedJob): void {
+  transaction(db, () => {
+    run(db, `UPDATE jobs SET status = 'queued', progress = 0, updated_at = ${NOW} WHERE id = ?`, job.id);
+    run(db, "UPDATE media_files SET status = 'pending' WHERE id = ?", job.mediaFileId);
   });
 }
 
@@ -57,14 +72,14 @@ export function recover(db: DatabaseSync): void {
   });
 }
 
-// Episodes and movies before extras, then oldest first.
+// Requested-to-play first, then episodes and movies before extras, then oldest first.
 export function claimNext(db: DatabaseSync): ClaimedJob | undefined {
   return transaction(db, () => {
     const row = get<{ id: number; media_file_id: number; path: string; duration_s: number | null }>(
       db,
       `SELECT j.id, j.media_file_id, m.path, m.duration_s FROM jobs j JOIN media_files m ON m.id = j.media_file_id
        WHERE j.type = 'process' AND j.status = 'queued'
-       ORDER BY (m.extra_label IS NOT NULL), j.id LIMIT 1`,
+       ORDER BY j.priority DESC, (m.extra_label IS NOT NULL), j.id LIMIT 1`,
     );
     if (!row) return undefined;
     run(db, `UPDATE jobs SET status = 'running', progress = 0, error = NULL, updated_at = ${NOW} WHERE id = ?`, row.id);
@@ -115,7 +130,7 @@ export function listJobs(db: DatabaseSync): JobView[] {
     db,
     `SELECT ${cols} FROM jobs j JOIN media_files m ON m.id = j.media_file_id
      WHERE j.type = 'process' AND j.status IN ('running', 'queued')
-     ORDER BY (j.status = 'queued'), (m.extra_label IS NOT NULL), j.id`,
+     ORDER BY (j.status = 'queued'), j.priority DESC, (m.extra_label IS NOT NULL), j.id`,
   );
   const finished = all<Record<string, unknown>>(
     db,

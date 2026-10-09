@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
@@ -31,13 +32,24 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir
     return reply.code(202).send({ jobId });
   });
 
+  api.post<{ Params: { id: number } }>('/media-files/:id/play', { schema: { params: idParams('id') } }, async (req, reply) => {
+    const file = get<{ status: string }>(db, 'SELECT status FROM media_files WHERE id = ?', req.params.id);
+    if (!file) return reply.code(404).send({ error: 'not_found' });
+    if (file.status === 'ready') return { status: 'ready' };
+    const jobId = enqueue(db, req.params.id, true);
+    worker?.prioritize(req.params.id);
+    return reply.code(202).send({ status: 'processing', jobId });
+  });
+
   // Playlists change when a file is reprocessed, so only the media itself may be cached.
+  // While a file is being processed its package lives in `<id>.tmp`.
   api.get<{ Params: { mediaFileId: number; '*': string } }>(
     '/stream/:mediaFileId/*',
     { schema: { params: { ...idParams('mediaFileId'), properties: { mediaFileId: { type: 'integer' }, '*': { type: 'string' } } } } },
-    (req, reply) =>
-      sendFile(reply, join(dataDir, 'hls', String(req.params.mediaFileId)), req.params['*'], STREAM_TYPES, (ext) =>
-        ext === '.m3u8' ? 'no-cache' : 'public, max-age=3600',
-      ),
+    async (req, reply) => {
+      const dir = join(dataDir, 'hls', String(req.params.mediaFileId));
+      const base = (await stat(dir).catch(() => null))?.isDirectory() ? dir : `${dir}.tmp`;
+      return sendFile(reply, base, req.params['*'], STREAM_TYPES, (ext) => (ext === '.m3u8' ? 'no-cache' : 'public, max-age=3600'));
+    },
   );
 }

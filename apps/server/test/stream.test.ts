@@ -64,6 +64,44 @@ describe('GET /api/stream', () => {
   });
 });
 
+describe('streaming while processing', () => {
+  it('serves from the .tmp folder until the final one exists', async () => {
+    const { app, dataDir } = env();
+    mkdirSync(join(dataDir, 'hls', '9.tmp'), { recursive: true });
+    writeFileSync(join(dataDir, 'hls', '9.tmp', 'master.m3u8'), '#EXTM3U');
+    expect((await app.inject('/api/stream/9/master.m3u8')).statusCode).toBe(200);
+  });
+});
+
+describe('POST /api/media-files/:id/play', () => {
+  it('answers ready for a processed file without queueing', async () => {
+    const { db, app } = env();
+    const f = addFile(db, addTitle(db, 'T'), { status: 'ready' });
+    const res = await app.inject({ method: 'POST', url: `/api/media-files/${f}/play` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: 'ready' });
+    expect(get(db, 'SELECT COUNT(*) AS n FROM jobs')).toEqual({ n: 0 });
+  });
+
+  it('queues a pending file with priority and asks the worker to run it now', async () => {
+    const prioritized: number[] = [];
+    const { db, app } = env({ kick() {}, prioritize: (id: number) => prioritized.push(id) } as never);
+    const t = addTitle(db, 'T');
+    const other = addFile(db, t, { status: 'pending' });
+    enqueue(db, other);
+    const f = addFile(db, t, { status: 'pending' });
+    const res = await app.inject({ method: 'POST', url: `/api/media-files/${f}/play` });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toMatchObject({ status: 'processing' });
+    expect(prioritized).toEqual([f]);
+    expect(claimNext(db)!.mediaFileId).toBe(f);
+  });
+
+  it('answers 404 for an unknown file', async () => {
+    expect((await env().app.inject({ method: 'POST', url: '/api/media-files/99/play' })).statusCode).toBe(404);
+  });
+});
+
 describe('GET /api/jobs and POST /api/media-files/:id/process', () => {
   it('lists the queue with progress and file', async () => {
     const { db, app } = env();

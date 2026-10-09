@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { setPriority } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { AttachmentInfo, Plan, StreamInfo } from './plan.ts';
@@ -20,6 +21,10 @@ export type ProbeStreams = (absPath: string) => Promise<StreamInfo>;
 export const runFfmpeg: RunFfmpeg = (args, opts = {}) =>
   new Promise((resolve, reject) => {
     const child = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'], signal: opts.signal });
+    // Lowest CPU priority (which also drops I/O to the lowest best-effort class) so playback and the UI stay responsive.
+    try {
+      if (child.pid) setPriority(child.pid, 19);
+    } catch {}
     let stderr = '';
     let buffered = '';
     child.stderr.on('data', (d: Buffer) => {
@@ -79,12 +84,13 @@ export const probeStreams: ProbeStreams = async (absPath) => {
 
 const BASE = ['-y', '-nostdin', '-v', 'error'];
 
-// One run for the video and every audio rendition: fMP4 VOD segments, one folder per rendition.
-export function mainArgs(plan: Plan, src: string, outDir: string): string[] {
+// One run for the video and every audio rendition: fMP4 segments, one folder per rendition.
+// The playlist is `event` so it can be played while it grows; ffmpeg adds ENDLIST when done.
+export function mainArgs(plan: Plan, src: string, outDir: string, opts: { threads?: number } = {}): string[] {
   const video =
     plan.video.mode === 'copy'
       ? ['-c:v', 'copy']
-      : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-force_key_frames', 'expr:gte(t,n_forced*2)'];
+      : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-force_key_frames', 'expr:gte(t,n_forced*2)', ...(opts.threads ? ['-threads', String(opts.threads)] : [])];
   const audio = plan.audio.flatMap((a, i) =>
     a.mode === 'copy' ? [`-c:a:${i}`, 'copy'] : [`-c:a:${i}`, 'aac', `-b:a:${i}`, a.bitrate!, `-ac:a:${i}`, String(a.channels)],
   );
@@ -102,7 +108,7 @@ export function mainArgs(plan: Plan, src: string, outDir: string): string[] {
     ...audio,
     '-f', 'hls',
     '-hls_time', String(SEGMENT_SECONDS),
-    '-hls_playlist_type', 'vod',
+    '-hls_playlist_type', 'event',
     '-hls_segment_type', 'fmp4',
     '-hls_flags', 'independent_segments',
     '-hls_fmp4_init_filename', 'init.mp4',

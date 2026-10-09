@@ -1,14 +1,26 @@
 import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type ProbeStreams, type RunFfmpeg, extractArgs, mainArgs, nameRenditions } from './ffmpeg.ts';
-import { buildPlan } from './plan.ts';
+import { type Plan, buildPlan } from './plan.ts';
 import type { ProcessResult } from './queue.ts';
+
+// Writes through a sibling file so a player never reads a half-written master.
+// `strict` skips a master ffmpeg is still writing (it ends with a rendition's playlist URI).
+async function nameMaster(dir: string, plan: Plan, strict: boolean): Promise<boolean> {
+  const path = join(dir, 'master.m3u8');
+  const text = await readFile(path, 'utf8');
+  if (strict && !/\.m3u8\n$/.test(text)) return false;
+  await writeFile(`${path}.new`, nameRenditions(text, plan));
+  await rename(`${path}.new`, path);
+  return true;
+}
 
 export interface ProcessDeps {
   dataDir: string;
   contentDir: string;
   runFfmpeg: RunFfmpeg;
   probeStreams: ProbeStreams;
+  threads?: number;
 }
 
 export class SourceMissingError extends Error {
@@ -36,14 +48,24 @@ export async function processMedia(
   try {
     for (const dir of ['v', ...plan.audio.map((a) => `a${a.n}`), 'subs', 'fonts']) await mkdir(join(tmpDir, dir), { recursive: true });
     const { signal } = opts;
-    await deps.runFfmpeg(mainArgs(plan, src, tmpDir), {
-      signal,
-      onProgress: (s) => opts.onProgress?.(info.durationS > 0 ? Math.min(s / info.durationS, 1) : 0),
-    });
+    // Subtitles and fonts first, so they exist as soon as playback can start.
     if (plan.subtitles.some((s) => s.supported) || plan.fonts.length > 0) await deps.runFfmpeg(extractArgs(plan, src, tmpDir), { signal });
 
-    const masterPath = join(tmpDir, 'master.m3u8');
-    await writeFile(masterPath, nameRenditions(await readFile(masterPath, 'utf8'), plan));
+    // ffmpeg writes the master once, early: name the audio tracks right away so playback shows them.
+    let named = false;
+    let naming: Promise<void> | undefined;
+    await deps.runFfmpeg(mainArgs(plan, src, tmpDir, { threads: deps.threads }), {
+      signal,
+      onProgress: (s) => {
+        opts.onProgress?.(info.durationS > 0 ? Math.min(s / info.durationS, 1) : 0);
+        if (named || naming) return;
+        naming = nameMaster(tmpDir, plan, true)
+          .then((ok) => void (named = ok), () => {})
+          .finally(() => (naming = undefined));
+      },
+    });
+    await naming;
+    await nameMaster(tmpDir, plan, false);
     await rm(finalDir, { recursive: true, force: true });
     await rename(tmpDir, finalDir);
   } catch (err) {

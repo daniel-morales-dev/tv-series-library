@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { type ProbeStreams, type RunFfmpeg, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
 import { SourceMissingError, processMedia } from './process.ts';
-import { claimNext, complete, fail, recover, setProgress } from './queue.ts';
+import { claimNext, complete, fail, recover, requeue, setProgress } from './queue.ts';
 
 const POLL_MS = 5_000;
 const PROGRESS_EVERY_MS = 1_000;
@@ -14,6 +14,8 @@ export interface WorkerOptions {
   dataDir: string;
   contentDir: string;
   concurrency?: number;
+  /** x264 encoder threads. */
+  threads?: number;
   runFfmpeg?: RunFfmpeg;
   probeStreams?: ProbeStreams;
   now?: () => number;
@@ -23,6 +25,8 @@ export interface WorkerOptions {
 export interface Worker {
   /** Starts queued jobs up to the concurrency limit; cheap to call any time. */
   kick(): void;
+  /** Makes a file's queued job run next, interrupting a running job of another file (it is requeued). */
+  prioritize(mediaFileId: number): void;
   /** Resolves once nothing is running and nothing is queued. */
   drain(): Promise<void>;
   /** Recovers interrupted work, then polls for queued jobs. */
@@ -38,19 +42,23 @@ export function createWorker(opts: WorkerOptions): Worker {
     contentDir: opts.contentDir,
     runFfmpeg: opts.runFfmpeg ?? realRun,
     probeStreams: opts.probeStreams ?? realProbe,
+    threads: opts.threads,
   };
   const now = opts.now ?? Date.now;
   const log = opts.log ?? (() => {});
   const abort = new AbortController();
   let active = 0;
+  const running = new Map<number, { mediaFileId: number; ctl: AbortController; preempted: boolean }>();
   let timer: NodeJS.Timeout | undefined;
   let idle: (() => void)[] = [];
 
   async function runJob(job: NonNullable<ReturnType<typeof claimNext>>) {
     let lastWrite = Number.NEGATIVE_INFINITY;
+    const entry = { mediaFileId: job.mediaFileId, ctl: new AbortController(), preempted: false };
+    running.set(job.id, entry);
     try {
       const result = await processMedia(deps, { id: job.mediaFileId, path: job.path }, {
-        signal: abort.signal,
+        signal: AbortSignal.any([abort.signal, entry.ctl.signal]),
         onProgress: (fraction) => {
           if (now() - lastWrite < PROGRESS_EVERY_MS) return;
           lastWrite = now();
@@ -61,9 +69,16 @@ export function createWorker(opts: WorkerOptions): Worker {
       log('info', `processed ${job.path}`);
     } catch (err) {
       if (abort.signal.aborted) return; // shutting down: the job stays running and is requeued on the next start
+      if (entry.preempted) {
+        requeue(db, job);
+        log('info', `${job.path}: interrupted for a play request, requeued`);
+        return;
+      }
       const message = (err instanceof SourceMissingError ? err.message : `processing failed: ${(err as Error).message}`).slice(0, MAX_ERROR_CHARS);
       fail(db, job, message);
       log('warn', `${job.path}: ${message}`);
+    } finally {
+      running.delete(job.id);
     }
   }
 
@@ -84,8 +99,18 @@ export function createWorker(opts: WorkerOptions): Worker {
     }
   }
 
+  function prioritize(mediaFileId: number) {
+    const jobs = [...running.values()];
+    if (jobs.some((r) => r.mediaFileId === mediaFileId)) return;
+    const victim = jobs[0];
+    if (active < concurrency || !victim) return kick();
+    victim.preempted = true;
+    victim.ctl.abort(); // its runJob requeues it, then kick() claims the prioritized job
+  }
+
   return {
     kick,
+    prioritize,
     drain: () => {
       kick();
       return active === 0 ? Promise.resolve() : new Promise((resolve) => idle.push(resolve));

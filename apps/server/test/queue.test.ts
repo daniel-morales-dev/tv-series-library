@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { all, get } from '../src/db/sql.ts';
-import { claimNext, complete, enqueue, fail, listJobs, recover, setProgress } from '../src/modules/processing/queue.ts';
+import { claimNext, complete, enqueue, fail, listJobs, recover, requeue, setProgress } from '../src/modules/processing/queue.ts';
 import { addEpisode, addFile, addTitle, setup } from './helpers.ts';
 
 const pendingFile = (db: ReturnType<typeof setup>['db'], titleId: number, o: { extraLabel?: string; episodeId?: number } = {}) =>
@@ -40,6 +40,30 @@ describe('claimNext', () => {
     expect(claimNext(db)).toBeUndefined();
     expect(fileStatus(db, ep1).status).toBe('processing');
     expect(get(db, "SELECT COUNT(*) AS n FROM jobs WHERE status = 'running'")).toEqual({ n: 3 });
+  });
+});
+
+describe('priority', () => {
+  it('claims a prioritized job first and lets the latest request win', () => {
+    const { db } = setup();
+    const t = addTitle(db, 'T');
+    const [a, b, c] = [pendingFile(db, t), pendingFile(db, t), pendingFile(db, t)];
+    for (const id of [a, b, c]) enqueue(db, id);
+    enqueue(db, b, true);
+    enqueue(db, c, true);
+    expect(listJobs(db).map((j) => j.mediaFileId)).toEqual([c, b, a]);
+    expect([claimNext(db)!, claimNext(db)!, claimNext(db)!].map((j) => j.mediaFileId)).toEqual([c, b, a]);
+  });
+
+  it('requeue puts a running job back as queued from zero', () => {
+    const { db } = setup();
+    const f = pendingFile(db, addTitle(db, 'T'));
+    enqueue(db, f);
+    const job = claimNext(db)!;
+    setProgress(db, job.id, 0.5);
+    requeue(db, job);
+    expect(get(db, 'SELECT status, progress FROM jobs WHERE id = ?', job.id)).toEqual({ status: 'queued', progress: 0 });
+    expect(fileStatus(db, f).status).toBe('pending');
   });
 });
 

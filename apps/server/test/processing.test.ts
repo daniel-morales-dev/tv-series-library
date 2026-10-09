@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { all, get } from '../src/db/sql.ts';
 import { extractArgs, mainArgs, nameRenditions } from '../src/modules/processing/ffmpeg.ts';
 import { type Plan, type StreamInfo, buildPlan } from '../src/modules/processing/plan.ts';
@@ -43,6 +43,13 @@ describe('ffmpeg arguments', () => {
       'v:0,agroup:aud,name:v a:0,agroup:aud,name:a0,language:jpn,default:yes a:1,agroup:aud,name:a1,language:eng',
     );
     expect(args.at(-1)).toBe('/out/%v/index.m3u8');
+  });
+
+  it('writes a growing event playlist and limits x264 threads', () => {
+    const args = mainArgs(PLAN, '/src.mkv', '/out', { threads: 2 });
+    expect(args.join(' ')).toContain('-hls_playlist_type event');
+    expect(args.join(' ')).toContain('-pix_fmt yuv420p -force_key_frames expr:gte(t,n_forced*2) -threads 2');
+    expect(mainArgs(PLAN, '/src.mkv', '/out')).not.toContain('-threads');
   });
 
   it('copies compatible video', () => {
@@ -184,6 +191,71 @@ describe('worker', () => {
     // 100 s source: 10 s and 40 s are written (x0.99); 20 s and 30 s fall inside the same second.
     expect(seen).toEqual([0.099, 0.099, 0.099, 0.396]);
     expect(e.job(id).progress).toBe(1);
+  });
+});
+
+describe('play while processing', () => {
+  const outDir = (args: string[]) => dirname(dirname(args.at(-1)!));
+
+  it('extracts subtitles before the video run and names the audio tracks as soon as the master exists', async () => {
+    let namedMidRun = '';
+    const e = env(async (args, o) => {
+      if (!args.includes('-var_stream_map')) return void args.forEach((a) => /\.(vtt|ass|ttf)$/.test(a) && writeFileSync(a, 'x'));
+      const out = outDir(args);
+      writeFileSync(join(out, 'master.m3u8'), '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME="audio_1",URI="a0/index.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/index.m3u8\n');
+      o?.onProgress?.(10);
+      await new Promise((r) => setTimeout(r, 50));
+      namedMidRun = readFileSync(join(out, 'master.m3u8'), 'utf8');
+      expect(existsSync(join(out, 'subs/0.vtt'))).toBe(true);
+    });
+    const id = e.source();
+    await e.worker.drain();
+    expect(namedMidRun).toContain('NAME="jpn"');
+    expect(e.calls.map((a) => a.includes('-var_stream_map'))).toEqual([false, true]);
+    expect(readFileSync(join(e.dataDir, 'hls', String(id), 'master.m3u8'), 'utf8')).toContain('NAME="jpn"');
+  });
+
+  it('requeues the running job of another file, restarting it, when a play request arrives', async () => {
+    let release!: () => void;
+    const started: string[] = [];
+    const e = env(async (args, o) => {
+      const out = outDir(args);
+      if (!args.includes('-var_stream_map')) return;
+      started.push(out);
+      if (started.length === 1) {
+        await new Promise<void>((resolve, reject) => {
+          release = resolve;
+          o?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+        });
+      }
+      writeFileSync(join(out, 'master.m3u8'), '#EXTM3U');
+    });
+    const slow = e.source('slow.mkv');
+    const fast = e.source('fast.mkv');
+    e.worker.kick();
+    await vi.waitFor(() => expect(started).toHaveLength(1));
+    enqueue(e.db, fast, true);
+    e.worker.prioritize(fast);
+    await vi.waitFor(() => expect(e.file(fast).status).toBe('ready'));
+    expect(started[1]).toContain(`${fast}.tmp`);
+    expect(e.job(slow)).toMatchObject({ status: 'done' }); // restarted from the queue and finished afterwards
+    expect(started).toHaveLength(3);
+    expect(e.file(slow).status).toBe('ready');
+    release?.();
+  });
+
+  it('does nothing when the requested file is already running', async () => {
+    const e = env(async (args, o) => {
+      if (!args.includes('-var_stream_map')) return;
+      await new Promise((_, reject) => o?.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+    });
+    const id = e.source();
+    e.worker.kick();
+    await vi.waitFor(() => expect(e.calls.length).toBeGreaterThan(0));
+    e.worker.prioritize(id);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(e.job(id).status).toBe('running');
+    e.worker.stop();
   });
 });
 

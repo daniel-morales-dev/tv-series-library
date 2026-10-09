@@ -32,6 +32,7 @@ const worker =
         dataDir,
         contentDir,
         concurrency: Number(process.env.PROCESS_CONCURRENCY ?? 1),
+        threads: Number(process.env.FFMPEG_THREADS ?? 4),
         log: (level, message) => app.log[level](message),
       });
 
