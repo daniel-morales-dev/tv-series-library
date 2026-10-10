@@ -2,7 +2,7 @@
 
 Plataforma local para ver tus películas, series y anime desde cualquier dispositivo conectado a tu WiFi (TV, celular, tablet o PC). Sin anuncios ni cuentas, con perfiles, Mi lista y Continuar viendo.
 
-> **Arranque local:** [guía de desarrollo y diagnóstico](docs/local-development.md). Si ya tienes biblioteca, lee el aviso de copia y migración **antes de iniciar el backend**.
+> **Arranque local:** `npm run dev` desde la raíz inicia backend (8080) y frontend (5174), con copia SQLite verificada y parada conjunta con `Ctrl+C`. Guía y aviso de copia/migración: [docs/local-development.md](docs/local-development.md). Si ya tienes biblioteca, lee ese aviso **antes de iniciar el backend**.
 >
 > Estado: en construcción. Ver el plan en [`odd/tasks/tv-series-library.md`](odd/tasks/tv-series-library.md).
 

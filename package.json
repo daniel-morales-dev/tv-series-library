@@ -2,6 +2,9 @@
   "name": "tv-series-library",
   "private": true,
   "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs"
+  },
   "workspaces": [
     "apps/*"
   ],

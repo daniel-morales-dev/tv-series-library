@@ -1,17 +1,16 @@
 # Arrancar en local sin confundir la biblioteca
 
-Usa dos terminales desde la raíz del repositorio. La interfaz de desarrollo estará en **http://localhost:5174** y la API en **http://localhost:8080/api/health**.
-
-> **Antes de abrir una biblioteca existente:** el backend migra SQLite automáticamente, incluso con `INGEST=off PROCESSING=off`. La BD conservada está en esquema 4; el código actual aplicará la migración **005** (`titles.seasons_group_id`). Primero necesitas una copia consistente y aprobación explícita para ese arranque. Esta guía no ejecuta ni autoriza la recuperación.
-
-## 1. Comprobar ubicación y puertos
-
-En cada terminal:
+Desde la raíz del repositorio:
 
 ```sh
-cd /home/dmorales/Documents/Daniel/tv-series-library
-pwd
+npm run dev
 ```
+
+La interfaz queda en **http://localhost:5174** y la API en **http://localhost:8080/api/health**. El lanzador (`scripts/dev.mjs`) ancla `DATA_DIR` y `CONTENT_DIR` a la raíz del repositorio —nunca al directorio desde el que llamaste—, comprueba los puertos antes de abrir SQLite, crea una copia de seguridad verificada si ya existe `data/library.db` e inicia backend y frontend juntos. **Ctrl+C detiene ambos procesos.** Que los procesos arranquen no prueba que la app esté lista: confirma la salud HTTP (sección 4).
+
+> **Antes de abrir una biblioteca existente:** el backend migra SQLite automáticamente, incluso con `INGEST=off PROCESSING=off`. La BD conservada está en esquema 4; el código actual aplicará la migración **005** (`titles.seasons_group_id`). El lanzador hace la copia antes de abrir, pero **arrancar equivale a aprobar la migración**: para la primera recuperación usa el arranque sin trabajadores de la sección 3 y no reproduzcas ni reescanees. Esta guía no ejecuta ni autoriza la recuperación.
+
+## 1. Comprobar puertos
 
 Antes de arrancar, identifica quién ocupa los puertos:
 
@@ -19,13 +18,19 @@ Antes de arrancar, identifica quién ocupa los puertos:
 ss -ltnp '( sport = :8080 or sport = :5173 or sport = :5174 )'
 ```
 
-En el diagnóstico del 2026-10-09, **5173 pertenecía a otro proyecto** y esta app usaba 5174. Si 8080 o 5174 siguen ocupados, no lances otro proceso ni mates el proyecto ajeno. Detén solo tu proceso identificado, con `Ctrl+C` en su propia terminal; si no tienes esa terminal, coordina la parada antes de continuar.
+En el diagnóstico del 2026-10-09, **5173 pertenecía a otro proyecto** y esta app usa 5174. Si 8080 o 5174 están ocupados, `npm run dev` falla **antes** de abrir o copiar la base, con el puerto y la instrucción de detener solo tu proceso. No lances otro proceso ni mates el proyecto ajeno: el lanzador jamás termina procesos que no inició él.
 
-## 2. Copia consistente antes del primer arranque de recuperación
+## 2. Copia de seguridad de SQLite
 
-Ejecuta este bloque **solo cuando hayas aprobado preparar la copia**, desde la raíz. Usa la API de backup de SQLite con origen de solo lectura y crea un destino único en `data/recovery/`. No migra ni modifica registros del origen; si la BD no existe, falla sin crear otra en su lugar.
+Si existe `data/library.db`, el lanzador crea automáticamente una copia consistente antes de cada arranque: origen de solo lectura y la API de backup de SQLite (incorpora los datos confirmados en WAL), destino **único** en `data/recovery/before-start-*/library.db` (nunca sobrescribe una copia anterior) y verificación `PRAGMA integrity_check`. Si algo falla, **no arranca** y lo explica. Al prepararla imprime la ruta:
 
-**No copies únicamente `library.db` con `cp` mientras hay un servidor abierto:** datos recientes pueden estar en `library.db-wal`. La API de backup incorpora los datos confirmados en una instantánea consistente. Esta copia protege SQLite, no los videos ni todos los HLS; conserva también el resto de `data/` y `content/`.
+```
+Copia SQLite verificada (solo base de datos, no videos ni HLS): /ruta/data/recovery/...
+```
+
+Guarda esa ruta. **La copia protege SQLite, no los videos ni todos los HLS**; conserva también el resto de `data/` y `content/`. **No copies únicamente `library.db` con `cp` mientras hay un servidor abierto:** datos recientes pueden estar en `library.db-wal` y una copia suelta no es una instantánea consistente.
+
+Bloque manual, solo si quieres preparar la copia **sin arrancar** la app (por ejemplo, antes de aprobar la migración). No migra ni modifica registros del origen; si la BD no existe, falla sin crear otra en su lugar:
 
 ```sh
 python3 - <<'PY'
@@ -47,26 +52,15 @@ print(f"Copia SQLite verificada: {destination.resolve()}")
 PY
 ```
 
-Guarda la ruta impresa. Si hay un error o no se imprime la confirmación, **no arranques**. Crear la copia no equivale a aprobar la migración ni a restaurar archivos.
-
 ## 3. Primer arranque de recuperación, sin trabajadores
 
-**Solo tras verificar la copia y aprobar explícitamente el arranque/migración.** Terminal del backend:
+**Solo tras verificar la copia y aprobar explícitamente el arranque/migración:**
 
 ```sh
-PORT=8080 CONTENT_DIR="$PWD/content" DATA_DIR="$PWD/data" \
-  INGEST=off PROCESSING=off npm run dev -w apps/server
+INGEST=off PROCESSING=off npm run dev
 ```
 
-Este modo evita el escaneo automático y la cola de ffmpeg; **no es un servidor de solo lectura**: abre SQLite, migra y las acciones de la UI pueden escribir. Para comprobar el catálogo usa únicamente los GET de la sección siguiente; no reescanees ni reproduzcas archivos en cola durante esta revisión.
-
-Terminal del frontend, también desde la raíz:
-
-```sh
-npm run dev -w apps/web -- --port 5174 --strictPort
-```
-
-Abre **http://localhost:5174**. `--strictPort` hace fallar el arranque si 5174 está ocupado, en vez de cambiar silenciosamente a otro puerto. El frontend reenvía `/api` al backend en 8080.
+Este modo evita el escaneo automático y la cola de ffmpeg; **no es un servidor de solo lectura**: abre SQLite, migra y las acciones de la UI pueden escribir. Para comprobar el catálogo usa únicamente los GET de la sección siguiente; no reescanees ni reproduzcas archivos en cola durante esta revisión. El frontend también arranca, pero solo para consultar.
 
 ## 4. Comprobar la API, sin mutaciones
 
@@ -83,25 +77,22 @@ Espera HTTP 200; health devuelve `{"ok":true}`. Un catálogo vacío con HTTP 200
 
 ## 5. Uso habitual, después de resolver la recuperación
 
-Detén tu backend anterior con `Ctrl+C` en su terminal. Para el uso normal, desde la raíz:
-
 ```sh
-PORT=8080 CONTENT_DIR="$PWD/content" DATA_DIR="$PWD/data" npm run dev -w apps/server
+npm run dev
 ```
 
-La ingesta y el procesamiento están habilitados por defecto, salvo que el entorno o `.env` los desactiven. La ingesta escanea y vigila los videos, guarda el catálogo y consulta TMDB cuando corresponde; la cola convierte archivos a HLS con ffmpeg y **puede consumir CPU y espacio**. No habilites ese trabajo como primer intento de arreglar una biblioteca vacía. El frontend se inicia con el mismo comando de la sección 3.
-
-Para cerrar la sesión, `Ctrl+C` en **cada una de tus dos terminales**. Reiniciar el PC no inicia la app automáticamente: el autoarranque Linux sigue pendiente en **T7**.
+La ingesta y el procesamiento están habilitados por defecto, salvo que el entorno o `.env` los desactiven. La ingesta escanea y vigila los videos, guarda el catálogo y consulta TMDB cuando corresponde; la cola convierte archivos a HLS con ffmpeg y **puede consumir CPU y espacio**. No habilites ese trabajo como primer intento de arreglar una biblioteca vacía. Para cerrar la sesión basta **Ctrl+C una vez**: el lanzador detiene ambos árboles de procesos. Reiniciar el PC no inicia la app automáticamente: el autoarranque Linux sigue pendiente en **T7**.
 
 ## Por qué había perfiles y catálogo vacíos
 
-Los scripts del workspace ejecutan Node con directorio de trabajo `apps/server` y cargan `../../.env` desde allí. Sin embargo, `CONTENT_DIR=./content` y `DATA_DIR=./data` se interpretan respecto a ese directorio, **no respecto al archivo `.env`**. Por eso el backend abrió otra BD. Las rutas absolutas calculadas con `$PWD` **desde la raíz**, antes de ejecutar npm, evitan la confusión y prevalecen sobre `.env` sin editarlo.
+Los scripts de workspace ejecutan Node con directorio de trabajo `apps/server` y cargan `../../.env` desde allí. Sin embargo, `CONTENT_DIR=./content` y `DATA_DIR=./data` se interpretan respecto a ese directorio, **no respecto al archivo `.env`**. Por eso el backend abrió otra BD. Con `npm run dev`, el lanzador convierte esas variables a rutas absolutas ancladas a la raíz del repositorio antes de iniciar los procesos, así que este error de directorio no puede repetirse; para comandos directos de workspace sigue aplicando el consejo anterior de usar `$PWD` desde la raíz. Las rutas de `.env` pueden seguir siendo relativas.
 
 | Ubicación | Qué conserva |
 |---|---|
 | `content/` (`CONTENT_DIR`) | Videos originales; tenerlos no equivale a tener un catálogo en SQLite. |
 | `data/library.db` (`DATA_DIR`) | Títulos, archivos indexados, perfiles, Mi lista y progreso. |
 | `data/hls/` y resto de `data/` | Video procesado, subtítulos, fuentes e imágenes; mantenlos junto a su BD, cuyos ids referencian los HLS. |
+| `data/recovery/` | Copias automáticas de SQLite antes de cada arranque; puedes borrar las antiguas, no la más reciente que quieras conservar. |
 
 **Instantánea del diagnóstico, no una promesa de recuperación:**
 
@@ -113,7 +104,7 @@ Los scripts del workspace ejecutan Node con directorio de trabajo `apps/server` 
 
 ## Instalación nueva, sin biblioteca previa
 
-Necesitas Node.js **24 o superior**, npm, ffmpeg/ffprobe y Python 3 con `sqlite3` para el backup. El entorno de referencia usa Node 24.14. Comprueba sin instalar:
+Necesitas Node.js **24 o superior**, npm y ffmpeg/ffprobe (Python 3 con `sqlite3` solo para la copia manual de la sección 2). El entorno de referencia usa Node 24.14. Comprueba sin instalar:
 
 ```sh
 node --version
@@ -121,13 +112,16 @@ npm --version
 command -v ffmpeg ffprobe python3
 ```
 
-Desde la raíz, instala las dependencias según el lockfile:
+Desde la raíz, instala las dependencias según el lockfile y crea **tú mismo** las carpetas de trabajo:
 
 ```sh
 npm ci
+mkdir -p content data
 ```
 
-Crea `.env` desde `.env.example` **únicamente si no existe**; no sustituyas el de una instalación previa. Configura `TMDB_READ_ACCESS_TOKEN` de forma privada (esta instalación ya lo tiene). Nunca imprimas el token ni subas `.env`. Sin token, la ingesta funciona sin metadata de TMDB y la reintenta cuando esté disponible. Después usa el arranque habitual y el frontend de la sección 3. No uses `seed` para reparar una biblioteca existente.
+El lanzador **no crea** `content/` ni `data/`: si no existen, falla con un mensaje claro en vez de fabricar una biblioteca vacía (por ejemplo, en un disco desconectado). En una instalación nueva créalas a propósito, como arriba.
+
+Crea `.env` desde `.env.example` **únicamente si no existe**; no sustituyas el de una instalación previa. Configura `TMDB_READ_ACCESS_TOKEN` de forma privada (esta instalación ya lo tiene). Nunca imprimas el token ni subas `.env`. Sin token, la ingesta funciona sin metadata de TMDB y la reintenta cuando esté disponible. Después usa `npm run dev`. No uses `seed` para reparar una biblioteca existente.
 
 ## Servir el frontend compilado desde 8080
 
@@ -141,4 +135,4 @@ PORT=8080 CONTENT_DIR="$PWD/content" DATA_DIR="$PWD/data" \
 
 Abre **http://localhost:8080**; aquí no necesitas Vite. `WEB_DIR` es absoluto y apunta al resultado de la compilación. Para LAN, la URL usa la IP de la laptop en vez de `localhost`; la validación en celular/TV (**T6d**) y el empaquetado/autoarranque (**T7**) siguen pendientes.
 
-Siguiente paso: revisar la copia y aprobar el arranque controlado; consultar el estado en [el documento de tareas](../odd/tasks/tv-series-library.md).
+Siguiente paso: revisar la copia y aprobar el arranque controlado (T18b); consultar el estado en [el documento de tareas](../odd/tasks/tv-series-library.md).
