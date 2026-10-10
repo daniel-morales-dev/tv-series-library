@@ -94,7 +94,19 @@ function activityView(db: DatabaseSync) {
 
 export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir: string, worker?: Worker): void {
   api.get('/jobs', async () => listJobs(db));
-  api.get('/activity', async () => activityView(db));
+  api.get('/activity', async () => ({ ...activityView(db), paused: worker?.isPaused() ?? false }));
+
+  api.post('/processing/pause', async (_req, reply) => {
+    if (!worker) return reply.code(409).send({ error: 'processing_disabled' });
+    worker.pause();
+    return { paused: true };
+  });
+
+  api.post('/processing/resume', async (_req, reply) => {
+    if (!worker) return reply.code(409).send({ error: 'processing_disabled' });
+    worker.resume();
+    return { paused: false };
+  });
 
   api.post<{ Params: { id: number } }>('/media-files/:id/process', { schema: { params: idParams('id') } }, async (req, reply) => {
     const file = get<{ status: string }>(db, 'SELECT status FROM media_files WHERE id = ?', req.params.id);

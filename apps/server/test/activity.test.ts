@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.ts';
 import { enqueue, claimNext, fail, setProgress } from '../src/modules/processing/queue.ts';
+import { createWorker } from '../src/modules/processing/worker.ts';
 import { addEpisode, addFile, addTitle, setup } from './helpers.ts';
 
 interface Item {
@@ -43,7 +44,7 @@ function queue(db: ReturnType<typeof setup>['db'], fileId: number): number {
 describe('GET /api/activity', () => {
   it('answers empty sections on an empty library', async () => {
     const { app } = env();
-    expect((await app.inject('/api/activity')).json()).toEqual({ running: [], queued: [], queuedTotal: 0, failed: [] });
+    expect((await app.inject('/api/activity')).json()).toEqual({ running: [], queued: [], queuedTotal: 0, failed: [], paused: false });
   });
 
   it('joins episode, film and extra files with their display names and kind', async () => {
@@ -161,5 +162,35 @@ describe('GET /api/activity', () => {
     expect(retried.failed).toEqual([]);
     expect(retried.queued).toMatchObject([{ mediaFileId: fileId, status: 'queued', error: null }]);
     expect(retried.queuedTotal).toBe(1);
+  });
+});
+
+describe('processing pause and resume', () => {
+  it('pauses and resumes idempotently and reports the state in activity', async () => {
+    const { db } = setup();
+    const worker = createWorker({ db, dataDir: 'data', contentDir: 'content' });
+    const app = buildApp({ db, worker });
+
+    const paused = await app.inject({ method: 'POST', url: '/api/processing/pause' });
+    expect(paused.statusCode).toBe(200);
+    expect(paused.json()).toEqual({ paused: true });
+    expect(worker.isPaused()).toBe(true);
+    expect((await app.inject({ method: 'POST', url: '/api/processing/pause' })).json()).toEqual({ paused: true });
+    expect((await app.inject('/api/activity')).json()).toMatchObject({ paused: true });
+
+    const resumed = await app.inject({ method: 'POST', url: '/api/processing/resume' });
+    expect(resumed.statusCode).toBe(200);
+    expect(resumed.json()).toEqual({ paused: false });
+    expect(worker.isPaused()).toBe(false);
+    expect((await app.inject('/api/activity')).json()).toMatchObject({ paused: false });
+  });
+
+  it('answers 409 processing_disabled when the worker is off', async () => {
+    const { app } = env();
+    for (const action of ['pause', 'resume']) {
+      const res = await app.inject({ method: 'POST', url: `/api/processing/${action}` });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({ error: 'processing_disabled' });
+    }
   });
 });

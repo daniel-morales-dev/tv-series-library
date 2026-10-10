@@ -288,6 +288,89 @@ describe('play while processing', () => {
   });
 });
 
+describe('pause and resume', () => {
+  const outDir = (args: string[]) => dirname(dirname(args.at(-1)!));
+
+  it('pause requeues the running job, holds the backlog, and resume finishes both', async () => {
+    const started: string[] = [];
+    const e = env(async (args, o) => {
+      if (!args.includes('-var_stream_map')) return void args.forEach((a) => /\.(vtt|ass|ttf)$/.test(a) && writeFileSync(a, 'x'));
+      started.push(args.at(-1)!);
+      if (started.length === 1) {
+        await new Promise((_, reject) => o?.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+      }
+      writeHlsPackage(outDir(args));
+    });
+    const first = e.source('first.mkv');
+    const second = e.source('second.mkv');
+    e.worker.kick();
+    await vi.waitFor(() => expect(started).toHaveLength(1));
+
+    e.worker.pause();
+    e.worker.pause(); // idempotent
+    expect(e.worker.isPaused()).toBe(true);
+    await vi.waitFor(() => expect(e.job(first).status).toBe('queued'));
+    expect(e.job(first).progress).toBe(0);
+    expect(e.file(first).status).toBe('pending');
+
+    e.worker.kick(); // paused: nothing left to claim
+    await new Promise((resolve) => setTimeout(resolve, 20)); // paused: the backlog must not start
+    expect(e.job(second).status).toBe('queued');
+    expect(e.job(first).status).toBe('queued');
+
+    e.worker.resume();
+    expect(e.worker.isPaused()).toBe(false);
+    await e.worker.drain();
+    expect(e.file(first).status).toBe('ready');
+    expect(e.file(second).status).toBe('ready');
+  });
+
+  it('pause leaves a user-requested job running', async () => {
+    const started: string[] = [];
+    let release!: () => void;
+    const e = env(async (args, o) => {
+      if (!args.includes('-var_stream_map')) return void args.forEach((a) => /\.(vtt|ass|ttf)$/.test(a) && writeFileSync(a, 'x'));
+      started.push(args.at(-1)!);
+      await new Promise<void>((resolve, reject) => {
+        release = resolve;
+        o?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+      writeHlsPackage(outDir(args));
+    });
+    const id = e.source('requested.mkv');
+    enqueue(e.db, id, true);
+    e.worker.kick();
+    await vi.waitFor(() => expect(started).toHaveLength(1));
+
+    e.worker.pause();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(started).toHaveLength(1); // not aborted, requeued and restarted from zero
+    expect(e.job(id).status).toBe('running');
+    expect(e.file(id).status).toBe('processing');
+
+    release();
+    await e.worker.drain();
+    expect(e.file(id).status).toBe('ready');
+  });
+
+  it('while paused only user-requested jobs run', async () => {
+    const e = env();
+    const backlog = e.source('backlog.mkv');
+    const requested = e.source('requested.mkv');
+    enqueue(e.db, requested, true);
+    e.worker.pause();
+    e.worker.kick();
+
+    await vi.waitFor(() => expect(e.file(requested).status).toBe('ready'));
+    expect(e.job(backlog)).toMatchObject({ status: 'queued' });
+    expect(e.file(backlog).status).toBe('pending');
+
+    e.worker.resume();
+    await e.worker.drain();
+    expect(e.file(backlog).status).toBe('ready');
+  });
+});
+
 describe('restart recovery', () => {
   it('requeues a job interrupted mid-run and finishes it on start', async () => {
     const e = env();
