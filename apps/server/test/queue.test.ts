@@ -54,23 +54,6 @@ describe('claimNext', () => {
   });
 });
 
-describe('claimNext prioritized only', () => {
-  it('claims user-requested jobs and leaves the backlog queued', () => {
-    const { db } = setup();
-    const t = addTitle(db, 'T');
-    const backlog = pendingFile(db, t);
-    const requested = pendingFile(db, t);
-    enqueue(db, backlog);
-    enqueue(db, requested, true);
-
-    expect(claimNext(db, { prioritizedOnly: true })!.mediaFileId).toBe(requested);
-    expect(claimNext(db, { prioritizedOnly: true })).toBeUndefined();
-    expect(fileStatus(db, backlog).status).toBe('pending');
-    expect(get(db, 'SELECT status FROM jobs WHERE media_file_id = ?', backlog)).toEqual({ status: 'queued' });
-    expect(claimNext(db)!.mediaFileId).toBe(backlog);
-  });
-});
-
 describe('priority', () => {
   it('claims a prioritized job first and lets the latest request win', () => {
     const { db } = setup();

@@ -32,9 +32,9 @@ export interface Worker {
   /** Recovers interrupted work, then polls for queued jobs. */
   start(): void;
   stop(): void;
-  /** Stops claiming backlog work; user-requested jobs still run. A running backlog job is requeued and restarts later. */
+  /** Stops all processing: running jobs are requeued and restart later, and nothing new is claimed. */
   pause(): void;
-  /** Resumes claiming the backlog by priority. */
+  /** Resumes claiming queued work by priority. */
   resume(): void;
   isPaused(): boolean;
 }
@@ -53,7 +53,7 @@ export function createWorker(opts: WorkerOptions): Worker {
   const log = opts.log ?? (() => {});
   const abort = new AbortController();
   let active = 0;
-  const running = new Map<number, { mediaFileId: number; priority: number; ctl: AbortController; preempted: boolean }>();
+  const running = new Map<number, { mediaFileId: number; ctl: AbortController; preempted: boolean }>();
   let timer: NodeJS.Timeout | undefined;
   let idle: (() => void)[] = [];
   // In memory only: a server restart resumes processing with the backlog.
@@ -65,7 +65,7 @@ export function createWorker(opts: WorkerOptions): Worker {
   async function runJob(job: NonNullable<ReturnType<typeof claimNext>>) {
     let lastWrite = Number.NEGATIVE_INFINITY;
     let retried = false;
-    const entry = { mediaFileId: job.mediaFileId, priority: job.priority, ctl: new AbortController(), preempted: false };
+    const entry = { mediaFileId: job.mediaFileId, ctl: new AbortController(), preempted: false };
     running.set(job.id, entry);
     try {
       let result: ProcessResult;
@@ -115,7 +115,8 @@ export function createWorker(opts: WorkerOptions): Worker {
   function kick() {
     if (abort.signal.aborted) return;
     while (active < concurrency) {
-      const job = claimNext(db, { prioritizedOnly: paused });
+      if (paused) break;
+      const job = claimNext(db);
       if (!job) break;
       active++;
       void runJob(job).finally(() => {
@@ -138,13 +139,12 @@ export function createWorker(opts: WorkerOptions): Worker {
     victim.ctl.abort(); // its runJob requeues it, then kick() claims the prioritized job
   }
 
-  // Aborts only backlog work so the CPU frees immediately; user-requested jobs keep running.
-  // runJob requeues an aborted job and it restarts from zero (HLS packages are not resumable mid-encode).
+  // Aborts every running job so the CPU frees immediately; runJob requeues each one and it restarts
+  // from zero later (HLS packages are not resumable mid-encode).
   function pause() {
     if (paused) return;
     paused = true;
     for (const entry of running.values()) {
-      if (entry.priority > 0) continue;
       entry.preempted = true;
       entry.ctl.abort();
     }

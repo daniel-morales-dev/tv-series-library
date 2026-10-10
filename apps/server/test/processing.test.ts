@@ -325,16 +325,14 @@ describe('pause and resume', () => {
     expect(e.file(second).status).toBe('ready');
   });
 
-  it('pause leaves a user-requested job running', async () => {
+  it('pause also requeues a user-requested job, which restarts on resume', async () => {
     const started: string[] = [];
-    let release!: () => void;
     const e = env(async (args, o) => {
       if (!args.includes('-var_stream_map')) return void args.forEach((a) => /\.(vtt|ass|ttf)$/.test(a) && writeFileSync(a, 'x'));
       started.push(args.at(-1)!);
-      await new Promise<void>((resolve, reject) => {
-        release = resolve;
-        o?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
-      });
+      if (started.length === 1) {
+        await new Promise((_, reject) => o?.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+      }
       writeHlsPackage(outDir(args));
     });
     const id = e.source('requested.mkv');
@@ -343,30 +341,35 @@ describe('pause and resume', () => {
     await vi.waitFor(() => expect(started).toHaveLength(1));
 
     e.worker.pause();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(started).toHaveLength(1); // not aborted, requeued and restarted from zero
-    expect(e.job(id).status).toBe('running');
-    expect(e.file(id).status).toBe('processing');
+    await vi.waitFor(() => expect(e.job(id).status).toBe('queued'));
+    expect(e.job(id).progress).toBe(0);
+    expect(e.file(id).status).toBe('pending');
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(started).toHaveLength(1); // paused: it must not restart
 
-    release();
+    e.worker.resume();
     await e.worker.drain();
+    expect(started).toHaveLength(2);
     expect(e.file(id).status).toBe('ready');
   });
 
-  it('while paused only user-requested jobs run', async () => {
+  it('while paused nothing starts, not even a user request', async () => {
     const e = env();
     const backlog = e.source('backlog.mkv');
     const requested = e.source('requested.mkv');
     enqueue(e.db, requested, true);
     e.worker.pause();
     e.worker.kick();
+    e.worker.prioritize(requested);
 
-    await vi.waitFor(() => expect(e.file(requested).status).toBe('ready'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(e.job(requested)).toMatchObject({ status: 'queued' });
     expect(e.job(backlog)).toMatchObject({ status: 'queued' });
-    expect(e.file(backlog).status).toBe('pending');
+    expect(e.file(requested).status).toBe('pending');
 
     e.worker.resume();
     await e.worker.drain();
+    expect(e.file(requested).status).toBe('ready');
     expect(e.file(backlog).status).toBe('ready');
   });
 });

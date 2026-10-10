@@ -6,8 +6,6 @@ export interface ClaimedJob {
   mediaFileId: number;
   path: string;
   durationS: number | null;
-  /** 0 = backlog; > 0 = user-requested (play click). */
-  priority: number;
 }
 
 export interface JobView {
@@ -89,19 +87,18 @@ export function requeueErrors(db: DatabaseSync): void {
 }
 
 // Requested-to-play first, then episodes and movies before extras, then oldest first.
-// `prioritizedOnly` skips the backlog (priority 0); the worker uses it while processing is paused.
-export function claimNext(db: DatabaseSync, { prioritizedOnly = false }: { prioritizedOnly?: boolean } = {}): ClaimedJob | undefined {
+export function claimNext(db: DatabaseSync): ClaimedJob | undefined {
   return transaction(db, () => {
-    const row = get<{ id: number; media_file_id: number; path: string; duration_s: number | null; priority: number }>(
+    const row = get<{ id: number; media_file_id: number; path: string; duration_s: number | null }>(
       db,
-      `SELECT j.id, j.media_file_id, m.path, m.duration_s, j.priority FROM jobs j JOIN media_files m ON m.id = j.media_file_id
-       WHERE j.type = 'process' AND j.status = 'queued'${prioritizedOnly ? ' AND j.priority > 0' : ''}
+      `SELECT j.id, j.media_file_id, m.path, m.duration_s FROM jobs j JOIN media_files m ON m.id = j.media_file_id
+       WHERE j.type = 'process' AND j.status = 'queued'
        ORDER BY j.priority DESC, (m.extra_label IS NOT NULL), j.id LIMIT 1`,
     );
     if (!row) return undefined;
     run(db, `UPDATE jobs SET status = 'running', progress = 0, error = NULL, updated_at = ${NOW} WHERE id = ?`, row.id);
     run(db, "UPDATE media_files SET status = 'processing', error = NULL WHERE id = ?", row.media_file_id);
-    return { id: row.id, mediaFileId: row.media_file_id, path: row.path, durationS: row.duration_s, priority: row.priority };
+    return { id: row.id, mediaFileId: row.media_file_id, path: row.path, durationS: row.duration_s };
   });
 }
 
