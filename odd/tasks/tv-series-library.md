@@ -91,6 +91,7 @@
 - IMDb no sirve como fuente: bloquea acceso automático y su API es de pago.
 
 ## Evidencia
+- T17: commit `75dc09d`, 177 líneas añadidas/eliminadas; `git diff --check` y lectura estructural correctos, bloques de shell validados y backup SQLite probado solo en datos desechables por el writer. Evaluación nativa: `passive` (`non_executable_only`), sin revisión requerida. No se ejecutaron arranque, migración, ingesta ni pruebas HTTP sobre la biblioteca real. Rollback documental: README, guía local y actualización T17, sin cambios de código ni datos.
 - T1: `node:sqlite` + FTS5 verificado en Node 24.14 (`mas*` → "Más allá del final").
 - T2: 30 tests vitest en verde, `tsc --noEmit` limpio, health/seed/titles/suggest verificados en servidor real. Commits f69b1ed, 8b1ff42, df8e511.
 
