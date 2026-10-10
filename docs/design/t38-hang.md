@@ -40,3 +40,12 @@ Puerto 8080 en LISTEN sin responder; hilo principal en `futex_do_wait`, workers 
 ## Recomendaciones sin implementar (requieren decisión)
 - Watchdog fuera del event loop (worker thread que haga SIGKILL al proceso si el latido del hilo principal se detiene): único mecanismo que cubriría el caso del incidente; es una función nueva, no un fix demostrado.
 - Pasar `diskPresent()` a una comprobación asíncrona con caché si se confirma un cuelgue por montaje.
+
+## Watchdog (implementado)
+
+Un hilo `node:worker_threads` (`apps/server/src/watchdog.ts` + `watchdog-worker.ts`) vigila el event loop desde fuera: el hilo principal incrementa cada 1 s un contador en un `SharedArrayBuffer` (`Atomics.add`) y el hilo vigilante, que tiene su propio loop, lo lee cada 2 s. Si el contador no avanza durante `WATCHDOG_STALL_S` (30 s por defecto), escribe una línea a stderr (`watchdog: event loop stalled Ns, pid P; sending SIGKILL`, con `writeSync(2)` porque el stderr del worker pasa por el loop atascado) y hace `process.kill(process.pid, 'SIGKILL')` solo al pid del servidor. systemd (`Restart=`) lo levanta; con `KillMode=process` los ffmpeg adoptables (T40) siguen vivos y el servidor nuevo los adopta.
+
+- `WATCHDOG_STALL_S`: segundos de latido parado antes de matar. `0` lo desactiva; un valor inválido vuelve a 30.
+- Desactivado automáticamente bajo vitest (`VITEST`/`NODE_ENV=test`) y con inspector (`--inspect*` en `execArgv` o `NODE_OPTIONS`), para que depurar nunca mate el proceso. Con `node --watch` (dev) sigue activo.
+- Lógica pura e inyectable: `shouldKill(lastBeatAt, now, stallMs)` y `createWatcher({read, now, stallMs, kill, log})`; pruebas deterministas en `test/watchdog.test.ts` más un proceso hijo que bloquea su loop con un bucle ocupado y debe morir por SIGKILL.
+- Limitación: solo cubre loops detenidos; un cuelgue que además pare todos los hilos del proceso no se detecta.

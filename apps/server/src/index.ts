@@ -11,6 +11,7 @@ import { GB } from './modules/processing/cache.ts';
 import { requeueErrors } from './modules/processing/queue.ts';
 import { createWorker } from './modules/processing/worker.ts';
 import { createShutdown } from './shutdown.ts';
+import { startWatchdog, watchdogStallMs } from './watchdog.ts';
 
 // T47a/T47d: one resolver for state (database, images, recovery) and one for the HLS root (config.json `hlsDir`).
 const dataPaths = resolveDataPaths();
@@ -130,3 +131,6 @@ const shutdown = createShutdown({
 });
 process.on('SIGTERM', () => void shutdown());
 process.on('SIGINT', () => void shutdown());
+
+// T38: SIGKILLs this process if the event loop stalls (WATCHDOG_STALL_S, default 30; 0 disables); off under tests/--inspect.
+startWatchdog({ stallMs: watchdogStallMs() });

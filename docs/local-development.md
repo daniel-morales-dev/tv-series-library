@@ -184,3 +184,7 @@ PORT=8080 CONTENT_DIR="$PWD/content" DATA_DIR="$PWD/data" \
 Abre **http://localhost:8080**; aquí no necesitas Vite. `WEB_DIR` es absoluto y apunta al resultado de la compilación. Para LAN, la URL usa la IP de la laptop en vez de `localhost`. Para dejarla como servicio al encender, ver [README](../README.md#correrlo-en-linux-laptop-y-verlo-desde-celular-y-tv); la validación en celular/TV (**T6d**) sigue pendiente.
 
 Siguiente paso: revisar la copia y aprobar el arranque controlado (T18b); consultar el estado en [el documento de tareas](../odd/tasks/tv-series-library.md).
+
+### Watchdog del event loop (T38)
+
+El servidor se mata solo (SIGKILL; systemd lo reinicia y adopta los ffmpeg vivos) si su event loop no da señales de vida durante `WATCHDOG_STALL_S` segundos (por defecto `30`; `0` lo desactiva). Va en `.env` o en el entorno del servicio. Se desactiva solo en tests y con `--inspect`. Detalle en `docs/design/t38-hang.md`.
