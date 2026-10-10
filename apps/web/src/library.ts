@@ -1,4 +1,5 @@
 import type { ContinueItem, Profile, TitleSummary } from './types.ts';
+import { pickFile } from './titlePage.ts';
 
 export const KIND_BY_SLUG = { series: 'series', movies: 'movie', anime: 'anime' } as const;
 export type KindSlug = keyof typeof KIND_BY_SLUG;
@@ -71,7 +72,10 @@ export function firstFileId(d: PlayableDetail): number | null {
   const main = d.files.filter((f) => !f.extraLabel && f.status !== 'downloading');
   const ordered = d.seasons
     .flatMap((s) => [...s.episodes].sort((a, b) => a.number - b.number))
-    .flatMap((e) => main.filter((f) => f.episodeId === e.id));
+    .flatMap((e) => {
+      const newest = pickFile(main.filter((f) => f.episodeId === e.id));
+      return newest ? [newest] : [];
+    });
   const candidates = ordered.length ? ordered : main.filter((f) => f.episodeId === null);
   return (candidates.find((f) => f.status === 'ready') ?? candidates[0])?.id ?? null;
 }

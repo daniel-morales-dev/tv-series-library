@@ -28,9 +28,21 @@ describe('buildEpisodes', () => {
     const [s] = buildEpisodes(detail({ files: [file(10, 1, { status: 'downloading' }), file(11, 1)] }));
     expect(s!.rows[0]).toMatchObject({ file: { id: 11 } });
   });
-  it('keeps the first match when every file for an episode is downloading', () => {
+  it('picks the newest file when a stale ready row shadows a newer pending one', () => {
+    const [s] = buildEpisodes(detail({ files: [file(42, 1), file(88, 1, { status: 'pending' })] }));
+    expect(s!.rows[0]).toMatchObject({ file: { id: 88 } });
+  });
+  it('picks the newest file when two ready rows exist for the same episode', () => {
+    const [s] = buildEpisodes(detail({ files: [file(42, 1), file(88, 1)] }));
+    expect(s!.rows[0]).toMatchObject({ file: { id: 88 } });
+  });
+  it('picks the newest live file over an older downloading one', () => {
+    const [s] = buildEpisodes(detail({ files: [file(42, 1, { status: 'downloading' }), file(88, 1, { status: 'pending' })] }));
+    expect(s!.rows[0]).toMatchObject({ file: { id: 88 } });
+  });
+  it('picks the highest id when every file for an episode is downloading', () => {
     const [s] = buildEpisodes(detail({ files: [file(10, 1, { status: 'downloading' }), file(11, 1, { status: 'downloading' })] }));
-    expect(s!.rows[0]).toMatchObject({ file: { id: 10 } });
+    expect(s!.rows[0]).toMatchObject({ file: { id: 11 } });
   });
   it('still ignores extras attached to the episode', () => {
     const [s] = buildEpisodes(detail({ files: [file(20, 1, { extraLabel: 'OP' }), file(11, 1)] }));

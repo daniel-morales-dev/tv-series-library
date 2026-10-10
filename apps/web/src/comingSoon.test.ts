@@ -56,6 +56,10 @@ describe('downloading files', () => {
     expect(firstFileId({ seasons: detail(true, files).seasons, files })).toBeNull();
     expect(firstFileId({ seasons: [], files: [file(3, null, 'downloading')] })).toBeNull();
   });
+  it('firstFileId picks the newest file per episode, not a stale ready one', () => {
+    const files = [file(42, 1, 'ready'), file(88, 1, 'pending')];
+    expect(firstFileId({ seasons: detail(true, files).seasons, files })).toBe(88);
+  });
 });
 
 describe('409 downloading', () => {

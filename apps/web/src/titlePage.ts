@@ -22,12 +22,22 @@ export function buildEpisodes(d: TitleDetail): SeasonRows[] {
       rows: [...s.episodes]
         .sort((a, b) => a.number - b.number)
         .map((e) => {
-          // Prefer the first playable file: an older downloading file must not shadow the current one.
-          const matches = d.files.filter((f) => f.episodeId === e.id && !f.extraLabel);
-          const file = matches.find((f) => f.status !== 'downloading') ?? matches[0] ?? null;
+          // Newest playable row wins: a stale re-ingest must not shadow the current file.
+          const file = pickFile(d.files.filter((f) => f.episodeId === e.id && !f.extraLabel));
           return { ...e, season: s.number, file, progress: (file && d.progress?.find((p) => p.mediaFileId === file.id)) || null };
         }),
     }));
+}
+
+/**
+ * Newest live row for one episode: highest `id` among rows not `downloading`.
+ * If every match is downloading, the highest `id` among them; `null` when empty.
+ */
+export function pickFile<T extends { id: number; status: string }>(matches: T[]): T | null {
+  const live = matches.filter((f) => f.status !== 'downloading');
+  const pool = live.length ? live : matches;
+  if (!pool.length) return null;
+  return pool.reduce((best, f) => (f.id > best.id ? f : best));
 }
 
 /** A downloading file has no video yet; the server answers 409 if it is played. */
