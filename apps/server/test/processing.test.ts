@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -152,6 +152,18 @@ describe('worker', () => {
     expect(readFileSync(join(dir, 'master.m3u8'), 'utf8')).toContain('NAME="jpn"');
     expect(existsSync(join(dir, 'subs/0.vtt')) && existsSync(join(dir, 'subs/0.ass')) && existsSync(join(dir, 'fonts/Arial.ttf'))).toBe(true);
     expect(existsSync(`${dir}.tmp`)).toBe(false);
+  });
+
+  it('stores identical fonts of different files once, keeping each package readable', async () => {
+    const e = env();
+    const a = e.source('a.mkv');
+    const b = e.source('b.mkv');
+    await e.worker.drain();
+    const fa = join(e.dataDir, 'hls', String(a), 'fonts/Arial.ttf');
+    const fb = join(e.dataDir, 'hls', String(b), 'fonts/Arial.ttf');
+    expect(readFileSync(fb, 'utf8')).toBe('x');
+    expect(statSync(fa).ino).toBe(statSync(fb).ino);
+    expect(readdirSync(join(e.dataDir, 'fonts', '_store'))).toHaveLength(1);
   });
 
   it('records ffmpeg failures, cleans the temporary folder and keeps going with the next job', async () => {

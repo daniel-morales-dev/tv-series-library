@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/p
 import { join, resolve } from 'node:path';
 import { LOG_FILE, PROGRESS_FILE, type ProbeStreams, type RunFfmpeg, type SpawnInfo, extractArgs, keepsChildren, mainArgs, nameRenditions } from './ffmpeg.ts';
 import { isOurFfmpeg, readProgress, terminate, waitForExit, watchProgress } from './proc.ts';
+import { dedupeFontsDir } from './fonts.ts';
 import { type Plan, buildPlan } from './plan.ts';
 import type { ProcessResult } from './queue.ts';
 
@@ -178,6 +179,8 @@ export async function processMedia(
       for (const dir of ['v', ...plan.audio.map((a) => `a${a.n}`), 'subs', 'fonts']) await mkdir(join(tmpDir, dir), { recursive: true });
       // Subtitles and fonts first, so they exist as soon as playback can start.
       if (plan.subtitles.some((s) => s.supported) || plan.fonts.length > 0) await deps.runFfmpeg(extractArgs(plan, src, tmpDir), { signal });
+      // Best effort: a store that cannot be written just leaves the fonts as plain files.
+      if (plan.fonts.length > 0) await dedupeFontsDir(join(tmpDir, 'fonts'), join(resolve(deps.dataDir), 'fonts', '_store')).catch(() => {});
 
       opts.onTracks?.(tracks);
 
