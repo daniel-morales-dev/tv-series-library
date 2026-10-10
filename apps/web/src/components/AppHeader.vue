@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { activityCount, type Activity } from '../activity.ts';
 import { api } from '../api.ts';
 import { useDismiss } from '../dismiss.ts';
 import { currentProfile, ensureProfile, hasHero } from '../session.ts';
 import { theme, toggleTheme } from '../theme.ts';
 import type { Suggestion } from '../types.ts';
+import { showToast } from '../toast.ts';
+import AppActivityPanel from './AppActivityPanel.vue';
 import Avatar from './Avatar.vue';
 import Icon from './Icon.vue';
 
@@ -93,14 +96,58 @@ useDismiss(menuRoot, () => {
   return was;
 });
 
+// Activity (T32): badge + drawer. Poll only while the drawer is open or there is work.
+const panelOpen = ref(false);
+const activity = ref<Activity | null>(null);
+const activityError = ref(false);
+const retrying = ref<number[]>([]);
+const activeCount = computed(() => activityCount(activity.value));
+let actTimer: ReturnType<typeof setTimeout> | undefined;
+let actGen = 0;
+
+async function loadActivity() {
+  clearTimeout(actTimer);
+  const mine = ++actGen;
+  try {
+    const next = await api.activity();
+    if (mine !== actGen) return;
+    activity.value = next;
+    activityError.value = false;
+  } catch {
+    if (mine === actGen) activityError.value = true;
+  }
+  if (mine === actGen) scheduleActivity();
+}
+function scheduleActivity() {
+  clearTimeout(actTimer);
+  if (panelOpen.value || activityCount(activity.value) > 0) actTimer = setTimeout(loadActivity, 5000);
+}
+watch(panelOpen, (open) => (open ? loadActivity() : scheduleActivity()));
+
+async function retryFile(mediaFileId: number) {
+  if (retrying.value.includes(mediaFileId)) return;
+  retrying.value = [...retrying.value, mediaFileId];
+  try {
+    await api.retryFile(mediaFileId);
+  } catch {
+    showToast('No se pudo reintentar.');
+  } finally {
+    retrying.value = retrying.value.filter((id) => id !== mediaFileId);
+    if (panelOpen.value) loadActivity();
+  }
+}
+
 onMounted(() => {
   ensureProfile();
   onScroll();
   window.addEventListener('scroll', onScroll, { passive: true });
+  loadActivity();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('scroll', onScroll);
   clearTimeout(debounce);
+  clearTimeout(actTimer);
+  actGen++;
 });
 watch(() => route.fullPath, () => (menuOpen.value = false));
 </script>
@@ -114,6 +161,31 @@ watch(() => route.fullPath, () => (menuOpen.value = false));
         {{ n.label }}
       </RouterLink>
     </nav>
+
+    <button
+      class="icon act"
+      :class="{ on: panelOpen }"
+      :aria-label="activeCount > 0 ? `Actividad, ${activeCount} en curso` : 'Actividad'"
+      aria-haspopup="dialog"
+      :aria-expanded="panelOpen"
+      @pointerdown.stop
+      @click="panelOpen = !panelOpen"
+    >
+      <svg
+        width="22"
+        height="22"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M3 12h4l2.5-7 4 14L16 12h5" />
+      </svg>
+      <span v-if="activeCount > 0" class="badge" aria-hidden="true">{{ activeCount > 99 ? '99+' : activeCount }}</span>
+    </button>
 
     <div ref="searchRoot" class="search" :class="{ open: searchOpen }">
       <button class="icon" aria-label="Buscar" @click="searchOpen ? closeSearch() : openSearch()">
@@ -159,6 +231,15 @@ watch(() => route.fullPath, () => (menuOpen.value = false));
       <span>{{ n.label }}</span>
     </RouterLink>
   </nav>
+
+  <AppActivityPanel
+    :open="panelOpen"
+    :activity="activity"
+    :error="activityError"
+    :retrying="retrying"
+    @close="panelOpen = false"
+    @retry="retryFile"
+  />
 </template>
 
 <style scoped>
@@ -177,6 +258,13 @@ watch(() => route.fullPath, () => (menuOpen.value = false));
 .icon, .avatar-btn { display: grid; place-items: center; min-height: 0; padding: 0; background: none; color: inherit; border-radius: 50%; }
 .icon { width: 44px; height: 44px; }
 .icon:hover { background: rgba(128, 128, 150, 0.25); }
+.act { position: relative; }
+.act.on { color: var(--accent); }
+.badge {
+  position: absolute; top: 3px; right: 3px; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.68rem; font-weight: 700; line-height: 1;
+  pointer-events: none;
+}
 .avatar-btn { width: 44px; height: 44px; }
 .avatar-btn:hover { background: rgba(128, 128, 150, 0.25); }
 

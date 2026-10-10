@@ -1,3 +1,4 @@
+import type { Activity } from './activity.ts';
 import type { ContinueItem, Job, Profile, Suggestion, TitleDetail, TitleSummary } from './types.ts';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -33,6 +34,8 @@ export const api = {
   setFinished: (pid: number, titleId: number, finished: boolean) =>
     request<void>(`/profiles/${pid}/titles/${titleId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   jobs: () => request<Job[]>('/jobs'),
+  activity: () => request<Activity>('/activity'),
+  retryFile: (mediaFileId: number) => request<{ jobId: number }>(`/media-files/${mediaFileId}/process`, { method: 'POST' }),
   play: (mediaFileId: number) => request<{ status: 'ready' | 'processing' }>(`/media-files/${mediaFileId}/play`, { method: 'POST' }),
 };
 
