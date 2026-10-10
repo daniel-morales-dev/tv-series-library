@@ -2,13 +2,14 @@
 import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { imageUrl } from '../api.ts';
+import type { FileStatus } from '../fileStatus.ts';
 import { KIND_LABEL } from '../library.ts';
 import { playTitle } from '../play.ts';
 import { myList, toggleMyList } from '../session.ts';
 import type { TitleSummary } from '../types.ts';
 import Icon from './Icon.vue';
 
-const props = defineProps<{ title: TitleSummary }>();
+const props = defineProps<{ title: TitleSummary; status?: FileStatus | null }>();
 const router = useRouter();
 const listed = computed(() => myList.value.some((t) => t.id === props.title.id));
 const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].filter(Boolean).join('  ·  '));
@@ -21,6 +22,7 @@ const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].fil
       <span v-else class="fallback">{{ title.title }}</span>
       <span v-if="title.comingSoon" class="soon tag">Próximamente</span>
     </RouterLink>
+    <span v-if="status" class="badge" :class="status.kind" :title="status.detail">{{ status.label }}</span>
     <div class="over">
       <p class="name">{{ title.title }}</p>
       <p class="meta">{{ meta }}</p>
@@ -49,6 +51,14 @@ const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].fil
 .cover { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; }
 .cover img { width: 100%; height: 100%; object-fit: cover; }
 .tag { position: absolute; left: 8px; top: 8px; }
+.badge {
+  position: absolute; right: 8px; top: 8px; display: inline-flex; align-items: center; height: 1.7em; padding: 0 0.85em;
+  white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+  background: rgba(8, 8, 12, 0.85); color: #fff;
+}
+.badge.ready { color: #4cc38a; }
+.badge.processing, .badge.downloading { color: #e8b84a; }
+.badge.error { color: #ff9b9b; }
 .fallback {
   display: grid; place-items: center; height: 100%; padding: 12px; text-align: center; font-weight: 700;
   background: linear-gradient(160deg, var(--bg-hover), var(--bg-card));

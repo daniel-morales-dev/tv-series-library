@@ -6,7 +6,7 @@ import EpisodePanel from '../components/EpisodePanel.vue';
 import ExtraCard from '../components/ExtraCard.vue';
 import Icon from '../components/Icon.vue';
 import LangLine from '../components/LangLine.vue';
-import { fileStatus, needsPolling } from '../fileStatus.ts';
+import { fileStatus, movieStatus, needsPolling } from '../fileStatus.ts';
 import { fileLanguages, titleLanguages } from '../languages.ts';
 import { KIND_LABEL, initial, progressPct, remainingLabel } from '../library.ts';
 import { hasHero, inMyList, loadMyList, toggleMyList } from '../session.ts';
@@ -68,6 +68,8 @@ const season = computed(() => {
 });
 
 const status = (f: MediaFile | null) => (f ? fileStatus(f, jobs.value) : null);
+// A film's single main file status, shown next to the play button: en cola / procesando N % / listo / error / sin archivo.
+const film = computed(() => (detail.value?.kind === 'movie' ? movieStatus(detail.value.files, jobs.value) : null));
 const extras = computed(() => detail.value?.files.filter((f) => f.extraLabel) ?? []);
 const cast = computed(() => (detail.value ? castOf(detail.value.credits) : []));
 const langs = computed(() => (detail.value ? titleLanguages(detail.value.files) : { audio: [], subs: [] }));
@@ -146,7 +148,8 @@ async function closeEpisode() {
           >
             <Icon :name="listed ? 'check' : 'plus'" />
           </button>
-          <span v-if="detail.comingSoon" class="muted">Se está descargando</span>
+          <span v-if="film" class="badge" :class="film.kind" :title="film.detail">{{ film.label }}</span>
+          <span v-if="detail.comingSoon && !film" class="muted">Se está descargando</span>
           <button class="pill glass" :disabled="busy" :aria-pressed="!!detail.finished" @click="toggleFinished">
             <Icon :name="detail.finished ? 'close' : 'check'" :size="20" /> {{ detail.finished ? 'No visto' : 'Marcar como visto' }}
           </button>

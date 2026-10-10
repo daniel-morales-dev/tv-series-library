@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api } from '../api.ts';
+import { api, getProfileId } from '../api.ts';
 import { facets, filtersToParams, filtersToQuery, isFiltered, parseFilters, type Filters } from '../browse.ts';
 import FilterBar from '../components/FilterBar.vue';
 import PosterGrid from '../components/PosterGrid.vue';
+import { movieStatus, type FileStatus } from '../fileStatus.ts';
 import { KIND_BY_SLUG, type KindSlug } from '../library.ts';
 import type { TitleSummary } from '../types.ts';
 
@@ -19,7 +20,44 @@ const filters = computed(() => parseFilters(route.query));
 const options = ref({ genres: [] as string[], years: [] as number[] });
 const items = ref<TitleSummary[] | null>(null);
 const failed = ref(false);
+const statuses = ref(new Map<number, FileStatus>());
 let ticket = 0;
+let statusTimer: ReturnType<typeof setTimeout> | undefined;
+
+// Films have one main file, so one status chip per card; details arrive after the grid, like Mi lista.
+// While anything is still processing, refresh so the percent advances (same 5 s cadence as the title page).
+async function loadStatuses(ids: number[], mine: number) {
+  clearTimeout(statusTimer);
+  if (mine !== ticket || kind.value !== 'movie') return;
+  const pid = getProfileId();
+  if (!pid) return;
+  const active: number[] = [];
+  try {
+    const jobs = await api.jobs();
+    for (let i = 0; i < ids.length; i += 6) {
+      await Promise.all(
+        ids.slice(i, i + 6).map(async (id) => {
+          try {
+            const d = await api.title(id, pid);
+            if (mine !== ticket) return;
+            const s = movieStatus(d.files, jobs);
+            statuses.value.set(id, s);
+            if (s.kind !== 'ready') active.push(id);
+          } catch {
+            // One card without a chip is fine; the grid must not fail for it.
+          }
+        }),
+      );
+    }
+  } catch {
+    // Status chips are best effort; the grid still browses without them.
+  }
+  if (mine === ticket && active.length) statusTimer = setTimeout(() => loadStatuses(active, mine), 5000);
+}
+onBeforeUnmount(() => {
+  ticket++;
+  clearTimeout(statusTimer);
+});
 
 // The filter options come from the whole section, so they don't shrink as you filter.
 const optionCache = new Map<string, typeof options.value>();
@@ -40,9 +78,14 @@ watch(
     const mine = ++ticket;
     failed.value = false;
     items.value = null;
+    statuses.value = new Map();
+    clearTimeout(statusTimer);
     try {
       const found = await api.titlesBy(filtersToParams(kind.value, filters.value));
-      if (mine === ticket) items.value = found;
+      if (mine === ticket) {
+        items.value = found;
+        if (kind.value === 'movie') void loadStatuses(found.map((t) => t.id), mine);
+      }
     } catch {
       if (mine === ticket) failed.value = true;
     }
@@ -75,7 +118,7 @@ const clear = () => change({ ...filters.value, genre: null, year: null });
         <p>Cuando agregues contenido de este tipo a la carpeta del servidor, aparecerá aquí.</p>
       </template>
     </div>
-    <PosterGrid v-else :titles="items" />
+    <PosterGrid v-else :titles="items" :statuses="statuses" />
   </main>
 </template>
 

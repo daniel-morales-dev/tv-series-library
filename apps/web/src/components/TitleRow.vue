@@ -31,11 +31,11 @@ watch(() => props.items.length, () => nextTick(update));
   <section v-if="items.length" class="row">
     <h2>{{ title }}</h2>
     <div class="wrap">
-      <button v-show="canLeft" class="arrow left" tabindex="-1" aria-label="Anterior" @click="page(-1)"><Icon name="left" :size="34" /></button>
+      <button v-show="canLeft" class="arrow left" aria-label="Anterior" @click="page(-1)"><Icon name="left" :size="26" /></button>
       <ul ref="scroller" class="scroller" @scroll.passive="update">
         <li v-for="it in items" :key="keyOf(it)"><slot :item="it" /></li>
       </ul>
-      <button v-show="canRight" class="arrow right" tabindex="-1" aria-label="Siguiente" @click="page(1)"><Icon name="right" :size="34" /></button>
+      <button v-show="canRight" class="arrow right" aria-label="Siguiente" @click="page(1)"><Icon name="right" :size="26" /></button>
     </div>
   </section>
 </template>
@@ -52,13 +52,14 @@ h2 { margin: 0 var(--gutter); font-size: clamp(1.1rem, 1.6vw, 1.4rem); letter-sp
 .scroller::-webkit-scrollbar { display: none; }
 .scroller li { flex: none; scroll-snap-align: start; }
 .arrow {
-  position: absolute; top: 22px; bottom: 30px; z-index: 5; display: grid; place-items: center;
-  width: clamp(40px, 4vw, 64px); min-height: 0; padding: 0; border-radius: 0; color: #fff; opacity: 0;
-  transition: opacity 0.15s;
+  position: absolute; top: calc(50% - 4px); z-index: 6; display: grid; place-items: center;
+  width: 44px; height: 44px; min-height: 0; padding: 0; border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.28); background: rgba(8, 8, 12, 0.92); color: #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); transform: translateY(-50%);
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
 }
-.left { left: 0; background: linear-gradient(90deg, rgba(8, 8, 12, 0.85), transparent); }
-.right { right: 0; background: linear-gradient(270deg, rgba(8, 8, 12, 0.85), transparent); }
-.arrow:hover { background-color: transparent; }
-.wrap:hover .arrow, .arrow:focus-visible { opacity: 1; }
+.left { left: 8px; }
+.right { right: 8px; }
+.arrow:hover { background: rgba(56, 56, 74, 0.98); border-color: #fff; transform: translateY(-50%) scale(1.06); }
 @media (hover: none) { .arrow { display: none; } }
 </style>
