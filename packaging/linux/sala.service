@@ -1,0 +1,19 @@
+[Unit]
+Description=Sala - biblioteca de series (servidor + web)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO@/apps/server
+Environment=PORT=8080
+Environment=DATA_DIR=@REPO@/data
+Environment=WEB_DIR=@REPO@/apps/web/dist
+# Copia SQLite verificada antes de arrancar (falla cerrado: sin copia valida no arranca).
+ExecStartPre=@NODE@ --env-file-if-exists=@REPO@/.env src/cli/backup.ts
+ExecStart=@NODE@ --env-file-if-exists=@REPO@/.env src/index.ts
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

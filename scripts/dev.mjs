@@ -84,6 +84,11 @@ function isOwnDevProcess(pid, repository, marker) {
   return readProc(pid, 'cmdline')?.includes(marker) ?? false;
 }
 
+/** True when a /proc/<pid>/cgroup dump places the process inside the systemd unit `sala.service`. */
+export function isSalaServiceCgroup(cgroup) {
+  return /(^|\/)sala\.service(\/|$)/m.test(cgroup ?? '');
+}
+
 /** Command-line marker identifying the owner of each preflight port: the backend server and vite. */
 export const PORT_MARKERS = { 8080: 'src/index.ts', 5174: 'vite' };
 
@@ -94,7 +99,8 @@ export const PORT_MARKERS = { 8080: 'src/index.ts', 5174: 'vite' };
  * `node --watch` parent when that parent also belongs to the repository, so the watcher cannot
  * respawn the server; vite has no watcher, so the lookup finds none.
  * Undefined for foreign, unmapped or unreadable holders: the caller must never signal those.
- * @returns {{pid: number, parentPid: number | null, own: true} | undefined}
+ * A holder inside `sala.service` is reported as `{service: true, own: false}` so the caller refuses to kill it.
+ * @returns {{pid: number, parentPid: number | null, own: boolean, service?: true} | undefined}
  */
 export function findOwnServerHolder(port, repository = root) {
   if (process.platform !== 'linux') return undefined;
@@ -102,7 +108,9 @@ export function findOwnServerHolder(port, repository = root) {
   if (!marker) return undefined;
   const ss = spawnSync('ss', ['-ltnpH', `sport = :${port}`], { encoding: 'utf8' });
   const pid = Number(/pid=(\d+)/.exec(ss.stdout ?? '')?.[1]);
-  if (ss.error || !pid || !isOwnDevProcess(pid, repository, marker)) return undefined;
+  if (ss.error || !pid) return undefined;
+  if (isSalaServiceCgroup(readProc(pid, 'cgroup'))) return { pid, parentPid: null, own: false, service: true };
+  if (!isOwnDevProcess(pid, repository, marker)) return undefined;
   const parentPid = Number(/^PPid:\s*(\d+)/m.exec(readProc(pid, 'status') ?? '')?.[1]) || null;
   return { pid, parentPid: parentPid && isOwnDevProcess(parentPid, repository, '--watch') ? parentPid : null, own: true };
 }
@@ -171,6 +179,9 @@ async function waitForPort(port, timeoutMs) {
  */
 async function reclaimPort(port, repository, { findHolder, killHolder, forceHolder, releaseMs, forceMs }) {
   const holder = findHolder(port, repository);
+  if (holder?.service) {
+    throw new Error(`El puerto ${port} lo ocupa el servicio sala.service (pid ${holder.pid}). Detén el servicio: \`systemctl --user stop sala\`.`);
+  }
   if (!holder?.own) return false;
   killHolder(holder);
   if (await waitForPort(port, releaseMs)) {
