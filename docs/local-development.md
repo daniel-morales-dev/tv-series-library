@@ -6,7 +6,7 @@ Desde la raíz del repositorio:
 npm run dev
 ```
 
-La interfaz queda en **http://localhost:5174** y la API en **http://localhost:8080/api/health**. El lanzador (`scripts/dev.mjs`) ancla `DATA_DIR` y `CONTENT_DIR` a la raíz del repositorio —nunca al directorio desde el que llamaste—, comprueba los puertos antes de abrir SQLite, crea una copia de seguridad verificada si ya existe `data/library.db` e inicia backend y frontend juntos. **Ctrl+C detiene ambos procesos.** Que los procesos arranquen no prueba que la app esté lista: confirma la salud HTTP (sección 4).
+La interfaz queda en **http://localhost:5174** y la API en **http://localhost:8080/api/health**. El lanzador (`scripts/dev.mjs`) ancla las rutas a la raíz del repositorio —nunca al directorio desde el que llamaste—, comprueba los puertos antes de abrir SQLite, crea una copia de seguridad verificada si ya existe `data/library.db` e inicia backend y frontend juntos. **Ctrl+C detiene ambos procesos.** Que los procesos arranquen no prueba que la app esté lista: confirma la salud HTTP (sección 4). Si todavía no elegiste carpeta de contenido, el servidor lo reporta en `/api/config` y el asistente de primera ejecución (T22b) la pedirá (sección 6).
 
 > **Antes de abrir una biblioteca existente:** el backend migra SQLite automáticamente, incluso con `INGEST=off PROCESSING=off`. La BD conservada está en esquema 4; el código actual aplicará la migración **005** (`titles.seasons_group_id`). El lanzador hace la copia antes de abrir, pero **arrancar equivale a aprobar la migración**: para la primera recuperación usa el arranque sin trabajadores de la sección 3 y no reproduzcas ni reescanees. Esta guía no ejecuta ni autoriza la recuperación.
 
@@ -83,6 +83,22 @@ npm run dev
 
 La ingesta y el procesamiento están habilitados por defecto, salvo que el entorno o `.env` los desactiven. La ingesta escanea y vigila los videos, guarda el catálogo y consulta TMDB cuando corresponde; la cola convierte archivos a HLS con ffmpeg y **puede consumir CPU y espacio**. No habilites ese trabajo como primer intento de arreglar una biblioteca vacía. Para cerrar la sesión basta **Ctrl+C una vez**: el lanzador detiene ambos árboles de procesos. Reiniciar el PC no inicia la app automáticamente: el autoarranque Linux sigue pendiente en **T7**.
 
+## 6. Carpeta de contenido: `config.json` y asistente (T22)
+
+La app es dueña de su configuración. La carpeta elegida (asistente de primera ejecución o Ajustes) se guarda en `config.json` dentro de la carpeta de configuración del usuario:
+
+| Sistema | Ruta |
+|---|---|
+| Linux | `~/.config/sala/config.json` (usa `$XDG_CONFIG_HOME/sala` si está definido) |
+| Windows | `%LOCALAPPDATA%\sala\config.json` |
+
+Orden de resolución de la carpeta de contenido: **variable de entorno `CONTENT_DIR` → `config.json` (tu elección) → `.env` raíz → `./content`**. El `.env` queda solo para desarrollo: `CONTENT_DIR` ya no es necesario ahí y, si lo dejas, funciona como override de desarrollo por debajo de tu elección.
+
+- No edites `config.json` a mano: se cambia desde Ajustes o con la API (`PUT /api/config/content-dir`), que valida la ruta, escribe el marcador y la persiste.
+- Estado: `curl --fail-with-body -s http://localhost:8080/api/config` responde `{ status, contentDir, libraryId, suggestedDefault }`. `unset` = sin configurar; `ready` = configurada y presente; `missing` = configurada pero la carpeta no está (por ejemplo, disco desconectado): la app **no crea nada ni escanea**, y la UI ofrece reintentar o elegir otra carpeta.
+- El marcador `.sala-library.json` en la raíz de la carpeta de contenido guarda el `libraryId`; al elegir una carpeta con marcador se adopta su identidad (otra máquina u HDD reconoce la biblioteca sin reimportar). La redetección de discos movidos llega en T22c; el asistente web, en T22b.
+- El lanzador ya **no falla** si la carpeta de contenido no existe: solo `DATA_DIR` sigue siendo de fallo cerrado. En una instalación nueva el servidor arranca, reporta `unset`/`missing` y no fabrica una biblioteca vacía.
+
 ## Por qué había perfiles y catálogo vacíos
 
 Los scripts de workspace ejecutan Node con directorio de trabajo `apps/server` y cargan `../../.env` desde allí. Sin embargo, `CONTENT_DIR=./content` y `DATA_DIR=./data` se interpretan respecto a ese directorio, **no respecto al archivo `.env`**. Por eso el backend abrió otra BD. Con `npm run dev`, el lanzador convierte esas variables a rutas absolutas ancladas a la raíz del repositorio antes de iniciar los procesos, así que este error de directorio no puede repetirse; para comandos directos de workspace sigue aplicando el consejo anterior de usar `$PWD` desde la raíz. Las rutas de `.env` pueden seguir siendo relativas.
@@ -119,9 +135,9 @@ npm ci
 mkdir -p content data
 ```
 
-El lanzador **no crea** `content/` ni `data/`: si no existen, falla con un mensaje claro en vez de fabricar una biblioteca vacía (por ejemplo, en un disco desconectado). En una instalación nueva créalas a propósito, como arriba.
+El lanzador **no crea** `data/`: si no existe, falla con un mensaje claro en vez de fabricar una biblioteca vacía (por ejemplo, en un disco desconectado). `content/` ya no es obligatorio al arrancar: si falta, el servidor arranca y reporta `unset`/`missing` en `/api/config` para que el asistente (T22b) te pida elegir carpeta, sin escanear ni crear nada. En una instalación nueva, crea igualmente las carpetas de trabajo como arriba.
 
-Crea `.env` desde `.env.example` **únicamente si no existe**; no sustituyas el de una instalación previa. Configura `TMDB_READ_ACCESS_TOKEN` de forma privada (esta instalación ya lo tiene). Nunca imprimas el token ni subas `.env`. Sin token, la ingesta funciona sin metadata de TMDB y la reintenta cuando esté disponible. Después usa `npm run dev`. No uses `seed` para reparar una biblioteca existente.
+Crea `.env` desde `.env.example` **únicamente si no existe**; no sustituyas el de una instalación previa. En desarrollo ya es opcional: solo lo necesitas para `TMDB_READ_ACCESS_TOKEN` (`CONTENT_DIR` es un override opcional). Configúralo de forma privada (esta instalación ya lo tiene). Nunca imprimas el token ni subas `.env`. Sin token, la ingesta funciona sin metadata de TMDB y la reintenta cuando esté disponible. Después usa `npm run dev`. No uses `seed` para reparar una biblioteca existente.
 
 ## Servir el frontend compilado desde 8080
 

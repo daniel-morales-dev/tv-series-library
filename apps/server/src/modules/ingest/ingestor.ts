@@ -26,7 +26,8 @@ export interface IngestorOptions {
   db: DatabaseSync;
   tmdb: TmdbClient;
   dataDir: string;
-  contentDir: string;
+  /** Fixed folder, or a live resolver so T22 can switch folders while the server runs. */
+  contentDir: string | (() => string);
   probe?: Probe;
   now?: () => number;
   log?: (level: 'info' | 'warn', message: string) => void;
@@ -47,7 +48,8 @@ interface ScanState {
 }
 
 export function createIngestor(opts: IngestorOptions): Ingestor {
-  const { db, dataDir, contentDir } = opts;
+  const { db, dataDir } = opts;
+  const contentDir = () => (typeof opts.contentDir === 'function' ? opts.contentDir() : opts.contentDir);
   const probe = opts.probe ?? ffprobe;
   const now = opts.now ?? Date.now;
   const log = opts.log ?? (() => {});
@@ -82,7 +84,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     await retryMetadata(state);
     relabelExtras();
 
-    const files = await listVideos(contentDir);
+    const files = await listVideos(contentDir());
     const onDisk = new Set(files.map((f) => f.rel));
     const known = new Set([
       ...all<{ path: string }>(db, 'SELECT path FROM media_files').map((r) => r.path),
@@ -293,7 +295,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     timers.interval = setInterval(() => void scan(), intervalMin * 60_000);
     timers.interval.unref();
     try {
-      timers.watcher = watch(contentDir, { recursive: true }, () => schedule(DEBOUNCE_MS, 'debounce'));
+      timers.watcher = watch(contentDir(), { recursive: true }, () => schedule(DEBOUNCE_MS, 'debounce'));
       timers.watcher.on('error', (err) => log('warn', `watcher error: ${err.message}`));
     } catch (err) {
       log('warn', `fs.watch unavailable, relying on periodic scans: ${(err as Error).message}`);
@@ -309,7 +311,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   }
 
   const confirm = (id: number, body: ConfirmBody) =>
-    confirmPending({ ctx: { db, tmdb: memoize(opts.tmdb), dataDir }, probe, contentDir }, id, body);
+    confirmPending({ ctx: { db, tmdb: memoize(opts.tmdb), dataDir }, probe, contentDir: contentDir() }, id, body);
 
   return { scan, start, stop, confirm };
 }

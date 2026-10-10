@@ -4,12 +4,15 @@ import { createServer } from 'node:net';
 import { parseEnv } from 'node:util';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+// Node 24 strips types on import; the same module resolves the config for the server, so both agree.
+import { configDir, readUserConfig } from '../apps/server/src/config/config.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * Single path-resolution point for the launcher (T22 will extend it with the user-selected location).
- * Defaults are anchored to the repository, never to the caller's cwd; explicit env wins over root .env.
+ * Single path-resolution point for the launcher (T22: consumes the user's content-folder choice).
+ * CONTENT_DIR: external env → user config.json → root .env → default; DATA_DIR keeps external env → .env → default.
+ * Defaults are anchored to the repository, never to the caller's cwd.
  * @returns {NodeJS.ProcessEnv}
  */
 export function resolveEnvironment(repository = root, external = process.env) {
@@ -26,9 +29,16 @@ export function resolveEnvironment(repository = root, external = process.env) {
     throw new Error(`PORT=${env.PORT} no es compatible: el proxy /api apunta a 8080. Usa PORT=8080 o quita la variable.`);
   }
   env.PORT = '8080';
-  for (const [key, fallback] of [['DATA_DIR', 'data'], ['CONTENT_DIR', 'content']]) {
-    if (env[key] === '') throw new Error(`${key} está vacío. Quita la variable para usar ${fallback}/ o dale una ruta.`);
-    env[key] = resolve(repository, env[key] ?? fallback);
+  const configured = readUserConfig({ dir: configDir(env) })?.contentDir;
+  const fallback = { DATA_DIR: 'data', CONTENT_DIR: 'content' };
+  const chosen = {
+    DATA_DIR: external.DATA_DIR ?? local.DATA_DIR,
+    CONTENT_DIR: external.CONTENT_DIR ?? configured ?? local.CONTENT_DIR,
+  };
+  for (const key of ['DATA_DIR', 'CONTENT_DIR']) {
+    const value = chosen[key];
+    if (value === '') throw new Error(`${key} está vacío. Quita la variable para usar ${fallback[key]}/ o dale una ruta.`);
+    env[key] = resolve(repository, value ?? fallback[key]);
   }
   return env;
 }
@@ -79,25 +89,25 @@ export async function backupLibrary(dataDir) {
 }
 
 /**
- * Preflight before spawning anything: resolve paths, verify storage exists, verify ports are free,
- * back up SQLite. Never creates directories or a replacement library, never migrates the database.
+ * Preflight before spawning anything: resolve paths, verify DATA_DIR exists, verify ports are free,
+ * back up SQLite. CONTENT_DIR is not validated here any more (T22): the server reports unset/missing
+ * to the UI and never scans or creates an empty library. Never creates directories or a replacement
+ * library, never migrates the database.
  * @returns {Promise<{env: NodeJS.ProcessEnv, backup: string | undefined}>}
  */
 export async function prepare(repository = root, external = process.env, ports = [8080, 5174]) {
   const env = resolveEnvironment(repository, external);
-  for (const key of ['DATA_DIR', 'CONTENT_DIR']) {
-    let valid = false;
-    try {
-      valid = statSync(env[key]).isDirectory();
-    } catch {
-      // Storage must already exist: creating it here could build an empty library on a disconnected disk.
-    }
-    if (!valid) {
-      throw new Error(
-        `La carpeta configurada en ${key} no existe: ${env[key]}. Reconecta el disco o la unidad donde vive la biblioteca; ` +
-          `en una instalación nueva, créala a propósito (por ejemplo: mkdir -p '${env[key]}'). No se creó nada para no fabricar una biblioteca vacía.`,
-      );
-    }
+  let dataValid = false;
+  try {
+    dataValid = statSync(env.DATA_DIR).isDirectory();
+  } catch {
+    // Storage must already exist: creating it here could build an empty library on a disconnected disk.
+  }
+  if (!dataValid) {
+    throw new Error(
+      `La carpeta configurada en DATA_DIR no existe: ${env.DATA_DIR}. Reconecta el disco o la unidad donde vive la biblioteca; ` +
+        `en una instalación nueva, créala a propósito (por ejemplo: mkdir -p '${env.DATA_DIR}'). No se creó nada para no fabricar una biblioteca vacía.`,
+    );
   }
   for (const port of ports) await checkPort(port);
   return { env, backup: await backupLibrary(env.DATA_DIR) };

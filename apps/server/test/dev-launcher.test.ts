@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
@@ -19,6 +19,9 @@ afterEach(() => {
   for (const root of fixtures.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+/** Points the launcher at an empty temp config dir so tests never read the real user config. */
+const noConfig = (root: string) => ({ SALA_CONFIG_DIR: join(root, 'user-config') });
+
 function procState(pid: number | undefined): string {
   try {
     return readFileSync(`/proc/${pid}/stat`, 'utf8').split(' ')[2] ?? 'gone';
@@ -30,7 +33,7 @@ function procState(pid: number | undefined): string {
 test('anchors relative paths to the repository, keeps absolutes, external env wins and loads .env privately', () => {
   const root = fixture();
   writeFileSync(join(root, '.env'), 'DATA_DIR=archive\nCONTENT_DIR=videos\nPORT=8080\nPRIVATE_TOKEN=fixture-secret');
-  const env = resolveEnvironment(root, { CONTENT_DIR: '/external/videos', INGEST: 'off', PROCESSING: 'off' });
+  const env = resolveEnvironment(root, { CONTENT_DIR: '/external/videos', INGEST: 'off', PROCESSING: 'off', ...noConfig(root) });
   expect(env.DATA_DIR).toBe(join(root, 'archive'));
   expect(env.CONTENT_DIR).toBe('/external/videos');
   expect(env.INGEST).toBe('off');
@@ -38,27 +41,53 @@ test('anchors relative paths to the repository, keeps absolutes, external env wi
   expect(env.PORT).toBe('8080');
   expect(process.env.PRIVATE_TOKEN).toBeUndefined();
   const fresh = fixture();
-  const defaults = resolveEnvironment(fresh, {});
+  const defaults = resolveEnvironment(fresh, noConfig(fresh));
   expect(defaults.DATA_DIR).toBe(join(fresh, 'data'));
   expect(defaults.CONTENT_DIR).toBe(join(fresh, 'content'));
   expect(isAbsolute(defaults.DATA_DIR ?? '')).toBe(true);
-  expect(resolveEnvironment(root, { DATA_DIR: '/external/data', CONTENT_DIR: 'relative' }).DATA_DIR).toBe('/external/data');
-  expect(resolveEnvironment(root, { CONTENT_DIR: 'relative' }).CONTENT_DIR).toBe(join(root, 'relative'));
-  expect(() => resolveEnvironment(root, { PORT: '9000' })).toThrow(/8080/);
-  expect(() => resolveEnvironment(root, { DATA_DIR: '' })).toThrow(/DATA_DIR/);
+  expect(resolveEnvironment(root, { DATA_DIR: '/external/data', CONTENT_DIR: 'relative', ...noConfig(root) }).DATA_DIR).toBe('/external/data');
+  expect(resolveEnvironment(root, { CONTENT_DIR: 'relative', ...noConfig(root) }).CONTENT_DIR).toBe(join(root, 'relative'));
+  expect(() => resolveEnvironment(root, { PORT: '9000', ...noConfig(root) })).toThrow(/8080/);
+  expect(() => resolveEnvironment(root, { DATA_DIR: '', ...noConfig(root) })).toThrow(/DATA_DIR/);
 });
 
-test('missing storage fails with the resolved path, in Spanish, and creates nothing', async () => {
+test('missing DATA_DIR still fails closed with the resolved path and creates nothing', async () => {
   const root = fixture();
-  for (const [key, dir] of [
-    ['DATA_DIR', 'disconnected-data'],
-    ['CONTENT_DIR', 'disconnected-content'],
-  ] as const) {
-    const promise = prepare(root, { [key]: dir }, [0, 0]);
-    await expect(promise).rejects.toThrow(/no existe/);
-    await expect(promise).rejects.toThrow(join(root, dir));
-  }
+  const data = prepare(root, { DATA_DIR: 'disconnected-data', ...noConfig(root) }, [0, 0]);
+  await expect(data).rejects.toThrow(/no existe/);
+  await expect(data).rejects.toThrow(join(root, 'disconnected-data'));
   expect(readdirSync(root).sort()).toEqual(['content', 'data']);
+});
+
+test('missing CONTENT_DIR no longer blocks the launcher; the server reports the status instead', async () => {
+  const root = fixture();
+  const prepared = await prepare(root, { CONTENT_DIR: 'disconnected-content', ...noConfig(root) }, [0, 0]);
+  expect(prepared.env.CONTENT_DIR).toBe(join(root, 'disconnected-content'));
+  expect(prepared.backup).toBeUndefined();
+  expect(readdirSync(root).sort()).toEqual(['content', 'data']);
+});
+
+test('CONTENT_DIR precedence: external env → user config.json → root .env → default; corrupt config warns and falls back', () => {
+  const root = fixture();
+  const userConfig = join(root, 'user-config');
+  mkdirSync(userConfig);
+  writeFileSync(join(root, '.env'), 'CONTENT_DIR=from-env-file\n');
+  writeFileSync(join(userConfig, 'config.json'), JSON.stringify({ contentDir: '/library/from-config', libraryId: 'lib-1' }));
+  const external = { SALA_CONFIG_DIR: userConfig };
+  expect(resolveEnvironment(root, external).CONTENT_DIR).toBe('/library/from-config');
+  expect(resolveEnvironment(root, { ...external, CONTENT_DIR: '/external/videos' }).CONTENT_DIR).toBe('/external/videos');
+  expect(resolveEnvironment(root, external).DATA_DIR).toBe(join(root, 'data'));
+  writeFileSync(join(userConfig, 'config.json'), '{broken');
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  try {
+    expect(resolveEnvironment(root, external).CONTENT_DIR).toBe(join(root, 'from-env-file'));
+    expect(warn).toHaveBeenCalled();
+  } finally {
+    warn.mockRestore();
+  }
+  rmSync(join(userConfig, 'config.json'));
+  expect(resolveEnvironment(root, external).CONTENT_DIR).toBe(join(root, 'from-env-file'));
+  expect(() => resolveEnvironment(root, { CONTENT_DIR: '', ...external })).toThrow(/CONTENT_DIR/);
 });
 
 test('occupied port fails before opening even an invalid database or making a backup', async () => {
@@ -68,7 +97,7 @@ test('occupied port fails before opening even an invalid database or making a ba
   await new Promise<void>((resolve) => occupied.listen(0, '0.0.0.0', resolve));
   const port = (occupied.address() as { port: number }).port;
   try {
-    await expect(prepare(root, {}, [port, 0])).rejects.toThrow(/ocupado/);
+    await expect(prepare(root, { ...noConfig(root) }, [port, 0])).rejects.toThrow(/ocupado/);
     expect(readdirSync(join(root, 'data'))).toEqual(['library.db']);
   } finally {
     await new Promise<void>((resolve) => occupied.close(() => resolve()));
@@ -178,7 +207,7 @@ test('successful preflight returns a verified backup and does not migrate or res
   const db = new DatabaseSync(path);
   db.exec('PRAGMA user_version=4; CREATE TABLE preserved(value); INSERT INTO preserved VALUES (1)');
   db.close();
-  const prepared = await prepare(root, { INGEST: 'off', PROCESSING: 'off' }, [0, 0]);
+  const prepared = await prepare(root, { INGEST: 'off', PROCESSING: 'off', ...noConfig(root) }, [0, 0]);
   expect(prepared.backup).toBeTruthy();
   expect(prepared.env.INGEST).toBe('off');
   const original = new DatabaseSync(path, { readOnly: true });

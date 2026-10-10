@@ -8,7 +8,7 @@ Plataforma local para ver tus películas, series y anime desde cualquier disposi
 
 ## Cómo agregar contenido
 
-Coloca los videos dentro de `content/`:
+Coloca los videos dentro de la carpeta de contenido (`content/` por defecto, o la que elijas en la primera ejecución):
 
 ```
 content/
@@ -27,7 +27,9 @@ content/
 
 ## Configuración
 
-1. Solo en una instalación nueva, crea `.env` desde `.env.example` **sin sobrescribir uno existente**.
+La app guarda la carpeta donde está tu contenido en su propia configuración (`~/.config/sala/config.json` en Linux, `%LOCALAPPDATA%\sala` en Windows); puedes cambiarla en Ajustes. No edites ese archivo a mano. Hasta que llegue el asistente de primera ejecución (T22b), el valor por defecto es `content/` y puedes fijar otro con la API de configuración.
+
+1. Solo en una instalación nueva y **solo para desarrollo**, crea `.env` desde `.env.example` **sin sobrescribir uno existente**. `CONTENT_DIR` ahí es opcional: tu elección en la app tiene prioridad.
 2. Configura tu *Read Access Token* de TMDB en `TMDB_READ_ACCESS_TOKEN`. Esta instalación ya lo tiene; no lo imprimas ni lo subas a git.
 
 ## Documentación
