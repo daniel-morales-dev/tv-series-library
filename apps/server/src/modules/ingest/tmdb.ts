@@ -178,31 +178,77 @@ export function createTmdbClient(token: string, fetchImpl: typeof fetch = fetch,
   };
 }
 
-// One scan reuses every response; failures are not cached.
-export function memoize(client: TmdbClient): TmdbClient {
-  const cache = new Map<string, Promise<unknown>>();
+// Lookups outlive a scan: a rescan, a second folder of the same title or a confirmation reuses every success.
+// Searches are the only answers that go stale (a title may be added to TMDB later), so they expire. After a failure
+// the client stays quiet for a growing wait instead of being asked again on every scan; cached answers still work.
+const SEARCH_TTL_MS = 6 * 3_600_000;
+const EMPTY_SEARCH_TTL_MS = 15 * 60_000;
+const FAIL_WAIT_MS = 60_000;
+const MAX_FAIL_WAIT_MS = 30 * 60_000;
+const MAX_ENTRIES = 300;
+
+interface Shared {
+  entries: Map<string, { value: Promise<unknown>; expires: number }>;
+  empties: Map<string, number>;
+  failures: number;
+  until: number;
+  error: Error | null;
+}
+const shared = new WeakMap<TmdbClient, Shared>();
+
+export function memoize(client: TmdbClient, now: () => number = Date.now): TmdbClient {
+  const s: Shared = shared.get(client) ?? { entries: new Map(), empties: new Map(), failures: 0, until: 0, error: null };
+  shared.set(client, s);
+
+  const guarded = async <R>(call: () => Promise<R>): Promise<R> => {
+    if (now() < s.until) throw s.error!;
+    try {
+      const value = await call();
+      s.failures = 0;
+      return value;
+    } catch (err) {
+      if (now() >= s.until) {
+        s.failures++;
+        s.until = now() + Math.min(FAIL_WAIT_MS * 2 ** (s.failures - 1), MAX_FAIL_WAIT_MS);
+        s.error = err as Error;
+      }
+      throw err;
+    }
+  };
+
   const once =
-    <A extends unknown[], R>(name: string, fn: (...args: A) => Promise<R>) =>
+    <A extends unknown[], R>(name: string, fn: (...args: A) => Promise<R>, isSearch = false) =>
     (...args: A): Promise<R> => {
       const key = `${name}:${JSON.stringify(args)}`;
-      let hit = cache.get(key) as Promise<R> | undefined;
-      if (!hit) {
-        hit = fn(...args);
-        cache.set(key, hit);
-        hit.catch(() => cache.delete(key));
-      }
-      return hit;
+      const hit = s.entries.get(key);
+      if (hit && hit.expires > now()) return hit.value as Promise<R>;
+      const entry = { value: guarded(() => fn(...args)), expires: Infinity };
+      s.entries.set(key, entry);
+      if (s.entries.size > MAX_ENTRIES) s.entries.delete(s.entries.keys().next().value!);
+      entry.value.then(
+        (result) => {
+          if (!isSearch) return;
+          const empty = Array.isArray(result) && result.length === 0;
+          const n = empty ? (s.empties.get(key) ?? 0) + 1 : 0;
+          s.empties.set(key, n);
+          entry.expires = now() + (empty ? Math.min(EMPTY_SEARCH_TTL_MS * 2 ** (n - 1), SEARCH_TTL_MS) : SEARCH_TTL_MS);
+        },
+        () => {
+          if (s.entries.get(key) === entry) s.entries.delete(key);
+        },
+      );
+      return entry.value as Promise<R>;
     };
   return {
-    searchTv: once('searchTv', client.searchTv),
+    searchTv: once('searchTv', client.searchTv, true),
     tv: once('tv', client.tv),
     tvSeason: once('tvSeason', client.tvSeason),
     episodeGroup: once('episodeGroup', client.episodeGroup),
-    searchMovie: once('searchMovie', client.searchMovie),
+    searchMovie: once('searchMovie', client.searchMovie, true),
     movie: once('movie', client.movie),
     collection: once('collection', client.collection),
     personNames: once('personNames', client.personNames),
-    image: client.image,
+    image: (size, path) => guarded(() => client.image(size, path)),
   };
 }
 

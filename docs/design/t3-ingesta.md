@@ -35,7 +35,7 @@ Entrada: ruta relativa a `content/`. Limpia `[grupo]`, `(…)`, `[CRC]`, resoluc
 Las películas buscan con `/search/movie` y el año. Si tienen saga, se crea la colección.
 
 ## Sin internet
-Si TMDB falla, el título se crea con el nombre de la carpeta/archivo, `metadata_status = 'pending'`, temporada 1 y episodios por número parseado. El archivo es reproducible igual. Cada escaneo reintenta los títulos `pending`; al obtener metadata se reconstruyen temporadas/episodios y se reasignan los archivos con lo parseado guardado en `media_files`.
+Si TMDB falla, el título se crea con el nombre de la carpeta/archivo, `metadata_status = 'pending'`, temporada 1 y episodios por número parseado. El archivo es reproducible igual. Cada escaneo reintenta los títulos `pending`, pero con espera acotada (T20): tras un fallo de red el cliente no vuelve a llamar a TMDB durante 1 min, 2 min… hasta 30 min (lo ya guardado y en caché se sigue sirviendo); una búsqueda sin resultado se repite a los 15 min, 30 min… hasta 6 h. Las respuestas exitosas (`tv`, grupos, temporadas, película, personas) se guardan en memoria mientras el servidor corre y se reutilizan entre escaneos y carpetas del mismo título; no hay refresco periódico. Un reescaneo sin cambios y las lecturas de la UI hacen 0 llamadas (`apps/server/test/tmdb-calls.test.ts`). Al obtener metadata se reconstruyen temporadas/episodios y se reasignan los archivos con lo parseado guardado en `media_files`.
 
 ## Esquema (migración 002)
 - `titles.episode_group_id TEXT` — ordenamiento elegido.
