@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildApp } from '../src/app.ts';
 import {
+  autoScanAllowed,
   configDir,
   configStatus,
   readMarker,
@@ -142,6 +143,14 @@ describe('configStatus', () => {
     expect(configStatus(media, { dir })).toEqual({ status: 'missing', contentDir: media, libraryId: 'lib-x', suggestedDefault: null });
     expect(existsSync(media)).toBe(false);
     expect(readFileSync(join(dir, 'config.json'), 'utf8')).toBe(before);
+  });
+});
+
+describe('autoScanAllowed', () => {
+  it('allows scanning for unset and ready, and blocks it only for missing', () => {
+    expect(autoScanAllowed({ status: 'unset', contentDir: null, libraryId: null, suggestedDefault: null })).toBe(true);
+    expect(autoScanAllowed({ status: 'ready', contentDir: '/media/library', libraryId: 'lib-x', suggestedDefault: '/media/library' })).toBe(true);
+    expect(autoScanAllowed({ status: 'missing', contentDir: '/media/unplugged', libraryId: null, suggestedDefault: null })).toBe(false);
   });
 });
 

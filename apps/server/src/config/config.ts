@@ -101,8 +101,9 @@ export function resolveContentDir(env: NodeJS.ProcessEnv = process.env, options:
 }
 
 /**
- * unset: no config.json, nothing to watch. ready: config + folder exist; the marker and the config adopt
- * each other's libraryId. missing: the configured folder is gone; never create it, never scan, no empty library.
+ * unset: no config.json; the folder may still come from env/root .env/default (legacy and dev flow).
+ * ready: config + folder exist; the marker and the config adopt each other's libraryId.
+ * missing: the configured folder is gone; never create it, never scan, no empty library.
  */
 export function configStatus(resolvedContentDir: string, options: ConfigOptions = {}): ConfigStatus {
   const config = readUserConfig(options);
@@ -118,6 +119,14 @@ export function configStatus(resolvedContentDir: string, options: ConfigOptions 
     writeUserConfig({ contentDir: config.contentDir, libraryId }, options.dir ?? configDir());
   }
   return { status: 'ready', contentDir: config.contentDir, libraryId, suggestedDefault };
+}
+
+/**
+ * T28: scanning runs for `unset` (folder from env/root .env/default — legacy and dev flow) and `ready`.
+ * Only `missing` — a user-chosen folder that is gone — must never scan.
+ */
+export function autoScanAllowed(status: ConfigStatus): boolean {
+  return status.status !== 'missing';
 }
 
 export function setContentDir(input: string, options: { create?: boolean } & ConfigOptions = {}): SetContentDirResult {

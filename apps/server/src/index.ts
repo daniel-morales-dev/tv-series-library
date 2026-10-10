@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path';
 import { buildApp } from './app.ts';
-import { configStatus, resolveContentDir } from './config/config.ts';
+import { autoScanAllowed, configStatus, resolveContentDir } from './config/config.ts';
 import { openDb } from './db/connection.ts';
 import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
 import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
@@ -12,7 +12,8 @@ const scanIntervalMin = Number(process.env.INGEST_SCAN_INTERVAL_MIN ?? 5);
 
 const db = openDb(join(dataDir, 'library.db'));
 
-// T22: without a configured content folder there is nothing to watch; /api/config reports the status to the wizard.
+// T22: /api/config reports the status to the wizard. T28: `unset` (env/root .env/default folder) still scans;
+// only a configured-but-gone folder (`missing`) blocks the ingestor.
 const libraryStatus = configStatus(resolveContentDir());
 
 let ingestor: Ingestor | undefined;
@@ -55,4 +56,4 @@ const app = buildApp({
 });
 await app.listen({ host: '0.0.0.0', port });
 worker?.start();
-if (libraryStatus.status === 'ready') ingestor?.start(scanIntervalMin);
+if (autoScanAllowed(libraryStatus)) ingestor?.start(scanIntervalMin);
