@@ -6,6 +6,7 @@ import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
 import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
 import { requeueErrors } from './modules/processing/queue.ts';
 import { createWorker } from './modules/processing/worker.ts';
+import { createShutdown } from './shutdown.ts';
 
 const dataDir = process.env.DATA_DIR ?? './data';
 const port = Number(process.env.PORT ?? 8080);
@@ -62,3 +63,14 @@ const app = buildApp({
 await app.listen({ host: '0.0.0.0', port });
 worker?.start();
 if (autoScanAllowed(libraryStatus)) ingestor?.start(scanIntervalMin);
+
+// T34: on SIGTERM/SIGINT stop the worker first (its AbortSignal kills the ffmpeg child), then close
+// the server; the handler is bounded, so a hung child cannot keep the watch restart waiting.
+const shutdown = createShutdown({
+  app,
+  worker,
+  ingestor,
+  log: (message) => app.log.warn(message),
+});
+process.on('SIGTERM', () => void shutdown());
+process.on('SIGINT', () => void shutdown());
