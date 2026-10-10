@@ -1,9 +1,14 @@
 import type { Activity } from './activity.ts';
+import type { AppConfig } from './config.ts';
 import type { ContinueItem, Job, Profile, Suggestion, TitleDetail, TitleSummary } from './types.ts';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, init);
   if (!res.ok) {
+    if (res.status === 400) {
+      const body = await res.json().catch(() => null);
+      if (typeof body?.error === 'string') throw new Error(body.error);
+    }
     if (res.status === 409) {
       const body = await res.json().catch(() => null);
       if (body?.error === 'downloading') throw new Error('downloading');
@@ -34,6 +39,9 @@ export const api = {
   title: (id: number, profileId: number) => request<TitleDetail>(`/titles/${id}?profileId=${profileId}`),
   setFinished: (pid: number, titleId: number, finished: boolean) =>
     request<void>(`/profiles/${pid}/titles/${titleId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
+  config: () => request<AppConfig>('/config'),
+  setContentDir: (path: string, create = false) =>
+    request<AppConfig>('/config/content-dir', { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ path, create }) }),
   jobs: () => request<Job[]>('/jobs'),
   activity: () => request<Activity>('/activity'),
   pauseProcessing: () => request<{ paused: boolean }>('/processing/pause', { method: 'POST' }),

@@ -1,7 +1,8 @@
 import { createApp } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import App from './App.vue';
-import { getProfileId } from './api.ts';
+import { api, getProfileId } from './api.ts';
+import { guardRedirect, type ConfigState } from './config.ts';
 import { installSpatialNav } from './spatial.ts';
 import { loadTheme } from './theme.ts';
 import './style.css';
@@ -17,11 +18,25 @@ const router = createRouter({
     { path: '/search', component: () => import('./views/SearchView.vue') },
     { path: '/title/:id(\\d+)', component: () => import('./views/TitleView.vue') },
     { path: '/watch/:mediaFileId(\\d+)', component: () => import('./views/WatchView.vue'), meta: { chrome: false } },
+    { path: '/setup', component: () => import('./views/SetupView.vue'), meta: { chrome: false } },
+    { path: '/settings', component: () => import('./views/SettingsView.vue') },
     { path: '/titles', redirect: '/browse' },
     { path: '/titles/:id(\\d+)', redirect: (to) => `/title/${to.params.id}` },
   ],
 });
 
+// Boot guard: a library folder must be configured before anything else. Once ready it is not asked again.
+let configState: ConfigState | null = null;
+router.beforeEach(async (to) => {
+  if (configState !== 'ready') {
+    try {
+      configState = (await api.config()).status;
+    } catch {
+      return true; // server unreachable: pages show their own errors
+    }
+  }
+  return guardRedirect(configState, to.path) ?? true;
+});
 router.beforeEach((to) => (to.path !== '/' && !getProfileId() ? '/' : true));
 
 loadTheme(getProfileId());

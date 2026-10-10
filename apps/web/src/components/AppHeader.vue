@@ -231,6 +231,7 @@ watch(() => route.fullPath, () => (menuOpen.value = false));
       <div v-if="menuOpen" class="menu" role="menu">
         <p class="who">{{ currentProfile?.name ?? '' }}</p>
         <RouterLink role="menuitem" to="/"><Icon name="swap" :size="20" /> Cambiar de perfil</RouterLink>
+        <RouterLink role="menuitem" to="/settings"><Icon name="swap" :size="20" /> Ajustes</RouterLink>
         <button role="menuitem" @click="toggleTheme(currentProfile?.id ?? null)">
           <Icon :name="theme === 'dark' ? 'sun' : 'moon'" :size="20" /> {{ theme === 'dark' ? 'Tema claro' : 'Tema oscuro' }}
         </button>
