@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, statSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { parseEnv } from 'node:util';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Node 24 strips types on import; the same module resolves the config for the server, so both agree.
 import { configDir, readUserConfig } from '../apps/server/src/config/config.ts';
@@ -49,11 +49,142 @@ async function checkPort(port) {
       const server = createServer();
       server.once('error', (error) => {
         if (error.code === 'EAFNOSUPPORT' || error.code === 'EADDRNOTAVAIL') return accept();
-        reject(new Error(`El puerto ${port} ya está ocupado. Identifica y detén solo tu propio proceso; el lanzador no terminó ningún proceso ajeno.`));
+        const busy = new Error(
+          `El puerto ${port} ya está ocupado. Identifica y detén solo tu propio proceso; el lanzador no terminó ningún proceso ajeno.`,
+        );
+        busy.code = error.code;
+        reject(busy);
       });
       server.listen({ port, host, exclusive: true }, () => server.close(accept));
     });
   }
+}
+
+const RELEASE_POLL_MS = 250;
+const RELEASE_TIMEOUT_MS = 5000;
+const FORCE_TIMEOUT_MS = 2000;
+
+function readProc(pid, file) {
+  try {
+    return readFileSync(`/proc/${pid}/${file}`, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when the process runs inside the repository and its command line carries the marker. */
+function isOwnDevProcess(pid, repository, marker) {
+  let cwd;
+  try {
+    cwd = readlinkSync(`/proc/${pid}/cwd`);
+  } catch {
+    return false;
+  }
+  if (cwd !== repository && !cwd.startsWith(repository + sep)) return false;
+  return readProc(pid, 'cmdline')?.includes(marker) ?? false;
+}
+
+/** Command-line marker identifying the owner of each preflight port: the backend server and vite. */
+export const PORT_MARKERS = { 8080: 'src/index.ts', 5174: 'vite' };
+
+/**
+ * Linux only (Windows cleanup is deferred per the project ADR): identifies the process listening
+ * on `port` when it is this repository's own dev process — the backend (`src/index.ts`) on 8080
+ * or vite on 5174 — with its cwd inside the repository. `parentPid` is the backend's
+ * `node --watch` parent when that parent also belongs to the repository, so the watcher cannot
+ * respawn the server; vite has no watcher, so the lookup finds none.
+ * Undefined for foreign, unmapped or unreadable holders: the caller must never signal those.
+ * @returns {{pid: number, parentPid: number | null, own: true} | undefined}
+ */
+export function findOwnServerHolder(port, repository = root) {
+  if (process.platform !== 'linux') return undefined;
+  const marker = PORT_MARKERS[port];
+  if (!marker) return undefined;
+  const ss = spawnSync('ss', ['-ltnpH', `sport = :${port}`], { encoding: 'utf8' });
+  const pid = Number(/pid=(\d+)/.exec(ss.stdout ?? '')?.[1]);
+  if (ss.error || !pid || !isOwnDevProcess(pid, repository, marker)) return undefined;
+  const parentPid = Number(/^PPid:\s*(\d+)/m.exec(readProc(pid, 'status') ?? '')?.[1]) || null;
+  return { pid, parentPid: parentPid && isOwnDevProcess(parentPid, repository, '--watch') ? parentPid : null, own: true };
+}
+
+/** Sends a signal to a process that may already be gone; the port poll decides if cleanup worked. */
+function signalQuietly(pid, signal) {
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // Already gone or not signalable.
+  }
+}
+
+/** SIGTERM to a verified holder and, when present, its watcher parent. */
+export function stopHolder({ pid, parentPid }) {
+  for (const target of [pid, parentPid]) if (target) signalQuietly(target, 'SIGTERM');
+}
+
+/** Direct children of `pid` whose command line runs ffmpeg. */
+function ffmpegChildren(pid) {
+  if (process.platform !== 'linux') return [];
+  let entries;
+  try {
+    entries = readdirSync('/proc');
+  } catch {
+    return [];
+  }
+  const children = [];
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue;
+    const parent = Number(/^PPid:\s*(\d+)/m.exec(readProc(entry, 'status') ?? '')?.[1]);
+    if (parent === pid && readProc(entry, 'cmdline')?.includes('ffmpeg')) children.push(Number(entry));
+  }
+  return children;
+}
+
+/**
+ * Escalation for a holder that ignored SIGTERM (linux only): SIGKILL its ffmpeg children first —
+ * an orphan writer keeps rewriting data/hls/*.tmp (T34) — then the holder and its watcher parent.
+ */
+export function forceHolder({ pid, parentPid }) {
+  if (process.platform !== 'linux') return;
+  for (const child of ffmpegChildren(pid)) signalQuietly(child, 'SIGKILL');
+  for (const target of [pid, parentPid]) if (target) signalQuietly(target, 'SIGKILL');
+}
+
+async function waitForPort(port, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      await checkPort(port);
+      return true;
+    } catch {
+      if (Date.now() >= deadline) return false;
+      await new Promise((accept) => setTimeout(accept, RELEASE_POLL_MS));
+    }
+  }
+}
+
+/**
+ * Stops an orphaned dev process (backend or vite) from this repository still holding `port`:
+ * SIGTERM first; when the port is still held (a hung event loop ignores SIGTERM), escalates to
+ * SIGKILL — the holder's ffmpeg children die first so no orphan keeps rewriting data/hls/*.tmp
+ * (T34), then the holder and its watcher parent. Never throws and never signals a foreign process.
+ * @returns {Promise<boolean>} true when the port was reclaimed
+ */
+async function reclaimPort(port, repository, { findHolder, killHolder, forceHolder, releaseMs, forceMs }) {
+  const holder = findHolder(port, repository);
+  if (!holder?.own) return false;
+  killHolder(holder);
+  if (await waitForPort(port, releaseMs)) {
+    console.log(`Puerto ${port} liberado: se detuvo un server de desarrollo huérfano de este repo.`);
+    return true;
+  }
+  forceHolder(holder);
+  if (await waitForPort(port, forceMs)) {
+    console.log(
+      `Puerto ${port} liberado: el server huérfano no respondió al SIGTERM (colgado); se forzó SIGKILL tras detener sus ffmpeg.`,
+    );
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -90,12 +221,26 @@ export async function backupLibrary(dataDir) {
 
 /**
  * Preflight before spawning anything: resolve paths, verify DATA_DIR exists, verify ports are free,
- * back up SQLite. CONTENT_DIR is not validated here any more (T22): the server reports unset/missing
+ * back up SQLite. A port held by this repository's own orphaned dev process (backend or vite) is
+ * reclaimed first (linux only): only a verified holder is signalled, never a foreign process; a
+ * hung holder that ignores SIGTERM is escalated to SIGKILL after its ffmpeg children.
+ * CONTENT_DIR is not validated here any more (T22): the server reports unset/missing
  * to the UI and never scans or creates an empty library. Never creates directories or a replacement
  * library, never migrates the database.
  * @returns {Promise<{env: NodeJS.ProcessEnv, backup: string | undefined}>}
  */
-export async function prepare(repository = root, external = process.env, ports = [8080, 5174]) {
+export async function prepare(
+  repository = root,
+  external = process.env,
+  ports = [8080, 5174],
+  {
+    findHolder = findOwnServerHolder,
+    killHolder = stopHolder,
+    forceHolder: force = forceHolder,
+    releaseMs = RELEASE_TIMEOUT_MS,
+    forceMs = FORCE_TIMEOUT_MS,
+  } = {},
+) {
   const env = resolveEnvironment(repository, external);
   let dataValid = false;
   try {
@@ -109,7 +254,19 @@ export async function prepare(repository = root, external = process.env, ports =
         `en una instalación nueva, créala a propósito (por ejemplo: mkdir -p '${env.DATA_DIR}'). No se creó nada para no fabricar una biblioteca vacía.`,
     );
   }
-  for (const port of ports) await checkPort(port);
+  for (const port of ports) {
+    try {
+      await checkPort(port);
+    } catch (error) {
+      if (
+        error.code !== 'EADDRINUSE' ||
+        !(await reclaimPort(port, repository, { findHolder, killHolder, forceHolder: force, releaseMs, forceMs }))
+      ) {
+        throw error;
+      }
+      await checkPort(port);
+    }
+  }
   return { env, backup: await backupLibrary(env.DATA_DIR) };
 }
 
@@ -181,6 +338,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const stop = () => controller.abort();
   process.on('SIGINT', stop);
   process.on('SIGTERM', stop);
+  process.on('SIGHUP', stop); // closing the terminal must not orphan the children
   try {
     const prepared = await prepare();
     if (prepared.backup) console.log(`Copia SQLite verificada (solo base de datos, no videos ni HLS): ${prepared.backup}`);
@@ -203,5 +361,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   } finally {
     process.off('SIGINT', stop);
     process.off('SIGTERM', stop);
+    process.off('SIGHUP', stop);
   }
 }

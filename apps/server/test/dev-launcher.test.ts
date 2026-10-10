@@ -5,7 +5,7 @@ import { isAbsolute, join } from 'node:path';
 import { createServer } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 // @ts-expect-error The root launcher is native JavaScript, outside the server TypeScript project.
-import { resolveEnvironment, prepare, backupLibrary, supervise } from '../../../scripts/dev.mjs';
+import { resolveEnvironment, prepare, backupLibrary, supervise, PORT_MARKERS } from '../../../scripts/dev.mjs';
 
 const fixtures: string[] = [];
 function fixture(): string {
@@ -99,6 +99,203 @@ test('occupied port fails before opening even an invalid database or making a ba
   try {
     await expect(prepare(root, { ...noConfig(root) }, [port, 0])).rejects.toThrow(/ocupado/);
     expect(readdirSync(join(root, 'data'))).toEqual(['library.db']);
+  } finally {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  }
+});
+
+test('reclaims the port when the holder is this repository own orphaned dev server', async () => {
+  const root = fixture();
+  const occupied = createServer();
+  await new Promise<void>((resolve) => occupied.listen(0, '0.0.0.0', resolve));
+  const port = (occupied.address() as { port: number }).port;
+  const holder = { pid: 4242, parentPid: 4241, own: true };
+  const kill = vi.fn(async () => {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  });
+  const force = vi.fn();
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    const prepared = await prepare(root, { ...noConfig(root) }, [port, 0], { findHolder: () => holder, killHolder: kill, forceHolder: force });
+    expect(prepared.env.PORT).toBe('8080');
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(kill).toHaveBeenCalledWith(holder);
+    expect(force).not.toHaveBeenCalled();
+    expect(log.mock.calls.flat().join('\n')).toContain(`Puerto ${port} liberado`);
+  } finally {
+    log.mockRestore();
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  }
+});
+
+test('maps each preflight port to the command-line marker of its owner', () => {
+  expect(PORT_MARKERS).toEqual({ 8080: 'src/index.ts', 5174: 'vite' });
+});
+
+test('reclaims the backend and the vite ports when both orphaned holders belong to this repository', async () => {
+  const root = fixture();
+  const backend = createServer();
+  const vite = createServer();
+  await new Promise<void>((resolve) => backend.listen(0, '0.0.0.0', resolve));
+  await new Promise<void>((resolve) => vite.listen(0, '0.0.0.0', resolve));
+  const backendPort = (backend.address() as { port: number }).port;
+  const vitePort = (vite.address() as { port: number }).port;
+  const holders: Record<number, { pid: number; parentPid: number | null; own: true }> = {
+    [backendPort]: { pid: 4242, parentPid: 4241, own: true },
+    [vitePort]: { pid: 4343, parentPid: null, own: true },
+  };
+  const kill = vi.fn(async (holder: { pid: number }) => {
+    const occupied = holder.pid === holders[backendPort]!.pid ? backend : vite;
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  });
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    const prepared = await prepare(root, { ...noConfig(root) }, [backendPort, vitePort], {
+      findHolder: (port: number) => holders[port],
+      killHolder: kill,
+    });
+    expect(prepared.env.PORT).toBe('8080');
+    expect(kill).toHaveBeenCalledTimes(2);
+    expect(kill).toHaveBeenCalledWith(holders[backendPort]);
+    expect(kill).toHaveBeenCalledWith(holders[vitePort]);
+    const lines = log.mock.calls.flat().join('\n');
+    expect(lines).toContain(`Puerto ${backendPort} liberado`);
+    expect(lines).toContain(`Puerto ${vitePort} liberado`);
+  } finally {
+    log.mockRestore();
+    await new Promise<void>((resolve) => backend.close(() => resolve()));
+    await new Promise<void>((resolve) => vite.close(() => resolve()));
+  }
+});
+
+test('a foreign vite holder on the frontend port is never signalled and the original error stands', async () => {
+  const root = fixture();
+  const occupied = createServer();
+  await new Promise<void>((resolve) => occupied.listen(0, '0.0.0.0', resolve));
+  const port = (occupied.address() as { port: number }).port;
+  const kill = vi.fn();
+  const asked: number[] = [];
+  try {
+    await expect(
+      prepare(root, { ...noConfig(root) }, [port, 0], {
+        findHolder: (askedPort: number) => {
+          asked.push(askedPort);
+          return undefined; // a foreign vite runs outside the repository: never ours
+        },
+        killHolder: kill,
+      }),
+    ).rejects.toThrow(/ocupado/);
+    expect(asked).toEqual([port]);
+    expect(kill).not.toHaveBeenCalled();
+  } finally {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  }
+});
+
+test('a foreign port holder is never killed and the original error stands', async () => {
+  const root = fixture();
+  const occupied = createServer();
+  await new Promise<void>((resolve) => occupied.listen(0, '0.0.0.0', resolve));
+  const port = (occupied.address() as { port: number }).port;
+  const kill = vi.fn();
+  try {
+    await expect(
+      prepare(root, { ...noConfig(root) }, [port, 0], { findHolder: () => ({ pid: 4242, parentPid: null, own: false }), killHolder: kill }),
+    ).rejects.toThrow(/ocupado/);
+    expect(kill).not.toHaveBeenCalled();
+  } finally {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  }
+});
+
+test('an unidentified port holder is never killed and the original error stands', async () => {
+  const root = fixture();
+  const occupied = createServer();
+  await new Promise<void>((resolve) => occupied.listen(0, '0.0.0.0', resolve));
+  const port = (occupied.address() as { port: number }).port;
+  const kill = vi.fn();
+  try {
+    await expect(
+      prepare(root, { ...noConfig(root) }, [port, 0], { findHolder: () => undefined, killHolder: kill }),
+    ).rejects.toThrow(/ocupado/);
+    expect(kill).not.toHaveBeenCalled();
+  } finally {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  }
+});
+
+test('the original error stands when the identified holder does not release the port in time', async () => {
+  const root = fixture();
+  const occupied = createServer();
+  await new Promise<void>((resolve) => occupied.listen(0, '0.0.0.0', resolve));
+  const port = (occupied.address() as { port: number }).port;
+  const kill = vi.fn();
+  const force = vi.fn();
+  try {
+    await expect(
+      prepare(root, { ...noConfig(root) }, [port, 0], {
+        findHolder: () => ({ pid: 4242, parentPid: null, own: true }),
+        killHolder: kill,
+        forceHolder: force,
+        releaseMs: 0,
+        forceMs: 0,
+      }),
+    ).rejects.toThrow(/ocupado/);
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(force).toHaveBeenCalledTimes(1);
+  } finally {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  }
+});
+
+test('escalates to SIGKILL when the hung holder ignores SIGTERM', async () => {
+  const root = fixture();
+  const occupied = createServer();
+  await new Promise<void>((resolve) => occupied.listen(0, '0.0.0.0', resolve));
+  const port = (occupied.address() as { port: number }).port;
+  const holder = { pid: 4242, parentPid: 4241, own: true };
+  const kill = vi.fn();
+  const force = vi.fn(async () => {
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  });
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  try {
+    const prepared = await prepare(root, { ...noConfig(root) }, [port, 0], {
+      findHolder: () => holder,
+      killHolder: kill,
+      forceHolder: force,
+      releaseMs: 0,
+    });
+    expect(prepared.env.PORT).toBe('8080');
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(force).toHaveBeenCalledTimes(1);
+    expect(force).toHaveBeenCalledWith(holder);
+    expect(log.mock.calls.flat().join('\n')).toContain('SIGKILL');
+  } finally {
+    log.mockRestore();
+    await new Promise<void>((resolve) => occupied.close(() => resolve()));
+  }
+});
+
+test('the original error stands when escalation does not free the port either', async () => {
+  const root = fixture();
+  const occupied = createServer();
+  await new Promise<void>((resolve) => occupied.listen(0, '0.0.0.0', resolve));
+  const port = (occupied.address() as { port: number }).port;
+  const kill = vi.fn();
+  const force = vi.fn();
+  try {
+    await expect(
+      prepare(root, { ...noConfig(root) }, [port, 0], {
+        findHolder: () => ({ pid: 4242, parentPid: null, own: true }),
+        killHolder: kill,
+        forceHolder: force,
+        releaseMs: 0,
+        forceMs: 0,
+      }),
+    ).rejects.toThrow(/ocupado/);
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(force).toHaveBeenCalledTimes(1);
   } finally {
     await new Promise<void>((resolve) => occupied.close(() => resolve()));
   }
