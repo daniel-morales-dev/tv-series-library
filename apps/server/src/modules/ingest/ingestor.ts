@@ -45,6 +45,7 @@ export interface Ingestor {
 
 interface ScanState {
   ctx: IngestContext;
+  onDisk: Set<string>;
   offline: boolean;
   dirs: Map<string, Promise<Assignment>>;
 }
@@ -84,7 +85,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   }
 
   async function scanOnce(): Promise<ScanSummary> {
-    const state: ScanState = { ctx: { db, tmdb: memoize(opts.tmdb), dataDir }, offline: false, dirs: new Map() };
+    const state: ScanState = { ctx: { db, tmdb: memoize(opts.tmdb), dataDir }, onDisk: new Set(), offline: false, dirs: new Map() };
     const summary: ScanSummary = { ingested: 0, pending: 0, waiting: 0, failed: 0 };
     if (!diskPresent()) {
       closeWatchers(); // bound to the unmounted folder: useless once the disk returns
@@ -96,6 +97,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
 
     const files = await listVideos(contentDir());
     const onDisk = new Set(files.map((f) => f.rel));
+    state.onDisk = onDisk;
     const known = new Set([
       ...all<{ path: string }>(db, 'SELECT path FROM media_files').map((r) => r.path),
       ...all<{ path: string }>(db, 'SELECT path FROM pending_files').map((r) => r.path),
@@ -196,7 +198,27 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     }
     const episodeId = await placeEpisode(state.ctx, dir.titleId, dir.seasonNumber, parsed);
     if (episodeId === null) return toPending('unmapped_episode');
-    return store({ titleId: dir.titleId, episodeId, extraLabel: null, parsedSeason: parsed.season, parsedNumber: parsed.number });
+    const outcome = store({ titleId: dir.titleId, episodeId, extraLabel: null, parsedSeason: parsed.season, parsedNumber: parsed.number });
+    supersedeMissing(state, file.rel, episodeId);
+    return outcome;
+  }
+
+  // A new release (SubsPlease) of an episode whose old file (Cifer) is gone takes over its progress; the old row is dropped.
+  function supersedeMissing(state: ScanState, rel: string, episodeId: number): void {
+    const added = get<{ id: number }>(db, 'SELECT id FROM media_files WHERE path = ?', rel);
+    if (!added) return;
+    for (const old of all<{ id: number; path: string }>(db, 'SELECT id, path FROM media_files WHERE episode_id = ? AND id <> ?', episodeId, added.id)) {
+      // Same file name elsewhere is a move, handled by relocateMoved (which refuses ambiguous ones on purpose).
+      if (state.onDisk.has(old.path) || basename(old.path) === basename(rel)) continue;
+      run(
+        db,
+        `INSERT OR IGNORE INTO watch_progress (profile_id, media_file_id, position_s, duration_s, completed, updated_at)
+         SELECT profile_id, ?, position_s, duration_s, completed, updated_at FROM watch_progress WHERE media_file_id = ? ORDER BY updated_at DESC`,
+        added.id,
+        old.id,
+      );
+      run(db, 'DELETE FROM media_files WHERE id = ?', old.id);
+    }
   }
 
   // One TMDB lookup per folder per scan; without TMDB the folder becomes a placeholder title.
