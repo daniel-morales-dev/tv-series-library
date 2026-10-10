@@ -36,3 +36,32 @@ export function nextFile(detail: TitleDetail, fileId: number): { fileId: number;
   const next = i >= 0 ? ordered[i + 1] : undefined;
   return next ? { fileId: next.fileId, name: next.name } : null;
 }
+
+/** One row of the player's audio menu; `id` is the hls.js track index used by `pickAudio`. */
+export function audioMenu(tracks: readonly { lang?: string | null; name?: string | null }[]): { id: number; name: string }[] {
+  return tracks.map((t, i) => ({ id: i, name: t.lang ? languageName(t.lang) : t.name || `Audio ${i + 1}` }));
+}
+
+/** Track to keep selected when the audio list (re)loads: the active one, else the previous pick, else the first. */
+export function audioSelection(length: number, active: number, previous: number): number {
+  if (active >= 0 && active < length) return active;
+  if (previous >= 0 && previous < length) return previous;
+  return 0;
+}
+
+/** "12:34", or "1:02:03" past an hour; "--:--" when the value is not a usable time. */
+export function clock(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
+  const total = Math.floor(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${m}:${s}`;
+}
+
+/** Slider bounds for the progress row; null while the duration is unusable (live/EVENT playlist edge states). */
+export function seekRange(current: number, duration: number): { max: number; value: number } | null {
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+  const value = Number.isFinite(current) ? Math.min(Math.max(current, 0), duration) : 0;
+  return { max: duration, value };
+}

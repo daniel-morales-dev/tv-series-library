@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { defaultSubtitle, nextFile, resumePosition, subtitleLabel } from './player.ts';
+import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, resumePosition, seekRange, subtitleLabel } from './player.ts';
 import type { Episode, MediaFile, SubtitleTrack, TitleDetail } from './types.ts';
 
 const p = (mediaFileId: number, positionS: number, completed = false) => ({ mediaFileId, positionS, durationS: 1400, completed });
@@ -52,6 +52,53 @@ const detail = (files: MediaFile[], episodes = [episode(1, 1, 'E1'), episode(2, 
   id: 1, kind: 'series', title: 'S', originalTitle: null, overview: null, year: null, runtimeMin: null,
   rating: null, genres: [], posterPath: null, backdropPath: null, logoPath: null, comingSoon: false,
   seasons: [{ id: 1, number: 1, name: null, episodes }], files, credits: [], progress: [],
+});
+
+describe('audioMenu', () => {
+  it('maps hls.js tracks to menu rows, preferring the language name', () => {
+    expect(audioMenu([{ lang: 'spa', name: 'Spanish' }, { name: 'Comentarios' }, {}])).toEqual([
+      { id: 0, name: 'Español' },
+      { id: 1, name: 'Comentarios' },
+      { id: 2, name: 'Audio 3' },
+    ]);
+  });
+  it('is empty when the stream has no alternate audio', () => expect(audioMenu([])).toEqual([]));
+});
+
+describe('audioSelection', () => {
+  it('keeps the active hls.js track after the list refreshes', () => expect(audioSelection(3, 2, 0)).toBe(2));
+  it('keeps the previous pick while hls.js has no active track yet', () => expect(audioSelection(3, -1, 1)).toBe(1));
+  it('falls back to the first track when both are out of range', () => {
+    expect(audioSelection(3, -1, 5)).toBe(0);
+    expect(audioSelection(0, -1, 2)).toBe(0);
+  });
+});
+
+describe('clock', () => {
+  it('formats under an hour as m:ss and past it as h:mm:ss', () => {
+    expect(clock(0)).toBe('0:00');
+    expect(clock(65.9)).toBe('1:05');
+    expect(clock(3605)).toBe('1:00:05');
+  });
+  it('shows --:-- for unusable values', () => {
+    expect(clock(NaN)).toBe('--:--');
+    expect(clock(Infinity)).toBe('--:--');
+    expect(clock(-1)).toBe('--:--');
+  });
+});
+
+describe('seekRange', () => {
+  it('clamps the position into [0, duration]', () => {
+    expect(seekRange(30, 100)).toEqual({ max: 100, value: 30 });
+    expect(seekRange(-5, 100)).toEqual({ max: 100, value: 0 });
+    expect(seekRange(200, 100)).toEqual({ max: 100, value: 100 });
+    expect(seekRange(NaN, 100)).toEqual({ max: 100, value: 0 });
+  });
+  it('returns null while the duration is unknown (playlist still processing)', () => {
+    expect(seekRange(10, Infinity)).toBeNull();
+    expect(seekRange(10, NaN)).toBeNull();
+    expect(seekRange(10, 0)).toBeNull();
+  });
 });
 
 describe('nextFile', () => {

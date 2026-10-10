@@ -4,8 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router';
 import { api, getProfileId, playErrorMessage, saveProgress, streamUrl } from '../api.ts';
 import { isBackKey } from '../spatial.ts';
-import { languageName } from '../languages.ts';
-import { defaultSubtitle, nextFile, resumePosition, subtitleLabel } from '../player.ts';
+import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
 import { SPEEDS, loadSpeed, saveSpeed, speedLabel } from '../speed.ts';
 import type { MediaFile, SubtitleTrack, TitleDetail } from '../types.ts';
 import Icon from '../components/Icon.vue';
@@ -121,15 +120,21 @@ function attach(f: MediaFile, startAt: number) {
   const v = video.value!;
   const url = streamUrl(f.id);
   if (v.canPlayType('application/vnd.apple.mpegurl')) {
+    // Native HLS (Safari): the browser owns audio-track selection; there is no JS API to list or pick tracks here.
     v.src = url;
     v.playbackRate = speed.value;
     if (startAt > 0) v.addEventListener('loadedmetadata', () => (v.currentTime = startAt), { once: true });
     v.play().catch(() => {});
   } else if (Hls.isSupported()) {
     const h = (hls = new Hls({ startPosition: startAt > 0 ? startAt : -1 }));
+    // hls.js fills `audioTracks` only when the level playlist loads, not at MANIFEST_PARSED — listen for the update.
+    const refreshAudio = () => {
+      audio.value = audioMenu(h.audioTracks);
+      audioIndex.value = audioSelection(audio.value.length, h.audioTrack, audioIndex.value);
+    };
+    h.on(Hls.Events.AUDIO_TRACKS_UPDATED, refreshAudio);
+    h.on(Hls.Events.AUDIO_TRACK_SWITCHED, refreshAudio); // `hls.audioTrack` is still -1 inside UPDATED; the default pick lands here
     h.on(Hls.Events.MANIFEST_PARSED, () => {
-      audio.value = h.audioTracks.map((t, i) => ({ id: i, name: t.lang ? languageName(t.lang) : t.name || `Audio ${i + 1}` }));
-      audioIndex.value = Math.max(h.audioTrack, 0);
       v.playbackRate = speed.value;
       v.play().catch(() => {}); // autoplay may still be blocked; the user can press play
     });
@@ -185,6 +190,25 @@ function pickAudio(i: number) {
   audioIndex.value = i;
 }
 
+// ponytail: app-owned progress row for streams the native `controls` scrubber cannot seek (EVENT playlist while processing); T25 replaces native controls entirely.
+const now = ref(0);
+const total = ref(NaN);
+const seekState = computed(() => seekRange(now.value, total.value));
+function syncTime() {
+  const v = video.value;
+  if (!v) return;
+  now.value = v.currentTime;
+  total.value = v.duration;
+}
+function onSeek(e: Event) {
+  const v = video.value;
+  const s = seekState.value;
+  if (!v || !s) return;
+  const t = Number((e.target as HTMLInputElement).value);
+  if (Number.isFinite(t)) v.currentTime = Math.min(Math.max(t, 0), s.max);
+  now.value = v.currentTime;
+}
+
 const onPlay = () => {
   clearInterval(saveTimer);
   saveTimer = setInterval(save, 10_000);
@@ -228,7 +252,7 @@ function toggleFullscreen() {
 
 function onKey(e: KeyboardEvent) {
   const t = e.target as HTMLElement;
-  const inField = t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement;
+  const inField = (t instanceof HTMLInputElement && t.type !== 'range') || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement; // the seek slider must not swallow the player's keys
   const onButton = t instanceof HTMLButtonElement || t instanceof HTMLAnchorElement;
   const v = video.value;
   if (inField || !v) return;
@@ -275,6 +299,9 @@ watch([fileId, titleId], start, { immediate: true });
       @play="onPlay"
       @pause="onPause"
       @ended="onEnded"
+      @timeupdate="syncTime"
+      @durationchange="syncTime"
+      @seeked="syncTime"
     >
       <track
         v-for="(t, i) in subs"
@@ -303,6 +330,21 @@ watch([fileId, titleId], start, { immediate: true });
         <button class="round" :aria-label="fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'" :title="fullscreen ? 'Salir de pantalla completa' : 'Pantalla completa'" @click="toggleFullscreen">
           <Icon :name="fullscreen ? 'fullscreenExit' : 'fullscreen'" :size="26" />
         </button>
+      </div>
+      <div class="seek chrome">
+        <span class="time">{{ clock(now) }}</span>
+        <input
+          type="range"
+          min="0"
+          step="0.1"
+          :max="seekState?.max ?? 0"
+          :value="seekState?.value ?? 0"
+          :disabled="!seekState"
+          aria-label="Posición de reproducción"
+          @input="onSeek"
+        />
+        <span class="time">{{ clock(total) }}</span>
+        <span v-if="!seekState" class="live">Procesando…</span>
       </div>
       <div v-if="menu === 'tracks'" class="menu" role="menu">
         <template v-if="audio.length > 1">
@@ -346,6 +388,13 @@ video { width: 100%; height: 100%; background: #000; }
 .menu h2 { margin: 8px 0 0; font-size: 1rem; color: var(--text-dim); }
 .menu button { min-height: 44px; text-align: left; }
 .menu .on { background: var(--accent); color: var(--accent-ink); }
+.seek {
+  position: absolute; left: 12px; right: 12px; bottom: 64px; z-index: 2; display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.6);
+}
+.seek input { flex: 1; min-width: 0; accent-color: var(--accent); }
+.seek .time { font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.seek .live { color: var(--text-dim); font-size: 0.9rem; }
 .next {
   position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 2; display: flex; gap: 12px;
   align-items: center; flex-wrap: wrap; justify-content: center; padding: 12px 20px; border-radius: 12px; background: rgba(15, 15, 18, 0.95);
