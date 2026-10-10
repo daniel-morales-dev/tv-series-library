@@ -2,6 +2,8 @@
 
 **Estado:** aceptado · 2026-10-08
 
+> Parte Linux reemplazada por [ADR 0005](0005-linux-systemd-usuario.md) (servicio systemd de usuario, sin Docker).
+
 ## Contexto
 Los usuarios de Windows no tienen conocimiento técnico. Docker Desktop exige WSL2 y virtualización activada en la BIOS.
 

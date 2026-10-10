@@ -81,7 +81,7 @@ Espera HTTP 200; health devuelve `{"ok":true}`. Un catálogo vacío con HTTP 200
 npm run dev
 ```
 
-La ingesta y el procesamiento están habilitados por defecto, salvo que el entorno o `.env` los desactiven. La ingesta escanea y vigila los videos, guarda el catálogo y consulta TMDB cuando corresponde; la cola convierte archivos a HLS con ffmpeg y **puede consumir CPU y espacio**. No habilites ese trabajo como primer intento de arreglar una biblioteca vacía. Para cerrar la sesión basta **Ctrl+C una vez**: el lanzador detiene ambos árboles de procesos. Reiniciar el PC no inicia la app automáticamente: el autoarranque Linux sigue pendiente en **T7**.
+La ingesta y el procesamiento están habilitados por defecto, salvo que el entorno o `.env` los desactiven. La ingesta escanea y vigila los videos, guarda el catálogo y consulta TMDB cuando corresponde; la cola convierte archivos a HLS con ffmpeg y **puede consumir CPU y espacio**. No habilites ese trabajo como primer intento de arreglar una biblioteca vacía. Para cerrar la sesión basta **Ctrl+C una vez**: el lanzador detiene ambos árboles de procesos. Reiniciar el PC no inicia la app automáticamente con este comando. Para arranque automático en Linux, ver [README](../README.md#correrlo-en-linux-laptop-y-verlo-desde-celular-y-tv).
 
 ## 6. Carpeta de contenido: `config.json` y asistente (T22)
 
@@ -149,6 +149,6 @@ PORT=8080 CONTENT_DIR="$PWD/content" DATA_DIR="$PWD/data" \
   WEB_DIR="$PWD/apps/web/dist" npm start -w apps/server
 ```
 
-Abre **http://localhost:8080**; aquí no necesitas Vite. `WEB_DIR` es absoluto y apunta al resultado de la compilación. Para LAN, la URL usa la IP de la laptop en vez de `localhost`; la validación en celular/TV (**T6d**) y el empaquetado/autoarranque (**T7**) siguen pendientes.
+Abre **http://localhost:8080**; aquí no necesitas Vite. `WEB_DIR` es absoluto y apunta al resultado de la compilación. Para LAN, la URL usa la IP de la laptop en vez de `localhost`. Para dejarla como servicio al encender, ver [README](../README.md#correrlo-en-linux-laptop-y-verlo-desde-celular-y-tv); la validación en celular/TV (**T6d**) sigue pendiente.
 
 Siguiente paso: revisar la copia y aprobar el arranque controlado (T18b); consultar el estado en [el documento de tareas](../odd/tasks/tv-series-library.md).

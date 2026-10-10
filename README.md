@@ -32,6 +32,55 @@ La app guarda la carpeta donde está tu contenido en su propia configuración (`
 1. Solo en una instalación nueva y **solo para desarrollo**, crea `.env` desde `.env.example` **sin sobrescribir uno existente**. `CONTENT_DIR` ahí es opcional: tu elección en la app tiene prioridad.
 2. Configura tu *Read Access Token* de TMDB en `TMDB_READ_ACCESS_TOKEN`. Esta instalación ya lo tiene; no lo imprimas ni lo subas a git.
 
+## Correrlo en Linux (laptop) y verlo desde celular y TV
+
+Requisitos: Node.js 24 o superior, npm y ffmpeg. No hace falta internet, pero celular y TV deben estar en la **misma WiFi** que la laptop.
+
+1. **Instalar dependencias y compilar la web**, desde la raíz del repo:
+   ```sh
+   npm ci
+   bash scripts/linux-install.sh
+   ```
+   El script compila la web y escribe `~/.config/systemd/user/sala.service`. No usa sudo ni habilita nada.
+
+2. **Activar el servicio:**
+   ```sh
+   systemctl --user daemon-reload
+   systemctl --user enable --now sala
+   ```
+
+3. **Arrancar al encender, sin iniciar sesión** (único paso con sudo de esta guía):
+   ```sh
+   sudo loginctl enable-linger "$USER"
+   ```
+
+4. **Firewall, solo si ufw está activo.** Primero revisa el estado:
+   ```sh
+   sudo ufw status
+   ```
+   Si dice `inactive`, sáltate este paso. Si dice `active`, averigua tu subred LAN:
+   ```sh
+   ip -4 -o addr show scope global
+   ```
+   Con tu subred (por ejemplo `192.168.1.0/24`), abre el puerto solo para ella:
+   ```sh
+   sudo ufw allow from 192.168.1.0/24 to any port 8080 proto tcp comment 'sala'
+   ```
+   No abras a `any`: la app no tiene autenticación.
+
+5. **Conectar celular y TV.** En la laptop abre http://localhost:8080, ve a **Ajustes** (menú del perfil) y en **Ver desde el celular o la TV** escanea el QR con el celular, o escribe la URL en la TV. Si aparecen varias URL (Ethernet y WiFi), usa la de la red WiFi.
+
+6. **Reservar la IP de la laptop en el router** (una vez): busca la reserva DHCP o IP fija por MAC y asigna la IP que muestra Ajustes. Así la URL y el QR no cambian.
+
+7. **Operación:**
+   - Estado: `systemctl --user status sala`
+   - Logs: `journalctl --user -u sala -f`
+   - Parar: `systemctl --user stop sala`
+   - Reiniciar: `systemctl --user restart sala`
+   - Actualizar: `git pull`, luego `npm ci`, `bash scripts/linux-install.sh` y `systemctl --user restart sala`
+
+> **Aviso:** mientras `sala.service` esté activo, `npm run dev` se niega a correr porque el puerto 8080 lo ocupa el servicio. Antes de desarrollar, ejecuta `systemctl --user stop sala`.
+
 ## Documentación
 
 - [Glosario](CONTEXT.md)
