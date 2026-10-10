@@ -24,6 +24,18 @@ describe('buildEpisodes', () => {
     const [s] = buildEpisodes(detail({ files: [] }));
     expect(s!.rows[0]!.file).toBeNull();
   });
+  it('prefers a playable file over an older downloading one for the same episode', () => {
+    const [s] = buildEpisodes(detail({ files: [file(10, 1, { status: 'downloading' }), file(11, 1)] }));
+    expect(s!.rows[0]).toMatchObject({ file: { id: 11 } });
+  });
+  it('keeps the first match when every file for an episode is downloading', () => {
+    const [s] = buildEpisodes(detail({ files: [file(10, 1, { status: 'downloading' }), file(11, 1, { status: 'downloading' })] }));
+    expect(s!.rows[0]).toMatchObject({ file: { id: 10 } });
+  });
+  it('still ignores extras attached to the episode', () => {
+    const [s] = buildEpisodes(detail({ files: [file(20, 1, { extraLabel: 'OP' }), file(11, 1)] }));
+    expect(s!.rows[0]).toMatchObject({ file: { id: 11 } });
+  });
 });
 
 describe('episodeAction', () => {

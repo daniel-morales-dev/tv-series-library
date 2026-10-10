@@ -22,7 +22,9 @@ export function buildEpisodes(d: TitleDetail): SeasonRows[] {
       rows: [...s.episodes]
         .sort((a, b) => a.number - b.number)
         .map((e) => {
-          const file = d.files.find((f) => f.episodeId === e.id && !f.extraLabel) ?? null;
+          // Prefer the first playable file: an older downloading file must not shadow the current one.
+          const matches = d.files.filter((f) => f.episodeId === e.id && !f.extraLabel);
+          const file = matches.find((f) => f.status !== 'downloading') ?? matches[0] ?? null;
           return { ...e, season: s.number, file, progress: (file && d.progress?.find((p) => p.mediaFileId === file.id)) || null };
         }),
     }));

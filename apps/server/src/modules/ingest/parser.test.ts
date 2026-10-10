@@ -78,6 +78,29 @@ describe('parsePath: shows', () => {
       expect(parsePath('shows/Show S2/Show S1E05.mkv')).toEqual({ kind: 'episode', show: 'Show', season: 1, number: 5 });
     });
   });
+
+  describe('"S5 - 01" season pair in the file name', () => {
+    const danmachi = (number: string) =>
+      `shows/danmachi/[EMBER] Dungeon ni Deai wo Motomeru no wa Machigatteiru Darou ka S5 - ${number}.mkv`;
+
+    it.each([
+      ['01', 1],
+      ['03', 3],
+    ])('reads S5 - %s as season 5 episode %s from the real DanMachi names', (tag, number) => {
+      expect(parsePath(danmachi(tag))).toEqual({ kind: 'episode', show: 'danmachi', season: 5, number });
+    });
+
+    it('accepts a zero-padded season token', () => {
+      expect(parsePath('shows/Show/Show S05 - 03.mkv')).toEqual({ kind: 'episode', show: 'Show', season: 5, number: 3 });
+    });
+
+    it.each([
+      ['shows/[SubsPlease] Sousou no Frieren (01-28) (1080p) [Batch]/[SubsPlease] Sousou no Frieren - 09v2 (1080p) [X].mkv', null, 9],
+      ['shows/[SubsPlease] Sousou no Frieren S2 (01-10) (1080p) [Batch]/[SubsPlease] Sousou no Frieren - 01 (1080p) [X].mkv', 2, 1],
+    ])('keeps the absolute/season-dir result for %s', (path, season, number) => {
+      expect(parsePath(path)).toEqual({ kind: 'episode', show: 'Sousou no Frieren', season, number });
+    });
+  });
 });
 
 describe('parsePath: films', () => {

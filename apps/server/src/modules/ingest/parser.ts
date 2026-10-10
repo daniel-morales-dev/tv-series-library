@@ -11,6 +11,8 @@ const UNPARSED: Parsed = { kind: 'unparsed' };
 const NOISE = /^(?:\d{3,4}p|x26[45]|h26[45]|hevc|bluray|brrip|bdrip|web-?dl|webrip|hdtv|dvdrip|remux)$/i;
 const EXTRA = /^(?:(?:OP|ED|PV|SP)\d+[a-z]?|NCOP\d*[a-z]?|NCED\d*[a-z]?|SP|PREVIEW|MENU|COMMENTARY)$/i;
 const SEASON_DIR = /^(?:season|temporada|s)[\s._-]*(\d+)$/i;
+// Episode-number token, e.g. "01", "E12", "09v2"; also the value after a season pair ("Show S5 - 01").
+const EPISODE_NUMBER = /^(?:E|EP|EPISODE)?\d{1,4}(?:v\d)?$/i;
 
 // Drops [group]/(info) blocks and turns separators into spaces.
 export function cleanName(raw: string): string {
@@ -71,8 +73,16 @@ function parseShow(parts: string[]): Parsed {
     const label = qualified ? `${tokens[extra]} ${next}` : tokens[extra]!;
     return name ? { kind: 'extra', show: name, label } : UNPARSED;
   }
+  // "Show S5 - 01": cleanName drops the "-" later, so the season token and the episode number sit adjacent.
+  for (const [i, t] of tokens.entries()) {
+    const m = /^S(\d{1,2})$/i.exec(t);
+    const next = tokens[i + 1];
+    if (m && next && EPISODE_NUMBER.test(next)) {
+      return withShow(show(i), { season: Number(m[1]), number: Number(/\d+/.exec(next)![0]) });
+    }
+  }
   const season = seasonDir ? Number(seasonDir[1]) : null;
-  const abs = tokens.findLastIndex((t) => /^(?:E|EP|EPISODE)?\d{1,4}(?:v\d)?$/i.test(t));
+  const abs = tokens.findLastIndex((t) => EPISODE_NUMBER.test(t));
   if (abs < 0) return UNPARSED;
   return withShow(show(abs), { season, number: Number(/\d+/.exec(tokens[abs]!)![0]) });
 }
