@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { all, get, run } from '../../db/sql.ts';
+import { FranchiseError, type FranchiseRelation, assertTitleExists, linkFranchise } from '../catalog/franchise.ts';
 import { type GroupMatch, adoptSeries, normalize, placeEpisode } from './assign.ts';
 import { type IngestContext, importMovie } from './metadata.ts';
 import type { Parsed } from './parser.ts';
@@ -52,6 +53,8 @@ export interface ConfirmBody {
   season?: number;
   episode?: number;
   extraLabel?: string;
+  franchiseOfTitleId?: number;
+  franchiseRelation?: FranchiseRelation;
 }
 
 export interface ConfirmDeps {
@@ -111,6 +114,16 @@ async function registerPending(deps: ConfirmDeps, row: PendingRow, titleId: numb
   run(deps.ctx.db, 'DELETE FROM pending_files WHERE id = ?', row.id);
 }
 
+function joinFranchise(deps: ConfirmDeps, titleId: number, body: ConfirmBody): void {
+  if (body.franchiseOfTitleId === undefined || body.franchiseOfTitleId === titleId) return;
+  try {
+    linkFranchise(deps.ctx.db, titleId, body.franchiseOfTitleId, body.franchiseRelation);
+  } catch (err) {
+    if (err instanceof FranchiseError) throw new PendingError(err.status, err.code);
+    throw err;
+  }
+}
+
 // Assigns a pending file to the title the user picked. For a series, the folder is adopted, so its
 // other pending files are placed too. Returns how many files left the pending list.
 export async function confirmPending(deps: ConfirmDeps, id: number, body: ConfirmBody): Promise<{ titleId: number; placed: number }> {
@@ -118,11 +131,20 @@ export async function confirmPending(deps: ConfirmDeps, id: number, body: Confir
   const row = get<PendingRow>(ctx.db, "SELECT * FROM pending_files WHERE id = ? AND status = 'open'", id);
   if (!row) throw new PendingError(404, 'not_found');
   const parsed = JSON.parse(row.parsed) as Parsed;
+  if (body.franchiseOfTitleId !== undefined) {
+    try {
+      assertTitleExists(ctx.db, body.franchiseOfTitleId);
+    } catch (err) {
+      if (err instanceof FranchiseError) throw new PendingError(err.status, err.code);
+      throw err;
+    }
+  }
 
   if (body.tmdbType === 'movie') {
     const titleId = await importMovie(ctx, await ctx.tmdb.movie(body.tmdbId));
     const extra = body.extraLabel ?? null;
     await registerPending(deps, row, titleId, { episodeId: null, extraLabel: extra, parsedSeason: null, parsedNumber: null });
+    joinFranchise(deps, titleId, body);
     return { titleId, placed: 1 };
   }
 
@@ -144,6 +166,7 @@ export async function confirmPending(deps: ConfirmDeps, id: number, body: Confir
   });
   if (!placement) throw new PendingError(422, parsed.kind === 'episode' ? 'unmapped_episode' : 'missing_target');
   await registerPending(deps, row, target.titleId, placement);
+  joinFranchise(deps, target.titleId, body);
 
   let placed = 1;
   const siblings = all<PendingRow>(ctx.db, "SELECT * FROM pending_files WHERE status = 'open' AND id != ?", id);

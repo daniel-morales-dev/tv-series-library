@@ -15,6 +15,8 @@ const confirmBody = {
     season: { type: 'integer', minimum: 0 },
     episode: { type: 'integer', minimum: 1 },
     extraLabel: { type: 'string', minLength: 1 },
+    franchiseOfTitleId: { type: 'integer', minimum: 1 },
+    franchiseRelation: { enum: ['sequel', 'prequel'] },
   },
   required: ['tmdbType', 'tmdbId'],
   additionalProperties: false,

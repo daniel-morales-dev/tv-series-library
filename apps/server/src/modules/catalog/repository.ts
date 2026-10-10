@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, parseJsonArray } from '../../db/sql.ts';
+import { getFranchise } from './franchise.ts';
 
 export interface TitleSummary {
   id: number;
@@ -71,7 +72,7 @@ export function listTitles(db: DatabaseSync, f: TitleFilters): TitleSummary[] {
 }
 
 export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number) {
-  const row = get<Record<string, any>>(db, `SELECT ${SUMMARY_COLUMNS}, t.collection_id FROM titles t WHERE t.id = ?`, id);
+  const row = get<Record<string, any>>(db, `SELECT ${SUMMARY_COLUMNS}, t.collection_id, t.franchise_id FROM titles t WHERE t.id = ?`, id);
   if (!row) return undefined;
 
   const episodes = all<Record<string, any>>(
@@ -136,7 +137,7 @@ export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number)
     subtitleTracks: parseJsonArray(f.subtitle_tracks),
   }));
 
-  const detail = { ...toSummary(row), seasons, credits, collection: saga ?? null, files };
+  const detail = { ...toSummary(row), seasons, credits, collection: saga ?? null, franchise: getFranchise(db, id, row.franchise_id), files };
   if (profileId === undefined) return detail;
 
   const state = get<{ finished: number }>(
