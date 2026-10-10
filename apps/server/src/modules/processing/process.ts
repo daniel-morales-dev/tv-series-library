@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { type ProbeStreams, type RunFfmpeg, extractArgs, mainArgs, nameRenditions } from './ffmpeg.ts';
+import { join, resolve } from 'node:path';
+import { LOG_FILE, PROGRESS_FILE, type ProbeStreams, type RunFfmpeg, type SpawnInfo, extractArgs, keepsChildren, mainArgs, nameRenditions } from './ffmpeg.ts';
+import { isOurFfmpeg, readProgress, terminate, waitForExit, watchProgress } from './proc.ts';
 import { type Plan, buildPlan } from './plan.ts';
 import type { ProcessResult } from './queue.ts';
 
@@ -25,6 +27,13 @@ export interface ProcessDeps {
   runFfmpeg: RunFfmpeg;
   probeStreams: ProbeStreams;
   threads?: number;
+  /** How often progress files and adopted processes are polled. */
+  pollMs?: number;
+}
+
+/** A job's ffmpeg left running by the previous server. */
+export interface Adoption extends SpawnInfo {
+  planHash: string | null;
 }
 
 export class SourceMissingError extends Error {
@@ -98,11 +107,43 @@ export async function buildMaster(dir: string, plan: Plan, durationS: number): P
   await rename(`${path}.new`, path);
 }
 
+// Waits for an ffmpeg started by a previous server. true = it finished the package; false = start over.
+async function adoptRunning(
+  deps: ProcessDeps,
+  adopt: Adoption,
+  ctx: { tmpDir: string; planHash: string; signal?: AbortSignal; onProgress: (outTimeS: number) => void },
+): Promise<boolean> {
+  const { tmpDir, signal } = ctx;
+  if (!isOurFfmpeg(adopt.pid, adopt.pidStart, tmpDir)) return false;
+  const progressFile = join(tmpDir, PROGRESS_FILE);
+  // Anything unverifiable: the process is verifiably ours, so stop it (one writer per folder) and start over.
+  if (adopt.planHash !== ctx.planHash || readProgress(progressFile) === null) {
+    await terminate(adopt.pid, adopt.pidStart);
+    return false;
+  }
+  const stopWatching = watchProgress(progressFile, ctx.onProgress, deps.pollMs);
+  try {
+    await waitForExit(adopt.pid, adopt.pidStart, { signal, pollMs: deps.pollMs });
+  } catch (err) {
+    if (!keepsChildren(signal)) await terminate(adopt.pid, adopt.pidStart);
+    throw err;
+  } finally {
+    stopWatching();
+  }
+  return readProgress(progressFile)?.ended === true;
+}
+
 // Writes the HLS package to `hls/<id>.tmp` and swaps it into place only when everything succeeded.
 export async function processMedia(
   deps: ProcessDeps,
   file: { id: number; path: string },
-  opts: { onProgress?: (fraction: number) => void; onTracks?: (tracks: Omit<ProcessResult, 'hlsDir'>) => void; signal?: AbortSignal } = {},
+  opts: {
+    onProgress?: (fraction: number) => void;
+    onTracks?: (tracks: Omit<ProcessResult, 'hlsDir'>) => void;
+    onSpawn?: (info: SpawnInfo & { planHash: string }) => void;
+    adopt?: Adoption;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<ProcessResult> {
   const src = join(deps.contentDir, file.path);
   if (!(await stat(src).catch(() => null))?.isFile()) throw new SourceMissingError(file.path);
@@ -110,7 +151,7 @@ export async function processMedia(
   const info = await deps.probeStreams(src);
   const plan = buildPlan(info);
   const rel = `hls/${file.id}`;
-  const finalDir = join(deps.dataDir, rel);
+  const finalDir = join(resolve(deps.dataDir), rel);
   const tmpDir = `${finalDir}.tmp`;
   const tracks = {
     audio: plan.audio.map((a) => ({ index: a.index, codec: a.codec, language: a.language, title: a.title, channels: a.channels, playlist: a.playlist })),
@@ -118,36 +159,50 @@ export async function processMedia(
       index: s.index, codec: s.codec, language: s.language, title: s.title, supported: s.supported, vtt: s.vtt, ass: s.ass,
     })),
   };
+  const args = mainArgs(plan, src, tmpDir, { threads: deps.threads });
+  const planHash = createHash('sha1').update(JSON.stringify(args)).digest('hex');
+  const { signal } = opts;
+  const report = (s: number) => opts.onProgress?.(info.durationS > 0 ? Math.min(s / info.durationS, 1) : 0);
 
-  await rm(tmpDir, { recursive: true, force: true });
   try {
-    for (const dir of ['v', ...plan.audio.map((a) => `a${a.n}`), 'subs', 'fonts']) await mkdir(join(tmpDir, dir), { recursive: true });
-    const { signal } = opts;
-    // Subtitles and fonts first, so they exist as soon as playback can start.
-    if (plan.subtitles.some((s) => s.supported) || plan.fonts.length > 0) await deps.runFfmpeg(extractArgs(plan, src, tmpDir), { signal });
+    let finished = false;
+    if (opts.adopt) {
+      opts.onTracks?.(tracks);
+      finished = await adoptRunning(deps, opts.adopt, { tmpDir, planHash, signal, onProgress: report });
+    }
+    if (!finished) {
+      await rm(tmpDir, { recursive: true, force: true });
+      for (const dir of ['v', ...plan.audio.map((a) => `a${a.n}`), 'subs', 'fonts']) await mkdir(join(tmpDir, dir), { recursive: true });
+      // Subtitles and fonts first, so they exist as soon as playback can start.
+      if (plan.subtitles.some((s) => s.supported) || plan.fonts.length > 0) await deps.runFfmpeg(extractArgs(plan, src, tmpDir), { signal });
 
-    opts.onTracks?.(tracks);
+      opts.onTracks?.(tracks);
 
-    // ffmpeg writes the master once, early: name the audio tracks right away so playback shows them.
-    let named = false;
-    let naming: Promise<void> | undefined;
-    await deps.runFfmpeg(mainArgs(plan, src, tmpDir, { threads: deps.threads }), {
-      signal,
-      onProgress: (s) => {
-        opts.onProgress?.(info.durationS > 0 ? Math.min(s / info.durationS, 1) : 0);
-        if (named || naming) return;
-        naming = nameMaster(tmpDir, plan)
-          .then((ok) => void (named = ok), () => {})
-          .finally(() => (naming = undefined));
-      },
-    });
-    await naming;
+      // ffmpeg writes the master once, early: name the audio tracks right away so playback shows them.
+      let named = false;
+      let naming: Promise<void> | undefined;
+      await deps.runFfmpeg(args, {
+        signal,
+        detached: { progressFile: join(tmpDir, PROGRESS_FILE), logFile: join(tmpDir, LOG_FILE) },
+        onSpawn: (p) => opts.onSpawn?.({ ...p, planHash }),
+        onProgress: (s) => {
+          report(s);
+          if (named || naming) return;
+          naming = nameMaster(tmpDir, plan)
+            .then((ok) => void (named = ok), () => {})
+            .finally(() => (naming = undefined));
+        },
+      });
+      await naming;
+    }
+    await Promise.all([PROGRESS_FILE, LOG_FILE].map((f) => rm(join(tmpDir, f), { force: true })));
     await buildMaster(tmpDir, plan, info.durationS);
     await validatePackage(tmpDir);
     await rm(finalDir, { recursive: true, force: true });
     await rename(tmpDir, finalDir);
   } catch (err) {
-    await rm(tmpDir, { recursive: true, force: true });
+    // The next server adopts the ffmpeg that is still writing here, so its folder must stay.
+    if (!keepsChildren(signal)) await rm(tmpDir, { recursive: true, force: true });
     throw err;
   }
 

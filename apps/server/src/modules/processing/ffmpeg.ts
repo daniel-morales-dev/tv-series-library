@@ -1,47 +1,104 @@
 import { execFile, spawn } from 'node:child_process';
+import { closeSync, openSync, readFileSync } from 'node:fs';
 import { setPriority } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { procStart, watchProgress } from './proc.ts';
 import type { AttachmentInfo, Plan, StreamInfo } from './plan.ts';
 
 const execFileAsync = promisify(execFile);
 
 export const SEGMENT_SECONDS = 6;
 
+export interface SpawnInfo {
+  pid: number;
+  pidStart: number;
+}
+
 export interface RunOptions {
   /** Seconds of output written so far (from `-progress`). */
   onProgress?: (outTimeS: number) => void;
   signal?: AbortSignal;
+  /**
+   * Long run that must outlive this server: own session, output in files, progress read from `progressFile`.
+   * Without it the child is tied to this process and dies with it.
+   */
+  detached?: { progressFile: string; logFile: string };
+  onSpawn?: (info: SpawnInfo) => void;
 }
+
+/** Abort reason: stop watching but leave the detached ffmpeg running so the next server adopts it. */
+export class KeepChildren extends Error {
+  constructor() {
+    super('server stopping: ffmpeg left running');
+  }
+}
+export const keepsChildren = (signal?: AbortSignal): boolean => signal?.aborted === true && signal.reason instanceof KeepChildren;
 
 // Rejects with the tail of ffmpeg's stderr when it exits non-zero.
 export type RunFfmpeg = (args: string[], opts?: RunOptions) => Promise<void>;
 export type ProbeStreams = (absPath: string) => Promise<StreamInfo>;
 
-export const runFfmpeg: RunFfmpeg = (args, opts = {}) =>
-  new Promise((resolve, reject) => {
-    const child = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'], signal: opts.signal });
-    // Lowest CPU priority (which also drops I/O to the lowest best-effort class) so playback and the UI stay responsive.
-    try {
-      if (child.pid) setPriority(child.pid, 19);
-    } catch {}
-    let stderr = '';
-    let buffered = '';
-    child.stderr.on('data', (d: Buffer) => {
-      stderr = (stderr + d).slice(-4000);
-    });
-    child.stdout.on('data', (d: Buffer) => {
-      buffered += d;
-      const lines = buffered.split('\n');
-      buffered = lines.pop() ?? '';
-      for (const line of lines) {
-        const m = /^out_time_us=(\d+)$/.exec(line);
-        if (m) opts.onProgress?.(Number(m[1]) / 1e6);
+export const PROGRESS_FILE = 'progress.txt';
+export const LOG_FILE = 'ffmpeg.log';
+const KILL_ESCALATION_MS = 5_000;
+
+export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000 }: { bin?: string; pollMs?: number } = {}): RunFfmpeg {
+  return (args, opts = {}) =>
+    new Promise((resolve, reject) => {
+      const { signal, detached } = opts;
+      if (signal?.aborted) return reject(signal.reason ?? new Error('aborted'));
+      let logFd: number | undefined;
+      if (detached) logFd = openSync(detached.logFile, 'a');
+      const child = spawn(bin, args, { detached: !!detached, stdio: ['ignore', logFd ?? 'ignore', logFd ?? 'pipe'] });
+      if (logFd !== undefined) closeSync(logFd);
+      let stderr = '';
+      child.stderr?.on('data', (d: Buffer) => {
+        stderr = (stderr + d).slice(-4000);
+      });
+      if (detached) child.unref();
+      // Lowest CPU priority (which also drops I/O to the lowest best-effort class) so playback and the UI stay responsive.
+      const pid = child.pid;
+      if (pid) {
+        try {
+          setPriority(pid, 19);
+        } catch {}
+        const pidStart = procStart(pid);
+        if (pidStart !== null) opts.onSpawn?.({ pid, pidStart });
       }
+      const stopWatching = detached ? watchProgress(detached.progressFile, opts.onProgress, pollMs) : () => {};
+      let escalate: NodeJS.Timeout | undefined;
+      const done = (fn: () => void) => {
+        stopWatching();
+        clearTimeout(escalate);
+        signal?.removeEventListener('abort', onAbort);
+        fn();
+      };
+      function onAbort() {
+        if (keepsChildren(signal)) return done(() => reject(signal!.reason));
+        child.kill('SIGTERM');
+        escalate = setTimeout(() => child.kill('SIGKILL'), KILL_ESCALATION_MS);
+        escalate.unref();
+      }
+      signal?.addEventListener('abort', onAbort, { once: true });
+      child.on('error', (err) => done(() => reject(err)));
+      child.on('close', (code) => {
+        if (signal?.aborted) return done(() => reject(signal.reason ?? new Error('aborted')));
+        if (detached) stderr = tail(detached.logFile);
+        done(() => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited with ${code}: ${stderr.trim()}`))));
+      });
     });
-    child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited with ${code}: ${stderr.trim()}`))));
-  });
+}
+
+function tail(file: string): string {
+  try {
+    return readFileSync(file, 'utf8').slice(-4000);
+  } catch {
+    return '';
+  }
+}
+
+export const runFfmpeg: RunFfmpeg = createRunFfmpeg();
 
 interface FfprobeStream {
   index: number;
@@ -100,7 +157,7 @@ export function mainArgs(plan: Plan, src: string, outDir: string, opts: { thread
   ].join(' ');
   return [
     ...BASE,
-    '-progress', 'pipe:1', '-nostats',
+    '-progress', join(outDir, PROGRESS_FILE), '-nostats',
     '-i', src,
     '-map', `0:${plan.video.index}`,
     ...plan.audio.flatMap((a) => ['-map', `0:${a.index}`]),

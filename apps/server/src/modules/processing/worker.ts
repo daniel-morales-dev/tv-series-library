@@ -1,7 +1,20 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { type ProbeStreams, type RunFfmpeg, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
-import { InvalidPackageError, SourceMissingError, processMedia } from './process.ts';
-import { type ProcessResult, claimNext, complete, fail, recover, requeue, setProgress, setTracks } from './queue.ts';
+import { join, resolve } from 'node:path';
+import { KeepChildren, type ProbeStreams, type RunFfmpeg, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
+import { type Adoption, InvalidPackageError, SourceMissingError, processMedia } from './process.ts';
+import { findWriters, isOurFfmpeg, terminate } from './proc.ts';
+import {
+  type ProcessResult,
+  claimNext,
+  complete,
+  fail,
+  recover,
+  requeue,
+  runningWithProcess,
+  setProgress,
+  setSpawned,
+  setTracks,
+} from './queue.ts';
 
 const POLL_MS = 5_000;
 const PROGRESS_EVERY_MS = 1_000;
@@ -18,6 +31,8 @@ export interface WorkerOptions {
   threads?: number;
   runFfmpeg?: RunFfmpeg;
   probeStreams?: ProbeStreams;
+  /** Poll interval for progress files and adopted processes. */
+  pollMs?: number;
   now?: () => number;
   log?: (level: 'info' | 'warn', message: string) => void;
 }
@@ -31,7 +46,8 @@ export interface Worker {
   drain(): Promise<void>;
   /** Recovers interrupted work, then polls for queued jobs. */
   start(): void;
-  stop(): void;
+  /** `killChildren: false` leaves running ffmpeg processes alive so the next `start()` adopts them. */
+  stop(opts?: { killChildren?: boolean }): void;
   /** Stops all processing: running jobs are requeued and restart later, and nothing new is claimed. */
   pause(): void;
   /** Resumes claiming queued work by priority. */
@@ -48,7 +64,9 @@ export function createWorker(opts: WorkerOptions): Worker {
     runFfmpeg: opts.runFfmpeg ?? realRun,
     probeStreams: opts.probeStreams ?? realProbe,
     threads: opts.threads,
+    pollMs: opts.pollMs,
   };
+  const hlsRoot = join(resolve(opts.dataDir), 'hls');
   const now = opts.now ?? Date.now;
   const log = opts.log ?? (() => {});
   const abort = new AbortController();
@@ -58,11 +76,14 @@ export function createWorker(opts: WorkerOptions): Worker {
   let idle: (() => void)[] = [];
   // In memory only: a server restart resumes processing with the backlog.
   let paused = false;
+  // False while orphan ffmpeg processes from a previous server are being terminated: no job may start before that.
+  let ready = true;
+  let startup: Promise<void> = Promise.resolve();
   // One automatic reprocess per file per worker lifetime: a truncated package is usually transient, a loop is not.
   // In memory (no schema change); a restart grants at most one more reprocess for the file.
   const reprocessedInvalid = new Set<number>();
 
-  async function runJob(job: NonNullable<ReturnType<typeof claimNext>>) {
+  async function runJob(job: NonNullable<ReturnType<typeof claimNext>>, adopt?: Adoption) {
     let lastWrite = Number.NEGATIVE_INFINITY;
     let retried = false;
     const entry = { mediaFileId: job.mediaFileId, ctl: new AbortController(), preempted: false };
@@ -73,6 +94,8 @@ export function createWorker(opts: WorkerOptions): Worker {
         try {
           result = await processMedia(deps, { id: job.mediaFileId, path: job.path }, {
             onTracks: (tracks) => setTracks(db, job, tracks),
+            onSpawn: (p) => setSpawned(db, job.id, p),
+            adopt: retried ? undefined : adopt,
             signal: AbortSignal.any([abort.signal, entry.ctl.signal]),
             onProgress: (fraction) => {
               if (now() - lastWrite < PROGRESS_EVERY_MS) return;
@@ -113,7 +136,7 @@ export function createWorker(opts: WorkerOptions): Worker {
   }
 
   function kick() {
-    if (abort.signal.aborted) return;
+    if (abort.signal.aborted || !ready) return;
     while (active < concurrency) {
       if (paused) break;
       const job = claimNext(db);
@@ -155,25 +178,54 @@ export function createWorker(opts: WorkerOptions): Worker {
     kick();
   }
 
+  function drain(): Promise<void> {
+    if (!ready) return startup.then(drain);
+    kick();
+    return active === 0 ? Promise.resolve() : new Promise((resolve) => idle.push(resolve));
+  }
+
   return {
     kick,
     prioritize,
     pause,
     resume,
     isPaused: () => paused,
-    drain: () => {
-      kick();
-      return active === 0 ? Promise.resolve() : new Promise((resolve) => idle.push(resolve));
-    },
+    drain,
     start() {
-      recover(db);
+      // Jobs whose ffmpeg survived the last server are adopted; any other writer on a package folder is an orphan.
+      const adopted = new Map<number, Adoption & { job: ReturnType<typeof runningWithProcess>[number] }>();
+      for (const job of runningWithProcess(db)) {
+        if (isOurFfmpeg(job.pid, job.pidStart, join(hlsRoot, `${job.mediaFileId}.tmp`))) {
+          adopted.set(job.id, { pid: job.pid, pidStart: job.pidStart, planHash: job.planHash, job });
+        }
+      }
+      recover(db, new Set(adopted.keys()));
+      const keep = new Set([...adopted.values()].map((a) => a.pid));
+      const orphans = findWriters(hlsRoot).filter((w) => !keep.has(w.pid));
+      if (orphans.length > 0) {
+        ready = false;
+        log('warn', `terminating ${orphans.length} orphan ffmpeg process(es) before processing`);
+        startup = Promise.all(orphans.map((o) => terminate(o.pid, o.pidStart))).then(
+          () => void (ready = true),
+          () => void (ready = true),
+        );
+        void startup.then(kick);
+      }
+      for (const { job, ...adoption } of adopted.values()) {
+        active++;
+        log('info', `${job.path}: adopting running ffmpeg ${job.pid}`);
+        void runJob(job, adoption).finally(() => {
+          active--;
+          kick();
+        });
+      }
       kick();
       timer = setInterval(kick, POLL_MS);
       timer.unref();
     },
-    stop() {
+    stop({ killChildren = true } = {}) {
       clearInterval(timer);
-      abort.abort();
+      abort.abort(killChildren ? undefined : new KeepChildren());
     },
   };
 }

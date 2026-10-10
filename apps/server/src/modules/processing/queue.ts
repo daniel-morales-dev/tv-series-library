@@ -26,6 +26,18 @@ export interface ProcessResult {
   subtitles: unknown[];
 }
 
+export interface SpawnedProcess {
+  pid: number;
+  /** Field 22 of /proc/<pid>/stat: tells the process apart from a later one that reuses the pid. */
+  pidStart: number;
+  planHash: string;
+}
+
+export interface RunningProcessJob extends ClaimedJob, Omit<SpawnedProcess, 'planHash'> {
+  planHash: string | null;
+}
+
+const CLEAR_PROCESS = 'pid = NULL, pid_start = NULL, plan_hash = NULL';
 const NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 const RECENT_FINISHED = 50;
 
@@ -53,16 +65,29 @@ export function enqueue(db: DatabaseSync, mediaFileId: number, prioritized = fal
 // A preempted job goes back to the queue (not to error) and starts over later.
 export function requeue(db: DatabaseSync, job: ClaimedJob): void {
   transaction(db, () => {
-    run(db, `UPDATE jobs SET status = 'queued', progress = 0, updated_at = ${NOW} WHERE id = ?`, job.id);
+    run(db, `UPDATE jobs SET status = 'queued', progress = 0, ${CLEAR_PROCESS}, updated_at = ${NOW} WHERE id = ?`, job.id);
     run(db, "UPDATE media_files SET status = 'pending' WHERE id = ?", job.mediaFileId);
   });
 }
 
 // After a restart: interrupted work goes back to the queue and pending files without a job get one.
-export function recover(db: DatabaseSync): void {
+// `adopted` are running jobs whose ffmpeg survived: they keep their state and progress.
+export function recover(db: DatabaseSync, adopted: ReadonlySet<number> = new Set()): void {
   transaction(db, () => {
-    run(db, `UPDATE jobs SET status = 'queued', progress = 0, updated_at = ${NOW} WHERE type = 'process' AND status = 'running'`);
-    run(db, "UPDATE media_files SET status = 'pending' WHERE status = 'processing'");
+    const ids = [...adopted];
+    const marks = ids.map(() => '?').join(',');
+    run(
+      db,
+      `UPDATE jobs SET status = 'queued', progress = 0, ${CLEAR_PROCESS}, updated_at = ${NOW}
+       WHERE type = 'process' AND status = 'running' AND id NOT IN (${marks})`,
+      ...ids,
+    );
+    run(
+      db,
+      `UPDATE media_files SET status = 'pending'
+       WHERE status = 'processing' AND id NOT IN (SELECT media_file_id FROM jobs WHERE id IN (${marks}))`,
+      ...ids,
+    );
     run(
       db,
       `INSERT INTO jobs (type, media_file_id)
@@ -96,10 +121,30 @@ export function claimNext(db: DatabaseSync): ClaimedJob | undefined {
        ORDER BY j.priority DESC, (m.extra_label IS NOT NULL), j.id LIMIT 1`,
     );
     if (!row) return undefined;
-    run(db, `UPDATE jobs SET status = 'running', progress = 0, error = NULL, updated_at = ${NOW} WHERE id = ?`, row.id);
+    run(db, `UPDATE jobs SET status = 'running', progress = 0, error = NULL, ${CLEAR_PROCESS}, updated_at = ${NOW} WHERE id = ?`, row.id);
     run(db, "UPDATE media_files SET status = 'processing', error = NULL WHERE id = ?", row.media_file_id);
     return { id: row.id, mediaFileId: row.media_file_id, path: row.path, durationS: row.duration_s };
   });
+}
+
+export function setSpawned(db: DatabaseSync, jobId: number, p: SpawnedProcess): void {
+  run(db, 'UPDATE jobs SET pid = ?, pid_start = ?, plan_hash = ? WHERE id = ?', p.pid, p.pidStart, p.planHash, jobId);
+}
+
+export function runningWithProcess(db: DatabaseSync): RunningProcessJob[] {
+  return all<Record<string, unknown>>(
+    db,
+    `SELECT j.id, j.media_file_id, m.path, m.duration_s, j.pid, j.pid_start, j.plan_hash FROM jobs j JOIN media_files m ON m.id = j.media_file_id
+     WHERE j.type = 'process' AND j.status = 'running' AND j.pid IS NOT NULL AND j.pid_start IS NOT NULL ORDER BY j.id`,
+  ).map((r) => ({
+    id: r.id as number,
+    mediaFileId: r.media_file_id as number,
+    path: r.path as string,
+    durationS: r.duration_s as number | null,
+    pid: r.pid as number,
+    pidStart: r.pid_start as number,
+    planHash: r.plan_hash as string | null,
+  }));
 }
 
 export function setProgress(db: DatabaseSync, jobId: number, progress: number): void {
@@ -119,7 +164,7 @@ export function setTracks(db: DatabaseSync, job: ClaimedJob, tracks: Omit<Proces
 
 export function complete(db: DatabaseSync, job: ClaimedJob, result: ProcessResult): void {
   transaction(db, () => {
-    run(db, `UPDATE jobs SET status = 'done', progress = 1, error = NULL, updated_at = ${NOW} WHERE id = ?`, job.id);
+    run(db, `UPDATE jobs SET status = 'done', progress = 1, error = NULL, ${CLEAR_PROCESS}, updated_at = ${NOW} WHERE id = ?`, job.id);
     run(
       db,
       "UPDATE media_files SET status = 'ready', hls_dir = ?, audio_tracks = ?, subtitle_tracks = ?, error = NULL WHERE id = ?",
@@ -133,7 +178,7 @@ export function complete(db: DatabaseSync, job: ClaimedJob, result: ProcessResul
 
 export function fail(db: DatabaseSync, job: ClaimedJob, message: string): void {
   transaction(db, () => {
-    run(db, `UPDATE jobs SET status = 'error', error = ?, updated_at = ${NOW} WHERE id = ?`, message, job.id);
+    run(db, `UPDATE jobs SET status = 'error', error = ?, ${CLEAR_PROCESS}, updated_at = ${NOW} WHERE id = ?`, message, job.id);
     run(db, "UPDATE media_files SET status = 'error', error = ? WHERE id = ?", message, job.mediaFileId);
   });
 }
