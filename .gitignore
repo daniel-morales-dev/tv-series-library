@@ -7,3 +7,4 @@ data/
 *.torrent
 .codegraph/
 .atl/
+.claude/
