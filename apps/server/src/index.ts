@@ -4,6 +4,7 @@ import { autoScanAllowed, configStatus, resolveContentDir } from './config/confi
 import { openDb } from './db/connection.ts';
 import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
 import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
+import { networkRoutes } from './modules/network/routes.ts';
 import { requeueErrors } from './modules/processing/queue.ts';
 import { createWorker } from './modules/processing/worker.ts';
 import { createShutdown } from './shutdown.ts';
@@ -61,6 +62,7 @@ const app = buildApp({
     onReady: () => ingestor?.start(scanIntervalMin),
   },
 });
+await app.register(async (api) => networkRoutes(api, { port }), { prefix: '/api' });
 await app.listen({ host: '0.0.0.0', port });
 worker?.start();
 if (autoScanAllowed(libraryStatus)) ingestor?.start(scanIntervalMin);
