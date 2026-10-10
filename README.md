@@ -85,6 +85,18 @@ Requisitos: Node.js 24 o superior, npm y ffmpeg. No hace falta internet, pero ce
 > - Detener `npm run dev` **no** arranca el servicio: hazlo tú con `systemctl --user start sala`.
 > - Para saber si está corriendo: `systemctl --user status sala` (`inactive (dead)` = detenido).
 
+### Usar sala
+
+Al instalar con `scripts/linux-install.sh` queda el comando `sala` (en `~/.local/bin`; si tu terminal no lo encuentra, abre una nueva o añade esa carpeta al PATH). Con él no necesitas `systemctl`:
+
+- `sala status`: dice si está en marcha y si hay videos procesándose, en cola o con error.
+- `sala start` / `sala stop` / `sala restart`: iniciar, detener y reiniciar.
+- `sala pause` / `sala resume`: pausar y reanudar el procesado de videos.
+- `sala url`: la dirección para el celular y la TV. `sala open`: abre la biblioteca en este equipo.
+- `sala logs`: el registro en vivo (Ctrl+C para salir). `sala --help`: la ayuda.
+
+Si `npm run dev` está usando el puerto 8080, `sala start` te lo avisa en vez de fallar sin explicar. `npm run dev` y `npm start` siguen funcionando igual.
+
 ### Desarrollo vs producción
 
 - `npm run dev`: **solo desarrollo**. Backend con `--watch` (8080) + Vite (5174); la interfaz está en http://localhost:5174.

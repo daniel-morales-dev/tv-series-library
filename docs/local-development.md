@@ -151,6 +151,18 @@ Crea `.env` desde `.env.example` **únicamente si no existe**; no sustituyas el 
 - Detener `npm run dev` **no** arranca el servicio; hay que iniciarlo a mano.
 - Estado: `systemctl --user status sala` (`inactive (dead)` = detenido; `active (running)` = sirviendo).
 
+## Usar sala
+
+Al instalar con `scripts/linux-install.sh` queda el comando `sala` (en `~/.local/bin`; si tu terminal no lo encuentra, abre una nueva o añade esa carpeta al PATH). Con él no necesitas `systemctl`:
+
+- `sala status`: dice si está en marcha y si hay videos procesándose, en cola o con error.
+- `sala start` / `sala stop` / `sala restart`: iniciar, detener y reiniciar.
+- `sala pause` / `sala resume`: pausar y reanudar el procesado de videos.
+- `sala url`: la dirección para el celular y la TV. `sala open`: abre la biblioteca en este equipo.
+- `sala logs`: el registro en vivo (Ctrl+C para salir). `sala --help`: la ayuda.
+
+Si `npm run dev` está usando el puerto 8080, `sala start` te lo avisa en vez de fallar sin explicar. `npm run dev` y `npm start` siguen funcionando igual.
+
 ## Servir el frontend compilado desde 8080
 
 Alternativa confirmada por los scripts y el servidor, no ejecutada en esta documentación. Se aplican **las mismas precauciones de copia y aprobación**; para la primera recuperación usa antes el modo sin trabajadores. Desde la raíz, para uso habitual:
