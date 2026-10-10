@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref } from 'vue';
+import { nextTick, onMounted, ref, watch } from 'vue';
 import { api } from '../api.ts';
 import { useDismiss } from '../dismiss.ts';
 import { crumbs, pickerError, type DirListing } from '../folderPicker.ts';
@@ -10,6 +10,7 @@ const emit = defineEmits<{ pick: [path: string]; close: [] }>();
 
 const root = ref<HTMLElement | null>(null);
 const list = ref<HTMLElement | null>(null);
+const trail = ref<HTMLElement | null>(null);
 const listing = ref<DirListing | null>(null);
 const error = ref('');
 const loading = ref(false);
@@ -33,6 +34,12 @@ async function open(path?: string) {
     loading.value = false;
   }
 }
+
+// Keep the deepest segments visible when the breadcrumb overflows.
+watch(listing, async () => {
+  await nextTick();
+  if (trail.value) trail.value.scrollLeft = trail.value.scrollWidth;
+});
 
 onMounted(async () => {
   opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -88,12 +95,14 @@ function onKey(e: KeyboardEvent) {
         <button type="button" class="up" :disabled="!listing.parent || loading" aria-label="Subir una carpeta" @click="open(listing.parent!)">
           <Icon name="up" :size="18" />
         </button>
-        <template v-for="(c, i) in crumbs(listing.path)" :key="c.path">
-          <span v-if="i > 0" class="sep" aria-hidden="true">/</span>
-          <button type="button" class="crumb" :aria-current="i === crumbs(listing.path).length - 1 ? 'location' : undefined" @click="open(c.path)">
-            {{ c.name }}
-          </button>
-        </template>
+        <div ref="trail" class="trail" :title="listing.path">
+          <template v-for="(c, i) in crumbs(listing.path)" :key="c.path">
+            <span v-if="i > 0" class="sep" aria-hidden="true">/</span>
+            <button type="button" class="crumb" :aria-current="i === crumbs(listing.path).length - 1 ? 'location' : undefined" @click="open(c.path)">
+              {{ c.name }}
+            </button>
+          </template>
+        </div>
       </nav>
 
       <p v-if="error" class="err" role="alert">{{ error }}</p>
@@ -107,7 +116,7 @@ function onKey(e: KeyboardEvent) {
       </div>
 
       <footer class="foot">
-        <code v-if="listing" class="cur">{{ listing.path }}</code>
+        <code v-if="listing" class="cur" dir="rtl" :title="listing.path"><bdi dir="ltr">{{ listing.path }}</bdi></code>
         <div class="row">
           <button type="button" @click="close">Cancelar</button>
           <button type="button" class="primary" data-first :disabled="!listing || loading" @click="pick">Usar esta carpeta</button>
@@ -121,32 +130,33 @@ function onKey(e: KeyboardEvent) {
 .veil { position: fixed; inset: 0; z-index: 70; background: rgba(6, 6, 10, 0.6); }
 .picker {
   position: fixed; z-index: 71; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  display: flex; flex-direction: column; width: min(560px, calc(100vw - 24px)); max-height: min(640px, calc(100dvh - 24px));
+  display: flex; flex-direction: column; width: min(900px, 94vw); max-height: min(640px, calc(100dvh - 24px));
   background: var(--bg-raised); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow);
 }
-.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 10px 10px 20px; border-bottom: 1px solid var(--line); }
+.head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 10px 10px 20px; border-bottom: 1px solid var(--line); }
 .head h2 { margin: 0; font-size: 1.1rem; letter-spacing: -0.01em; }
 .x { display: grid; place-items: center; min-height: 0; width: 40px; height: 40px; padding: 0; border-radius: 50%; background: none; color: var(--text-dim); }
 .x:hover { background: var(--bg-hover); color: var(--text); }
-.shortcuts { display: flex; gap: 8px; padding: 12px 16px 0; overflow-x: auto; scrollbar-width: thin; }
+.shortcuts { flex: none; display: flex; gap: 8px; padding: 12px 16px 0; overflow-x: auto; scrollbar-width: thin; }
 .chip { flex: none; min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg-card); color: var(--text); white-space: nowrap; }
 .chip:hover { background: var(--bg-hover); }
-.crumbs { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; padding: 10px 16px 6px; color: var(--text-dim); }
-.up { display: grid; place-items: center; min-height: 0; width: 40px; height: 40px; padding: 0; margin-right: 4px; border-radius: 10px; background: var(--bg-card); color: var(--text); }
+.crumbs { flex: none; display: flex; align-items: center; gap: 2px; padding: 10px 16px 6px; color: var(--text-dim); }
+.up { flex: none; display: grid; place-items: center; min-height: 0; width: 40px; height: 40px; padding: 0; margin-right: 4px; border-radius: 10px; background: var(--bg-card); color: var(--text); }
 .up:disabled { opacity: 0.4; }
-.crumb { min-height: 40px; padding: 0 8px; border-radius: 8px; background: none; color: var(--text-dim); }
+.trail { display: flex; align-items: center; flex: 1; min-width: 0; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+.crumb { flex: none; white-space: nowrap; min-height: 40px; padding: 0 8px; border-radius: 8px; background: none; color: var(--text-dim); }
 .crumb:hover { background: var(--bg-hover); color: var(--text); }
 .crumb[aria-current] { color: var(--text); font-weight: 700; }
-.sep { opacity: 0.5; }
-.err { margin: 0; padding: 4px 16px; color: var(--danger); }
+.sep { flex: none; opacity: 0.5; }
+.err { flex: none; margin: 0; padding: 4px 16px; color: var(--danger); }
 .list { flex: 1; min-height: 120px; overflow-y: auto; padding: 4px 8px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .list[aria-busy='true'] { opacity: 0.6; }
 .item { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 48px; padding: 0 12px; border-radius: 10px; background: none; color: var(--text); text-align: left; }
 .item:hover { background: var(--bg-hover); }
 .item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty { margin: 16px 12px; color: var(--text-dim); }
-.foot { display: grid; gap: 10px; padding: 12px 16px 16px; }
-.cur { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; color: var(--text-dim); }
+.foot { flex: none; display: grid; gap: 10px; padding: 12px 16px 16px; }
+.cur { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; color: var(--text-dim); }
 .row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .primary { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 </style>
