@@ -72,6 +72,20 @@ export function recover(db: DatabaseSync): void {
   });
 }
 
+// T33: a transient pipeline bug leaves files in error; each server start gives them one bounded retry.
+// Same shape as recover: insert a job for every error row without an active one, then move it to pending.
+export function requeueErrors(db: DatabaseSync): void {
+  transaction(db, () => {
+    run(
+      db,
+      `INSERT INTO jobs (type, media_file_id)
+       SELECT 'process', id FROM media_files m WHERE status = 'error'
+         AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.media_file_id = m.id AND j.type = 'process' AND j.status IN ('queued', 'running'))`,
+    );
+    run(db, "UPDATE media_files SET status = 'pending' WHERE status = 'error'");
+  });
+}
+
 // Requested-to-play first, then episodes and movies before extras, then oldest first.
 export function claimNext(db: DatabaseSync): ClaimedJob | undefined {
   return transaction(db, () => {

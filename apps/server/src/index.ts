@@ -4,6 +4,7 @@ import { autoScanAllowed, configStatus, resolveContentDir } from './config/confi
 import { openDb } from './db/connection.ts';
 import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
 import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
+import { requeueErrors } from './modules/processing/queue.ts';
 import { createWorker } from './modules/processing/worker.ts';
 
 const dataDir = process.env.DATA_DIR ?? './data';
@@ -40,6 +41,10 @@ const worker =
         threads: Number(process.env.FFMPEG_THREADS ?? 4),
         log: (level, message) => app.log[level](message),
       });
+
+// T33: files stuck in error from a transient pipeline bug get one bounded reprocess per server start.
+// Only meaningful with a worker; with PROCESSING=off nothing would ever claim the requeued jobs.
+if (worker) requeueErrors(db);
 
 const app = buildApp({
   db,

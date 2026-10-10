@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { all, get } from '../src/db/sql.ts';
-import { claimNext, complete, enqueue, fail, listJobs, recover, requeue, setProgress } from '../src/modules/processing/queue.ts';
+import { claimNext, complete, enqueue, fail, listJobs, recover, requeue, requeueErrors, setProgress } from '../src/modules/processing/queue.ts';
 import { addEpisode, addFile, addTitle, setup } from './helpers.ts';
 
 const pendingFile = (db: ReturnType<typeof setup>['db'], titleId: number, o: { extraLabel?: string; episodeId?: number } = {}) =>
@@ -124,6 +124,25 @@ describe('recover', () => {
     expect(get(db, 'SELECT status FROM jobs WHERE media_file_id = ?', orphan)).toEqual({ status: 'queued' });
     expect(get(db, 'SELECT COUNT(*) AS n FROM jobs WHERE media_file_id = ?', ready)).toEqual({ n: 0 });
     expect(get(db, 'SELECT COUNT(*) AS n FROM jobs')).toEqual({ n: 2 });
+  });
+});
+
+describe('requeueErrors', () => {
+  it('requeues error files with one job each and leaves other files untouched', () => {
+    const { db } = setup();
+    const t = addTitle(db, 'T');
+    const failed = addFile(db, t, { status: 'error' });
+    const ready = addFile(db, t, { status: 'ready' });
+
+    requeueErrors(db);
+
+    expect(fileStatus(db, failed).status).toBe('pending');
+    expect(get(db, 'SELECT status FROM jobs WHERE media_file_id = ?', failed)).toEqual({ status: 'queued' });
+    expect(fileStatus(db, ready).status).toBe('ready');
+    expect(get(db, 'SELECT COUNT(*) AS n FROM jobs WHERE media_file_id = ?', ready)).toEqual({ n: 0 });
+
+    requeueErrors(db); // next server start: nothing left in error, no duplicate job
+    expect(get(db, 'SELECT COUNT(*) AS n FROM jobs WHERE media_file_id = ?', failed)).toEqual({ n: 1 });
   });
 });
 
