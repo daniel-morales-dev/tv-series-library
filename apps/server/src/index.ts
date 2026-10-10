@@ -39,7 +39,8 @@ const worker =
         dataDir,
         contentDir: resolveContentDir(),
         concurrency: Number(process.env.PROCESS_CONCURRENCY ?? 1),
-        threads: Number(process.env.FFMPEG_THREADS ?? 4),
+        // T35: 8 threads measured ~1.24x over 4 while still leaving half of the 16 cores free for playback.
+        threads: Number(process.env.FFMPEG_THREADS ?? 8),
         log: (level, message) => app.log[level](message),
       });
 
