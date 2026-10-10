@@ -49,8 +49,8 @@ async function save(create = false) {
 </template>
 
 <style scoped>
-.cfg { display: grid; gap: 12px; }
-.cfg input { width: 100%; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-raised); color: var(--text); }
+.cfg { display: grid; gap: 12px; min-width: 0; }
+.cfg input { width: 100%; min-width: 0; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-raised); color: var(--text); }
 .row { display: flex; flex-wrap: wrap; gap: 10px; }
 .primary { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 .err { margin: 0; color: var(--danger); }

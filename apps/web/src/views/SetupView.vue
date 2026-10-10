@@ -47,7 +47,7 @@ onMounted(load);
 </template>
 
 <style scoped>
-.setup { max-width: 560px; margin: 0 auto; padding: 8vh var(--gutter); display: grid; gap: 14px; }
+.setup { max-width: min(960px, 100%); margin: 0 auto; padding: 8vh var(--gutter); display: grid; gap: 14px; }
 h1 { margin: 0; color: var(--accent); letter-spacing: -0.04em; }
 h2, p { margin: 0; }
 .row { display: flex; flex-wrap: wrap; gap: 10px; }

@@ -307,7 +307,7 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .cast { margin: 0; padding: 0 0 6px; list-style: none; display: flex; gap: 20px; overflow-x: auto; scrollbar-width: thin; }
 .cast li { flex: none; width: 110px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; }
 .face { display: grid; place-items: center; width: 92px; height: 92px; margin-bottom: 6px; overflow: hidden; border-radius: 50%; background: var(--bg-hover); font-size: 2rem; font-weight: 700; color: var(--text-dim); }
-.face img { width: 100%; height: 100%; object-fit: cover; }
+.face img { width: 100%; height: 100%; object-fit: cover; object-position: center top; }
 .c-name { font-size: 0.88rem; font-weight: 600; line-height: 1.25; }
 .c-role { font-size: 0.78rem; color: var(--text-dim); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
