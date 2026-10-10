@@ -15,6 +15,7 @@ const roots: string[] = [];
 const pids: number[] = [];
 afterEach(() => {
   delete process.env.FAKE_FFMPEG_GATE;
+  delete process.env.FAKE_FFMPEG_BAD;
   for (const pid of pids.splice(0)) {
     try {
       process.kill(pid, 'SIGKILL');
@@ -236,6 +237,49 @@ describe('adoption after a server restart', () => {
     expect(alive(foreign.pid!)).toBe(true);
     expect(s.mainRuns).toHaveLength(1);
     expect(s.job().status).toBe('done');
+  });
+});
+
+describe('validation when an adopted ffmpeg finishes', () => {
+  const finishAdopted = async (bad?: string) => {
+    if (bad) process.env.FAKE_FFMPEG_BAD = bad;
+    const s = scene();
+    const { pid } = await s.crashMidJob();
+    const b = s.worker();
+    b.start();
+    s.open();
+    await b.drain();
+    b.stop();
+    return { s, pid };
+  };
+
+  it('a valid adopted package is published as ready with a complete master', async () => {
+    const { s } = await finishAdopted();
+    const dir = join(s.dataDir, 'hls', String(s.fileId));
+    expect(s.mainRuns).toHaveLength(1);
+    expect(s.job().status).toBe('done');
+    expect(s.file().status).toBe('ready');
+    expect(readFileSync(join(dir, 'master.m3u8'), 'utf8')).toContain('#EXT-X-STREAM-INF');
+    expect(existsSync(s.tmpDir)).toBe(false);
+  });
+
+  it.each(['corrupt', 'short'])('a %s adopted package is reprocessed once, from scratch, and published', async (kind) => {
+    const { s, pid } = await finishAdopted(`${kind}:1`);
+    expect(alive(pid)).toBe(false); // one writer per folder: the adopted process is gone before the rerun
+    expect(s.mainRuns).toHaveLength(2);
+    expect(s.job().status).toBe('done');
+    expect(s.file().status).toBe('ready');
+    expect(existsSync(join(s.dataDir, 'hls', String(s.fileId), 'master.m3u8'))).toBe(true);
+    expect(existsSync(s.tmpDir)).toBe(false);
+  });
+
+  it.each(['corrupt', 'short'])('a %s package that fails again marks the file as error after a single reprocess', async (kind) => {
+    const { s } = await finishAdopted(`${kind}:2`);
+    expect(s.mainRuns).toHaveLength(2);
+    expect(s.job().status).toBe('error');
+    expect(s.file().status).toBe('error');
+    expect(existsSync(join(s.dataDir, 'hls', String(s.fileId)))).toBe(false);
+    expect(existsSync(s.tmpDir)).toBe(false);
   });
 });
 

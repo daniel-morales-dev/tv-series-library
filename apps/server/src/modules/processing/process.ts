@@ -107,6 +107,9 @@ export async function buildMaster(dir: string, plan: Plan, durationS: number): P
   await rename(`${path}.new`, path);
 }
 
+// An encode that says `progress=end` but stopped well short of the source duration is truncated (ffmpeg adds a few seconds of slack).
+const endedShort = (outTimeS: number | null, durationS: number) => durationS > 0 && (outTimeS ?? 0) < durationS - Math.max(5, durationS * 0.01);
+
 // Waits for an ffmpeg started by a previous server. true = it finished the package; false = start over.
 async function adoptRunning(
   deps: ProcessDeps,
@@ -194,6 +197,11 @@ export async function processMedia(
         },
       });
       await naming;
+    }
+    // Adopted or not, a run that ended short is a truncated package: it takes the worker's single reprocess.
+    const end = readProgress(join(tmpDir, PROGRESS_FILE));
+    if (end?.ended && endedShort(end.outTimeS, info.durationS)) {
+      throw new InvalidPackageError(`invalid HLS package: ffmpeg ended at ${end.outTimeS ?? 0}s of ${info.durationS}s`);
     }
     await Promise.all([PROGRESS_FILE, LOG_FILE].map((f) => rm(join(tmpDir, f), { force: true })));
     await buildMaster(tmpDir, plan, info.durationS);
