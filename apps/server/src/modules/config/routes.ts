@@ -1,4 +1,6 @@
+import { basename } from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import { candidateRoots, findMovedLibrary } from '../../config/relocate.ts';
 import { configStatus, resolveContentDir, setContentDir } from '../../config/config.ts';
 
 export interface ConfigRoutesDeps {
@@ -6,6 +8,8 @@ export interface ConfigRoutesDeps {
   currentContentDir?: () => string;
   /** Called after a successful PUT so the ingestor can start or kick a scan. */
   onReady?: (contentDir: string) => void;
+  /** Mount parents scanned for a moved library (T22c); defaults to the platform's removable-media locations. */
+  mountRoots?: () => string[];
 }
 
 const contentDirBody = {
@@ -22,6 +26,15 @@ export function configRoutes(api: FastifyInstance, deps: ConfigRoutesDeps = {}):
   const currentContentDir = deps.currentContentDir ?? (() => resolveContentDir());
 
   api.get('/config', async () => configStatus(currentContentDir()));
+
+  // Suggestions only: the user accepts one with the normal PUT. Nothing is switched, created or written here.
+  api.get('/config/candidates', async () => {
+    const status = configStatus(currentContentDir());
+    if (status.status !== 'missing' || !status.libraryId) return { candidates: [] };
+    const roots = deps.mountRoots?.() ?? candidateRoots(status.contentDir);
+    const paths = findMovedLibrary({ libraryId: status.libraryId, roots, exclude: status.contentDir });
+    return { candidates: paths.map((path) => ({ path, label: basename(path) })) };
+  });
 
   api.put<{ Body: { path: string; create?: boolean } }>(
     '/config/content-dir',

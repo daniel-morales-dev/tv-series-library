@@ -1,6 +1,6 @@
 import type { Activity } from './activity.ts';
 import type { DataPlan, DataStatus } from './dataMigration.ts';
-import type { AppConfig } from './config.ts';
+import type { AppConfig, LibraryCandidate } from './config.ts';
 import type { Franchise } from './franchise.ts';
 import type { DirListing } from './folderPicker.ts';
 import type { NetworkInfo } from './network.ts';
@@ -62,6 +62,7 @@ export const api = {
   setFileFinished: (pid: number, mediaFileId: number, finished: boolean) =>
     request<void>(`/profiles/${pid}/media-files/${mediaFileId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   config: () => request<AppConfig>('/config'),
+  configCandidates: () => request<{ candidates: LibraryCandidate[] }>('/config/candidates'),
   dirs: (path?: string) => request<DirListing>(`/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   network: () => request<NetworkInfo>('/network'),
   setContentDir: (path: string, create = false) =>

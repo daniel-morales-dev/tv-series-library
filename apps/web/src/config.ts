@@ -1,5 +1,11 @@
 export type ConfigState = 'unset' | 'ready' | 'missing';
 
+/** A folder carrying this library's marker found elsewhere (T22c); only suggested, the user accepts it. */
+export interface LibraryCandidate {
+  path: string;
+  label: string;
+}
+
 export interface AppConfig {
   status: ConfigState;
   contentDir: string | null;
