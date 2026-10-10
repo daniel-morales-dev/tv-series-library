@@ -1,6 +1,9 @@
 [Unit]
 Description=Sala - biblioteca de series (servidor + web)
 After=network.target
+# Tras 5 fallos en 5 min la unit se detiene (un bucle de arranques nunca debe repetirse sin limite).
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -8,11 +11,11 @@ WorkingDirectory=@REPO@/apps/server
 Environment=PORT=8080
 Environment=DATA_DIR=@REPO@/data
 Environment=WEB_DIR=@REPO@/apps/web/dist
-# Copia SQLite verificada antes de arrancar (falla cerrado: sin copia valida no arranca).
+# Copia SQLite verificada antes de arrancar (falla cerrado: sin copia valida, o con el puerto ocupado, no arranca).
 ExecStartPre=@NODE@ --env-file-if-exists=@REPO@/.env src/cli/backup.ts
 ExecStart=@NODE@ --env-file-if-exists=@REPO@/.env src/index.ts
 Restart=on-failure
-RestartSec=3
+RestartSec=10
 TimeoutStopSec=10
 
 [Install]

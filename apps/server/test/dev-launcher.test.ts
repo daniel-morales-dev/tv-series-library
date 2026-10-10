@@ -1,7 +1,9 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync, readFileSync, utimesSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 // @ts-expect-error The root launcher is native JavaScript, outside the server TypeScript project.
@@ -413,5 +415,64 @@ test('successful preflight returns a verified backup and does not migrate or res
     expect(original.prepare('SELECT value FROM preserved').all()).toEqual([{ value: 1 }]);
   } finally {
     original.close();
+  }
+});
+
+function seedDb(root: string) {
+  const db = new DatabaseSync(join(root, 'data/library.db'));
+  db.exec('CREATE TABLE t(v)');
+  db.close();
+}
+const startBackups = (root: string) => readdirSync(join(root, 'data/recovery')).filter((n) => n.startsWith('before-start-')).sort();
+
+test('keeps only the newest N before-start backups and never touches other recovery folders', async () => {
+  const root = fixture();
+  seedDb(root);
+  const recovery = join(root, 'data/recovery');
+  mkdirSync(join(recovery, 'manual-keep'), { recursive: true });
+  mkdirSync(join(recovery, 'before-star-not-ours'), { recursive: true });
+  for (let i = 0; i < 7; i++) {
+    const dir = join(recovery, `before-start-old${i}`);
+    mkdirSync(dir);
+    const t = new Date(Date.now() - (100 - i) * 3_600_000);
+    utimesSync(dir, t, t);
+  }
+  const fresh = await backupLibrary(join(root, 'data'), { keep: 5 });
+  const names = startBackups(root);
+  expect(names).toHaveLength(5);
+  expect(names).toContain(fresh.split('/').at(-2));
+  expect(names).not.toContain('before-start-old0');
+  expect(names).toContain('before-start-old6');
+  expect(readdirSync(recovery)).toEqual(expect.arrayContaining(['manual-keep', 'before-star-not-ours']));
+});
+
+test('reuses a backup younger than minAgeMs instead of copying again', async () => {
+  const root = fixture();
+  seedDb(root);
+  const first = await backupLibrary(join(root, 'data'), { minAgeMs: 600_000 });
+  const second = await backupLibrary(join(root, 'data'), { minAgeMs: 600_000 });
+  expect(second).toBe(first);
+  expect(startBackups(root)).toHaveLength(1);
+  const old = join(root, 'data/recovery', startBackups(root)[0]);
+  const t = new Date(Date.now() - 3_600_000);
+  utimesSync(old, t, t);
+  expect(await backupLibrary(join(root, 'data'), { minAgeMs: 600_000 })).not.toBe(first);
+  expect(startBackups(root)).toHaveLength(2);
+});
+
+test('backup CLI exits without copying when the port is already taken', async () => {
+  const root = fixture();
+  seedDb(root);
+  const occupied = createServer();
+  await new Promise<void>((accept) => occupied.listen({ port: 0, host: '0.0.0.0' }, accept));
+  const port = (occupied.address() as { port: number }).port;
+  try {
+    const cli = join(dirname(fileURLToPath(import.meta.url)), '../src/cli/backup.ts');
+    const run = spawnSync(process.execPath, [cli], { encoding: 'utf8', env: { ...process.env, DATA_DIR: join(root, 'data'), PORT: String(port) } });
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toMatch(/ocupado/);
+    expect(readdirSync(join(root, 'data'))).not.toContain('recovery');
+  } finally {
+    await new Promise<void>((accept) => occupied.close(() => accept()));
   }
 });

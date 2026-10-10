@@ -8,6 +8,7 @@ import {
   configDir,
   configStatus,
   readMarker,
+  REPO_ROOT,
   readUserConfig,
   resolveContentDir,
   setContentDir,
@@ -82,13 +83,37 @@ describe('config.json and marker persistence', () => {
 });
 
 describe('resolveContentDir', () => {
-  it('resolves env override → config.json → default', () => {
+  it('resolves env override → config.json → default, always absolute', () => {
     const dir = join(tempRoot(), 'cfg');
     const media = tempRoot();
-    expect(resolveContentDir({}, { dir })).toBe('./content');
+    const root = '/srv/repo';
+    expect(resolveContentDir({}, { dir, root })).toBe('/srv/repo/content');
     writeUserConfig({ contentDir: media, libraryId: 'x' }, dir);
-    expect(resolveContentDir({}, { dir })).toBe(media);
-    expect(resolveContentDir({ CONTENT_DIR: '/env/media' }, { dir })).toBe('/env/media');
+    expect(resolveContentDir({}, { dir, root })).toBe(media);
+    expect(resolveContentDir({ CONTENT_DIR: '/env/media' }, { dir, root })).toBe('/env/media');
+  });
+
+  it('anchors a relative CONTENT_DIR to the repo root, not to the cwd', () => {
+    const dir = join(tempRoot(), 'cfg');
+    const cwd = process.cwd();
+    try {
+      process.chdir(tempRoot());
+      expect(resolveContentDir({ CONTENT_DIR: './media' }, { dir, root: '/srv/repo' })).toBe('/srv/repo/media');
+      expect(resolveContentDir({}, { dir, root: '/srv/repo' })).toBe('/srv/repo/content');
+    } finally {
+      process.chdir(cwd);
+    }
+  });
+
+  it('defaults the root to the repository containing apps/server, whatever the cwd', () => {
+    const dir = join(tempRoot(), 'cfg');
+    expect(resolveContentDir({}, { dir })).toBe(join(REPO_ROOT, 'content'));
+    expect(existsSync(join(REPO_ROOT, 'apps', 'server', 'src'))).toBe(true);
+  });
+
+  it('ignores an empty CONTENT_DIR instead of resolving to the repo root', () => {
+    const dir = join(tempRoot(), 'cfg');
+    expect(resolveContentDir({ CONTENT_DIR: '' }, { dir, root: '/srv/repo' })).toBe('/srv/repo/content');
   });
 });
 
@@ -148,7 +173,9 @@ describe('configStatus', () => {
 
 describe('autoScanAllowed', () => {
   it('allows scanning for unset and ready, and blocks it only for missing', () => {
-    expect(autoScanAllowed({ status: 'unset', contentDir: null, libraryId: null, suggestedDefault: null })).toBe(true);
+    expect(autoScanAllowed({ status: 'unset', contentDir: null, libraryId: null, suggestedDefault: '/srv/repo/content' })).toBe(true);
+    // Unset with a default folder that does not exist behaves like `missing`: never scan or touch the catalog.
+    expect(autoScanAllowed({ status: 'unset', contentDir: null, libraryId: null, suggestedDefault: null })).toBe(false);
     expect(autoScanAllowed({ status: 'ready', contentDir: '/media/library', libraryId: 'lib-x', suggestedDefault: '/media/library' })).toBe(true);
     expect(autoScanAllowed({ status: 'missing', contentDir: '/media/unplugged', libraryId: null, suggestedDefault: null })).toBe(false);
   });

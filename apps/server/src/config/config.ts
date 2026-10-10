@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 /** Hidden marker written at the content-folder root so a relocated disk can be recognized (T9/T22). */
 export const MARKER_FILE = '.sala-library.json';
@@ -94,10 +95,13 @@ export function writeMarker(contentDir: string, libraryId: string): void {
   writeJsonAtomic(join(contentDir, MARKER_FILE), { libraryId });
 }
 
-/** env override → user config.json → default; the root .env is resolved by the launcher (dev only). */
-export function resolveContentDir(env: NodeJS.ProcessEnv = process.env, options: ConfigOptions = {}): string {
+/** Repository root (apps/server/src/config → 4 levels up); relative paths anchor here, never to the cwd. */
+export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+
+/** env override → user config.json → default, always absolute and anchored to the repo root (same as scripts/dev.mjs). */
+export function resolveContentDir(env: NodeJS.ProcessEnv = process.env, options: ConfigOptions & { root?: string } = {}): string {
   const config = readUserConfig({ ...options, dir: options.dir ?? configDir(env) });
-  return env.CONTENT_DIR ?? config?.contentDir ?? './content';
+  return resolve(options.root ?? REPO_ROOT, env.CONTENT_DIR || config?.contentDir || 'content');
 }
 
 /**
@@ -122,11 +126,12 @@ export function configStatus(resolvedContentDir: string, options: ConfigOptions 
 }
 
 /**
- * T28: scanning runs for `unset` (folder from env/root .env/default — legacy and dev flow) and `ready`.
- * Only `missing` — a user-chosen folder that is gone — must never scan.
+ * T28: scanning runs for `ready` and for `unset` whose env/.env/default folder exists (legacy and dev flow).
+ * `missing`, and `unset` with a folder that does not exist (`suggestedDefault` null), never scan, requeue or process:
+ * touching the catalog against the wrong folder marks every file as "source file not found".
  */
 export function autoScanAllowed(status: ConfigStatus): boolean {
-  return status.status !== 'missing';
+  return status.status === 'ready' || (status.status === 'unset' && status.suggestedDefault !== null);
 }
 
 export function setContentDir(input: string, options: { create?: boolean } & ConfigOptions = {}): SetContentDirResult {

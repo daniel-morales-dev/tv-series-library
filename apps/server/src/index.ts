@@ -17,7 +17,11 @@ const db = openDb(join(dataDir, 'library.db'));
 
 // T22: /api/config reports the status to the wizard. T28: `unset` (env/root .env/default folder) still scans;
 // only a configured-but-gone folder (`missing`) blocks the ingestor.
-const libraryStatus = configStatus(resolveContentDir());
+const workerContentDir = resolveContentDir();
+const libraryStatus = configStatus(workerContentDir);
+// Folder missing (or the default does not exist): no scan, no requeue, no processing — the catalog stays untouched.
+const contentAvailable = autoScanAllowed(libraryStatus);
+if (!contentAvailable) console.warn(`Content folder not available (${workerContentDir}): ingest, requeue and processing stay off until it is configured.`);
 
 let ingestor: Ingestor | undefined;
 if (process.env.INGEST !== 'off') {
@@ -38,7 +42,7 @@ const worker =
     : createWorker({
         db,
         dataDir,
-        contentDir: resolveContentDir(),
+        contentDir: workerContentDir,
         concurrency: Number(process.env.PROCESS_CONCURRENCY ?? 1),
         // T35: 8 threads measured ~1.24x over 4 while still leaving half of the 16 cores free for playback.
         threads: Number(process.env.FFMPEG_THREADS ?? 8),
@@ -47,7 +51,13 @@ const worker =
 
 // T33: files stuck in error from a transient pipeline bug get one bounded reprocess per server start.
 // Only meaningful with a worker; with PROCESSING=off nothing would ever claim the requeued jobs.
-if (worker) requeueErrors(db);
+let workerStarted = false;
+function startWorker() {
+  if (!worker || workerStarted) return;
+  workerStarted = true;
+  requeueErrors(db);
+  worker.start();
+}
 
 const app = buildApp({
   db,
@@ -59,13 +69,20 @@ const app = buildApp({
   config: {
     currentContentDir: () => resolveContentDir(),
     // A successful PUT just chose the folder: start scanning there (start() stops the previous timers first).
-    onReady: () => ingestor?.start(scanIntervalMin),
+    // The worker's folder is fixed at boot, so it only starts if the chosen folder is the one it was built with.
+    onReady: (dir: string) => {
+      ingestor?.start(scanIntervalMin);
+      if (dir === workerContentDir) startWorker();
+      else if (worker && !workerStarted) console.warn('Restart the service to process media from the newly chosen folder.');
+    },
   },
 });
 await app.register(async (api) => networkRoutes(api, { port }), { prefix: '/api' });
 await app.listen({ host: '0.0.0.0', port });
-worker?.start();
-if (autoScanAllowed(libraryStatus)) ingestor?.start(scanIntervalMin);
+if (contentAvailable) {
+  startWorker();
+  ingestor?.start(scanIntervalMin);
+}
 
 // T34: on SIGTERM/SIGINT stop the worker first (its AbortSignal kills the ffmpeg child), then close
 // the server; the handler is bounded, so a hung child cannot keep the watch restart waiting.

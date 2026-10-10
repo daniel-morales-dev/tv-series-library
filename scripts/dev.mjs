@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, readFileSync, readlinkSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { parseEnv } from 'node:util';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -43,7 +43,7 @@ export function resolveEnvironment(repository = root, external = process.env) {
   return env;
 }
 
-async function checkPort(port) {
+export async function checkPort(port) {
   for (const host of ['0.0.0.0', '::']) {
     await new Promise((accept, reject) => {
       const server = createServer();
@@ -198,12 +198,24 @@ async function reclaimPort(port, repository, { findHolder, killHolder, forceHold
   return false;
 }
 
+const BACKUP_PREFIX = 'before-start-';
+
+/** `before-start-*` directories in `recovery`, newest first. Exact prefix only: other folders are never listed. */
+function listStartBackups(recovery) {
+  return readdirSync(recovery, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.startsWith(BACKUP_PREFIX))
+    .map((entry) => ({ path: join(recovery, entry.name), mtimeMs: statSync(join(recovery, entry.name)).mtimeMs }))
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
 /**
  * Consistent SQLite snapshot of the library database before the backend opens it (WAL included).
  * Videos and HLS are NOT covered. Fails closed; unique destination, never overwrites an existing backup.
+ * Retention: after a new copy only the `keep` newest `before-start-*` folders survive (nothing else is deleted).
+ * With `minAgeMs`, a newest copy younger than that is reused instead of copying again (restart loops).
  * @returns {Promise<string | undefined>} backup path, or undefined when there is no database yet
  */
-export async function backupLibrary(dataDir) {
+export async function backupLibrary(dataDir, { keep = 5, minAgeMs = 0 } = {}) {
   const source = join(dataDir, 'library.db');
   if (!existsSync(source)) return undefined;
   let original;
@@ -213,11 +225,17 @@ export async function backupLibrary(dataDir) {
     original = new DatabaseSync(source, { readOnly: true });
     const recovery = join(dataDir, 'recovery');
     mkdirSync(recovery, { recursive: true, mode: 0o700 });
-    const destination = join(mkdtempSync(join(recovery, 'before-start-')), 'library.db');
+    const [latest] = minAgeMs > 0 ? listStartBackups(recovery) : [];
+    if (latest && existsSync(join(latest.path, 'library.db')) && Date.now() - latest.mtimeMs < minAgeMs) {
+      console.log(`Copia reciente (menos de ${Math.round(minAgeMs / 60000)} min): se reutiliza ${latest.path}`);
+      return join(latest.path, 'library.db');
+    }
+    const destination = join(mkdtempSync(join(recovery, BACKUP_PREFIX)), 'library.db');
     await backup(original, destination);
     copy = new DatabaseSync(destination, { readOnly: true });
     const rows = copy.prepare('PRAGMA integrity_check').all();
     if (rows.length !== 1 || rows[0].integrity_check !== 'ok') throw new Error('la verificación de integridad no devolvió ok');
+    for (const old of listStartBackups(recovery).slice(keep)) rmSync(old.path, { recursive: true, force: true });
     return destination;
   } catch (error) {
     throw new Error(
