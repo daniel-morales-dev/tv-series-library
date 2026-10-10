@@ -1,4 +1,5 @@
 import { languageName } from './languages.ts';
+import { pickFile } from './titlePage.ts';
 import type { SubtitleTrack, TitleDetail, WatchProgress } from './types.ts';
 
 /** Seconds to start from: the saved spot unless finished or barely started. */
@@ -20,15 +21,18 @@ export function subtitleLabel(t: SubtitleTrack, i: number): string {
   return t.title && !plain.includes(t.title.toLowerCase()) ? `${lang} · ${t.title}` : lang;
 }
 
-/** Next episode with a file, in season → episode order. Extras and unknown files have none. */
+/** Next episode with a file, in season → episode order. The newest live file per episode wins; extras don't count. */
 export function nextFile(detail: TitleDetail, fileId: number): { fileId: number; name: string } | null {
+  const current = detail.files.find((f) => f.id === fileId);
   const ordered = [...detail.seasons]
     .sort((a, b) => a.number - b.number)
     .flatMap((s) => [...s.episodes].sort((a, b) => a.number - b.number))
     .flatMap((e) => {
-      const f = detail.files.find((x) => x.episodeId === e.id);
-      return f ? [{ fileId: f.id, name: e.name || `Episodio ${e.number}` }] : [];
+      const f = pickFile(detail.files.filter((x) => x.episodeId === e.id && !x.extraLabel));
+      return f ? [{ episodeId: e.id, fileId: f.id, name: e.name || `Episodio ${e.number}` }] : [];
     });
-  const i = ordered.findIndex((x) => x.fileId === fileId);
-  return i >= 0 ? (ordered[i + 1] ?? null) : null;
+  // A stale duplicate row must not hide its episode: match the playing row's episode too.
+  const i = ordered.findIndex((x) => x.fileId === fileId || x.episodeId === current?.episodeId);
+  const next = i >= 0 ? ordered[i + 1] : undefined;
+  return next ? { fileId: next.fileId, name: next.name } : null;
 }
