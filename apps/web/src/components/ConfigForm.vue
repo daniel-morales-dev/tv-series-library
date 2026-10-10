@@ -2,6 +2,9 @@
 import { ref } from 'vue';
 import { api } from '../api.ts';
 import { submitError } from '../config.ts';
+import { startPath } from '../folderPicker.ts';
+import FolderPicker from './FolderPicker.vue';
+import Icon from './Icon.vue';
 
 const props = defineProps<{ suggested: string; initial?: string }>();
 const emit = defineEmits<{ saved: [] }>();
@@ -10,6 +13,13 @@ const path = ref(props.initial ?? '');
 const busy = ref(false);
 const error = ref('');
 const confirmCreate = ref(false);
+const browsing = ref(false);
+
+function picked(value: string) {
+  path.value = value;
+  confirmCreate.value = false;
+  browsing.value = false;
+}
 
 async function save(create = false) {
   const value = path.value.trim();
@@ -32,7 +42,12 @@ async function save(create = false) {
 <template>
   <form class="cfg" @submit.prevent="save()">
     <label for="content-dir">Carpeta de contenido</label>
-    <input id="content-dir" v-model="path" type="text" autocomplete="off" spellcheck="false" placeholder="/ruta/a/tu/contenido" @input="confirmCreate = false" />
+    <div class="field">
+      <input id="content-dir" v-model="path" type="text" autocomplete="off" spellcheck="false" placeholder="/ruta/a/tu/contenido" @input="confirmCreate = false" />
+      <button type="button" class="browse" aria-label="Explorar carpetas" title="Explorar carpetas" @click="browsing = true">
+        <Icon name="folder" :size="20" /><span>Explorar</span>
+      </button>
+    </div>
     <div class="row">
       <button type="button" @click="path = suggested; confirmCreate = false">Usar carpeta sugerida</button>
       <button type="submit" class="primary" :disabled="busy || !path.trim()">Guardar carpeta</button>
@@ -45,11 +60,14 @@ async function save(create = false) {
         <button type="button" @click="confirmCreate = false">No</button>
       </div>
     </div>
+    <FolderPicker v-if="browsing" :start="startPath(path)" @pick="picked" @close="browsing = false" />
   </form>
 </template>
 
 <style scoped>
 .cfg { display: grid; gap: 12px; min-width: 0; }
+.field { display: flex; gap: 10px; min-width: 0; }
+.browse { flex: none; display: inline-flex; align-items: center; gap: 8px; }
 .cfg input { width: 100%; min-width: 0; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-raised); color: var(--text); }
 .row { display: flex; flex-wrap: wrap; gap: 10px; }
 .primary { background: var(--accent); color: var(--accent-ink); font-weight: 700; }

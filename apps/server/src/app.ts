@@ -11,6 +11,7 @@ import { progressRoutes } from './modules/progress/routes.ts';
 import { searchRoutes } from './modules/search/routes.ts';
 import { webRoutes } from './http/web.ts';
 import { configRoutes, type ConfigRoutesDeps } from './modules/config/routes.ts';
+import { fsRoutes, type FsRoutesDeps } from './modules/fs/routes.ts';
 
 export interface AppOptions {
   db: DatabaseSync;
@@ -24,15 +25,18 @@ export interface AppOptions {
   webDir?: string;
   /** T22: user config endpoints; defaults read the real user config dir. */
   config?: ConfigRoutesDeps;
+  /** T46: read-only folder browser; defaults read the real filesystem. */
+  fs?: FsRoutesDeps;
 }
 
-export function buildApp({ db, logger = false, dataDir = './data', ingestor, worker, webDir, config }: AppOptions) {
+export function buildApp({ db, logger = false, dataDir = './data', ingestor, worker, webDir, config, fs }: AppOptions) {
   const app = Fastify({ logger });
 
   app.register(
     async (api) => {
       api.get('/health', async () => ({ ok: true }));
       configRoutes(api, config);
+      fsRoutes(api, fs);
       profileRoutes(api, db);
       catalogRoutes(api, db);
       searchRoutes(api, db);

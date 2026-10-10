@@ -1,5 +1,6 @@
 import type { Activity } from './activity.ts';
 import type { AppConfig } from './config.ts';
+import type { DirListing } from './folderPicker.ts';
 import type { NetworkInfo } from './network.ts';
 import type { ContinueItem, Job, Profile, Suggestion, TitleDetail, TitleSummary } from './types.ts';
 
@@ -41,6 +42,7 @@ export const api = {
   setFinished: (pid: number, titleId: number, finished: boolean) =>
     request<void>(`/profiles/${pid}/titles/${titleId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   config: () => request<AppConfig>('/config'),
+  dirs: (path?: string) => request<DirListing>(`/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   network: () => request<NetworkInfo>('/network'),
   setContentDir: (path: string, create = false) =>
     request<AppConfig>('/config/content-dir', { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ path, create }) }),
