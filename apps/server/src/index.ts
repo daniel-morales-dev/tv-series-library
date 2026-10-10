@@ -84,8 +84,8 @@ if (contentAvailable) {
   ingestor?.start(scanIntervalMin);
 }
 
-// T34: on SIGTERM/SIGINT stop the worker first (its AbortSignal kills the ffmpeg child), then close
-// the server; the handler is bounded, so a hung child cannot keep the watch restart waiting.
+// T34/T40d: on SIGTERM/SIGINT stop the worker first (the ffmpeg child keeps running for the next
+// server to adopt), then close the server; the handler is bounded, so a hung child cannot keep the watch restart waiting.
 const shutdown = createShutdown({
   app,
   worker,

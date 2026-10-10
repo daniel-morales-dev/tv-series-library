@@ -129,31 +129,13 @@ export function stopHolder({ pid, parentPid }) {
   for (const target of [pid, parentPid]) if (target) signalQuietly(target, 'SIGTERM');
 }
 
-/** Direct children of `pid` whose command line runs ffmpeg. */
-function ffmpegChildren(pid) {
-  if (process.platform !== 'linux') return [];
-  let entries;
-  try {
-    entries = readdirSync('/proc');
-  } catch {
-    return [];
-  }
-  const children = [];
-  for (const entry of entries) {
-    if (!/^\d+$/.test(entry)) continue;
-    const parent = Number(/^PPid:\s*(\d+)/m.exec(readProc(entry, 'status') ?? '')?.[1]);
-    if (parent === pid && readProc(entry, 'cmdline')?.includes('ffmpeg')) children.push(Number(entry));
-  }
-  return children;
-}
-
 /**
- * Escalation for a holder that ignored SIGTERM (linux only): SIGKILL its ffmpeg children first —
- * an orphan writer keeps rewriting data/hls/*.tmp (T34) — then the holder and its watcher parent.
+ * Escalation for a holder that ignored SIGTERM (linux only): SIGKILL the holder and its watcher parent.
+ * Its ffmpeg is left alone (T40d): the next server adopts a verified one or terminates an orphan at
+ * start(), so no second writer reaches data/hls/*.tmp (T34).
  */
 export function forceHolder({ pid, parentPid }) {
   if (process.platform !== 'linux') return;
-  for (const child of ffmpegChildren(pid)) signalQuietly(child, 'SIGKILL');
   for (const target of [pid, parentPid]) if (target) signalQuietly(target, 'SIGKILL');
 }
 
@@ -173,8 +155,7 @@ async function waitForPort(port, timeoutMs) {
 /**
  * Stops an orphaned dev process (backend or vite) from this repository still holding `port`:
  * SIGTERM first; when the port is still held (a hung event loop ignores SIGTERM), escalates to
- * SIGKILL — the holder's ffmpeg children die first so no orphan keeps rewriting data/hls/*.tmp
- * (T34), then the holder and its watcher parent. Never throws and never signals a foreign process.
+ * SIGKILL of the holder and its watcher parent; its ffmpeg survives to be adopted (T40d). Never throws and never signals a foreign process.
  * @returns {Promise<boolean>} true when the port was reclaimed
  */
 async function reclaimPort(port, repository, { findHolder, killHolder, forceHolder, releaseMs, forceMs }) {
@@ -191,7 +172,7 @@ async function reclaimPort(port, repository, { findHolder, killHolder, forceHold
   forceHolder(holder);
   if (await waitForPort(port, forceMs)) {
     console.log(
-      `Puerto ${port} liberado: el server huérfano no respondió al SIGTERM (colgado); se forzó SIGKILL tras detener sus ffmpeg.`,
+      `Puerto ${port} liberado: el server huérfano no respondió al SIGTERM (colgado); se forzó SIGKILL (su ffmpeg sigue vivo para ser adoptado).`,
     );
     return true;
   }
@@ -252,7 +233,7 @@ export async function backupLibrary(dataDir, { keep = 5, minAgeMs = 0 } = {}) {
  * Preflight before spawning anything: resolve paths, verify DATA_DIR exists, verify ports are free,
  * back up SQLite. A port held by this repository's own orphaned dev process (backend or vite) is
  * reclaimed first (linux only): only a verified holder is signalled, never a foreign process; a
- * hung holder that ignores SIGTERM is escalated to SIGKILL after its ffmpeg children.
+ * hung holder that ignores SIGTERM is escalated to SIGKILL (its ffmpeg is left for adoption).
  * CONTENT_DIR is not validated here any more (T22): the server reports unset/missing
  * to the UI and never scans or creates an empty library. Never creates directories or a replacement
  * library, never migrates the database.

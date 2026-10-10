@@ -1,13 +1,13 @@
 import { afterEach, expect, test, vi } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readdirSync, rmSync, readFileSync, utimesSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn as spawnProcess, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { DatabaseSync } from 'node:sqlite';
 // @ts-expect-error The root launcher is native JavaScript, outside the server TypeScript project.
-import { resolveEnvironment, prepare, backupLibrary, supervise, PORT_MARKERS } from '../../../scripts/dev.mjs';
+import { resolveEnvironment, prepare, backupLibrary, supervise, forceHolder, PORT_MARKERS } from '../../../scripts/dev.mjs';
 
 const fixtures: string[] = [];
 function fixture(): string {
@@ -474,5 +474,38 @@ test('backup CLI exits without copying when the port is already taken', async ()
     expect(readdirSync(join(root, 'data'))).not.toContain('recovery');
   } finally {
     await new Promise<void>((accept) => occupied.close(() => accept()));
+  }
+});
+
+test.skipIf(process.platform !== 'linux')('forced holder cleanup leaves its ffmpeg child alive for the next server to adopt', async () => {
+  // The holder spawns a child whose command line mentions ffmpeg, like an adoptable encode.
+  const holder = spawnProcess(
+    process.execPath,
+    ['-e', "require('node:child_process').spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)', 'ffmpeg-stand-in'], { stdio: 'inherit' }); setInterval(()=>{},1000)"],
+    { stdio: 'ignore' },
+  );
+  let child: number | undefined;
+  try {
+    for (let i = 0; i < 100 && child === undefined; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      child = readdirSync('/proc')
+        .filter((e) => /^\d+$/.test(e))
+        .map(Number)
+        .find((pid) => {
+          try {
+            return /^PPid:\s*(\d+)/m.exec(readFileSync(`/proc/${pid}/status`, 'utf8'))?.[1] === String(holder.pid) && readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes('ffmpeg');
+          } catch {
+            return false;
+          }
+        });
+    }
+    expect(child).toBeDefined();
+    forceHolder({ pid: holder.pid!, parentPid: null });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(procState(holder.pid)).toMatch(/gone|Z/);
+    expect(procState(child)).not.toBe('gone');
+  } finally {
+    if (child) try { process.kill(child, 'SIGKILL'); } catch {}
+    try { holder.kill('SIGKILL'); } catch {}
   }
 });

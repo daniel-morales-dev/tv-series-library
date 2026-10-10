@@ -17,6 +17,8 @@ ExecStart=@NODE@ --env-file-if-exists=@REPO@/.env src/index.ts
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=10
+# Parar la unidad solo detiene node: el ffmpeg en curso sobrevive y el siguiente arranque lo adopta (T40).
+KillMode=process
 
 [Install]
 WantedBy=default.target

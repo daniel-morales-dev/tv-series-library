@@ -1,18 +1,19 @@
 /**
+ * T40d: a normal shutdown leaves the running ffmpeg alive (`stop({ killChildren: false })`); the next
+ * server adopts it or terminates it as an orphan at start(), so there is never a second writer.
  * T34: `node --watch` restarts and the dev launcher SIGTERM the server; without a handler the
  * process died instantly and left its ffmpeg children alive, still writing `data/hls/<id>.tmp`.
  * A restarted server requeued the same job and a second ffmpeg rewrote the same package
- * (playlists flip-flopped, A/V desynced). `stop()` aborts the worker's AbortSignal, which
- * spawn-kills the running ffmpeg, so it runs before close(); the timeout is the safety net.
+ * (playlists flip-flopped, A/V desynced). `stop()` runs before close(); the timeout is the safety net.
  */
 export interface Stoppable {
-  stop(): unknown;
+  stop(opts?: { killChildren?: boolean }): unknown;
 }
 
 export interface ShutdownDeps {
   /** Fastify server (anything with close()). */
   app: { close(): unknown };
-  /** Aborts in-flight ffmpeg via the worker's AbortSignal. */
+  /** Stops the poll loop; the in-flight ffmpeg keeps running (killChildren: false). */
   worker?: Stoppable;
   /** Clears the ingestor timers. */
   ingestor?: Stoppable;
@@ -52,7 +53,7 @@ export function createShutdown({
       });
       try {
         // The array literal calls both stop()s synchronously, before app.close() starts.
-        const cleaned = Promise.all([worker?.stop(), ingestor?.stop(), app.close()]).then(() => 'done' as const);
+        const cleaned = Promise.all([worker?.stop({ killChildren: false }), ingestor?.stop(), app.close()]).then(() => 'done' as const);
         if ((await Promise.race([cleaned, timeout])) === 'timeout') {
           log(`shutdown did not finish in ${timeoutMs}ms: forcing exit`);
           exit(1);

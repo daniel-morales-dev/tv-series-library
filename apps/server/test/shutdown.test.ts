@@ -21,6 +21,14 @@ describe('createShutdown', () => {
     expect(exit).toHaveBeenCalledWith(0);
   });
 
+  it('stops the worker without killing the running ffmpeg so the next server adopts it', async () => {
+    const worker = { stop: vi.fn() };
+
+    await createShutdown({ app: { close: async () => {} }, worker, exit: vi.fn() })();
+
+    expect(worker.stop).toHaveBeenCalledWith({ killChildren: false });
+  });
+
   it('is idempotent: the second signal force-exits immediately without repeating cleanup', async () => {
     const worker = { stop: vi.fn() };
     const app = { close: vi.fn(async () => {}) };
