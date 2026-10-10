@@ -461,7 +461,12 @@ video { width: 100%; height: 100%; background: #000; }
   position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 2; display: flex; align-items: center; gap: 8px;
   flex-wrap: wrap; padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.6);
 }
-.controls input[type='range'] { cursor: pointer; accent-color: var(--accent); }
+.controls input[type='range'] {
+  cursor: pointer;
+  accent-color: var(--accent);
+  /* T36b: the global input rule pads 0 16px, which leaves the native fill/thumb 16px short at both ends. */
+  padding: 0;
+}
 .controls .seekbar { flex: 1; min-width: 0; }
 .controls .vol { width: 120px; flex: none; }
 .controls button:disabled { opacity: 0.4; }
