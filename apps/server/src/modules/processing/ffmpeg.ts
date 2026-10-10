@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
-import { closeSync, openSync, readFileSync } from 'node:fs';
+import { closeSync, fstatSync, openSync, readSync } from 'node:fs';
 import { setPriority } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -42,8 +42,9 @@ export type ProbeStreams = (absPath: string) => Promise<StreamInfo>;
 export const PROGRESS_FILE = 'progress.txt';
 export const LOG_FILE = 'ffmpeg.log';
 const KILL_ESCALATION_MS = 5_000;
+const TAIL_BYTES = 4000;
 
-export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000 }: { bin?: string; pollMs?: number } = {}): RunFfmpeg {
+export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000, killAfterMs = KILL_ESCALATION_MS }: { bin?: string; pollMs?: number; killAfterMs?: number } = {}): RunFfmpeg {
   return (args, opts = {}) =>
     new Promise((resolve, reject) => {
       const { signal, detached } = opts;
@@ -54,7 +55,7 @@ export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000 }: { bin?: stri
       if (logFd !== undefined) closeSync(logFd);
       let stderr = '';
       child.stderr?.on('data', (d: Buffer) => {
-        stderr = (stderr + d).slice(-4000);
+        stderr = (stderr + d).slice(-TAIL_BYTES);
       });
       if (detached) child.unref();
       // Lowest CPU priority (which also drops I/O to the lowest best-effort class) so playback and the UI stay responsive.
@@ -78,7 +79,7 @@ export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000 }: { bin?: stri
         if (keepsChildren(signal)) return done(() => reject(signal!.reason));
         child.kill('SIGTERM');
         child.kill('SIGCONT'); // a paused (SIGSTOP) ffmpeg only handles SIGTERM once continued
-        escalate = setTimeout(() => child.kill('SIGKILL'), KILL_ESCALATION_MS);
+        escalate = setTimeout(() => child.kill('SIGKILL'), killAfterMs);
         escalate.unref();
       }
       signal?.addEventListener('abort', onAbort, { once: true });
@@ -91,11 +92,20 @@ export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000 }: { bin?: stri
     });
 }
 
+// Only the end of the log: a source that makes ffmpeg log an error per packet can grow it to hundreds of MB, and reading it whole blocks the event loop.
 function tail(file: string): string {
+  let fd: number | undefined;
   try {
-    return readFileSync(file, 'utf8').slice(-4000);
+    fd = openSync(file, 'r');
+    const size = fstatSync(fd).size;
+    const len = Math.min(size, TAIL_BYTES);
+    const buf = Buffer.alloc(len);
+    readSync(fd, buf, 0, len, size - len);
+    return buf.toString('utf8');
   } catch {
     return '';
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
