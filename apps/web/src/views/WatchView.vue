@@ -199,8 +199,16 @@ function skip(s: number) {
 function applyVolume() {
   const v = video.value;
   if (!v) return;
-  v.volume = volume.value;
+  // T36: mute also drives volume to 0 — some platforms keep a residual level when only `muted` flips.
+  v.volume = muted.value ? 0 : volume.value;
   v.muted = muted.value;
+}
+// T36: mirror the element's real state so the UI can never disagree with what is audible.
+function onVolumeChange() {
+  const v = video.value;
+  if (!v) return;
+  if (!v.muted) volume.value = v.volume;
+  muted.value = v.muted;
 }
 function onVolume(e: Event) {
   const value = Number((e.target as HTMLInputElement).value);
@@ -316,12 +324,14 @@ onMounted(() => {
   window.addEventListener('keydown', onKey);
   window.addEventListener('pagehide', save);
   document.addEventListener('fullscreenchange', syncFullscreen);
+  video.value?.addEventListener('volumechange', onVolumeChange);
   poke();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey);
   window.removeEventListener('pagehide', save);
   document.removeEventListener('fullscreenchange', syncFullscreen);
+  video.value?.removeEventListener('volumechange', onVolumeChange);
   clearTimeout(idleTimer);
   teardown();
 });
@@ -403,7 +413,7 @@ watch([fileId, titleId], start, { immediate: true });
         <button class="round" :aria-label="muted ? 'Activar sonido' : 'Silenciar'" :title="muted ? 'Activar sonido' : 'Silenciar'" @click="toggleMute">
           <Icon :name="muted ? 'volumeOff' : 'volumeUp'" :size="24" />
         </button>
-        <input type="range" min="0" max="1" step="0.05" :value="muted ? 0 : volume" aria-label="Volumen" class="vol" @input="onVolume" />
+        <input type="range" min="0" max="1" step="0.01" :value="muted ? 0 : volume" aria-label="Volumen" class="vol" @input="onVolume" />
       </div>
       <div v-if="menu === 'tracks'" class="menu" role="menu">
         <template v-if="audio.length > 1">
@@ -453,7 +463,7 @@ video { width: 100%; height: 100%; background: #000; }
 }
 .controls input[type='range'] { cursor: pointer; accent-color: var(--accent); }
 .controls .seekbar { flex: 1; min-width: 0; }
-.controls .vol { width: 90px; }
+.controls .vol { width: 120px; flex: none; }
 .controls button:disabled { opacity: 0.4; }
 .controls .time { font-variant-numeric: tabular-nums; font-size: 0.9rem; }
 .controls .live { color: var(--text-dim); font-size: 0.9rem; }
