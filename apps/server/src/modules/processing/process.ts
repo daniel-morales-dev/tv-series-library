@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type ProbeStreams, type RunFfmpeg, extractArgs, mainArgs, nameRenditions } from './ffmpeg.ts';
 import { type Plan, buildPlan } from './plan.ts';
@@ -9,14 +9,11 @@ const ENDS_WITH_PLAYLIST = /\.m3u8\n*$/;
 const isCompleteMaster = (text: string) => HAS_VARIANT.test(text) && ENDS_WITH_PLAYLIST.test(text);
 
 // Writes through a sibling file so a player never reads a half-written master.
-// `strict` runs mid-encode and skips a master that is not complete yet.
-async function nameMaster(dir: string, plan: Plan, strict: boolean): Promise<boolean> {
+// Runs mid-encode: skips a master that is not complete yet, and names the tracks once it is.
+async function nameMaster(dir: string, plan: Plan): Promise<boolean> {
   const path = join(dir, 'master.m3u8');
   const text = await readFile(path, 'utf8');
-  if (strict && !isCompleteMaster(text)) return false;
-  if (!strict && !HAS_VARIANT.test(text)) {
-    throw new InvalidPackageError(`invalid HLS package: master playlist has no #EXT-X-STREAM-INF (${path})`);
-  }
+  if (!isCompleteMaster(text)) return false;
   await writeFile(`${path}.new`, nameRenditions(text, plan));
   await rename(`${path}.new`, path);
   return true;
@@ -70,6 +67,37 @@ export async function validatePackage(dir: string): Promise<void> {
   }
 }
 
+// Total `seg_*.m4s` bytes of one rendition folder; a missing folder counts as zero.
+async function segmentBytes(dir: string, rendition: string): Promise<number> {
+  let total = 0;
+  for (const entry of await readdir(join(dir, rendition)).catch(() => [])) {
+    if (!entry.endsWith('.m4s')) continue;
+    total += (await stat(join(dir, rendition, entry)).catch(() => null))?.size ?? 0;
+  }
+  return total;
+}
+
+// ffmpeg 6.1.1 can write a master with only the #EXT-X-MEDIA audio lines (sources without per-stream
+// bit_rate metadata), so the published master is always rebuilt here from the plan and the segments.
+export async function buildMaster(dir: string, plan: Plan, durationS: number): Promise<void> {
+  let bytes = await segmentBytes(dir, 'v');
+  for (const a of plan.audio) bytes += await segmentBytes(dir, `a${a.n}`);
+  const bandwidth = Math.max(1, Math.ceil((bytes * 8) / Math.max(durationS, 1)));
+
+  const lines = ['#EXTM3U', '#EXT-X-VERSION:7'];
+  for (const [i, a] of plan.audio.entries()) {
+    const name = (a.title ?? a.language ?? `Audio ${i + 1}`).replaceAll('"', "'");
+    const language = a.language ? `,LANGUAGE="${a.language}"` : '';
+    lines.push(`#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_aud",NAME="${name}"${i === 0 ? ',DEFAULT=YES' : ''}${language},URI="${a.playlist}"`);
+  }
+  // ponytail: bandwidth-only STREAM-INF; add CODECS/RESOLUTION when a player needs them
+  lines.push(`#EXT-X-STREAM-INF:BANDWIDTH=${bandwidth},AUDIO="group_aud"`, 'v/index.m3u8');
+
+  const path = join(dir, 'master.m3u8');
+  await writeFile(`${path}.new`, `${lines.join('\n')}\n`);
+  await rename(`${path}.new`, path);
+}
+
 // Writes the HLS package to `hls/<id>.tmp` and swaps it into place only when everything succeeded.
 export async function processMedia(
   deps: ProcessDeps,
@@ -108,13 +136,13 @@ export async function processMedia(
       onProgress: (s) => {
         opts.onProgress?.(info.durationS > 0 ? Math.min(s / info.durationS, 1) : 0);
         if (named || naming) return;
-        naming = nameMaster(tmpDir, plan, true)
+        naming = nameMaster(tmpDir, plan)
           .then((ok) => void (named = ok), () => {})
           .finally(() => (naming = undefined));
       },
     });
     await naming;
-    await nameMaster(tmpDir, plan, false);
+    await buildMaster(tmpDir, plan, info.durationS);
     await validatePackage(tmpDir);
     await rm(finalDir, { recursive: true, force: true });
     await rename(tmpDir, finalDir);

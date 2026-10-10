@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { get } from '../src/db/sql.ts';
 import type { RunFfmpeg } from '../src/modules/processing/ffmpeg.ts';
-import { type StreamInfo } from '../src/modules/processing/plan.ts';
-import { InvalidPackageError, processMedia, validatePackage } from '../src/modules/processing/process.ts';
+import { type Plan, type StreamInfo } from '../src/modules/processing/plan.ts';
+import { InvalidPackageError, buildMaster, processMedia, validatePackage } from '../src/modules/processing/process.ts';
 import { enqueue } from '../src/modules/processing/queue.ts';
 import { createWorker } from '../src/modules/processing/worker.ts';
 import { addFile, addTitle, setup } from './helpers.ts';
@@ -67,14 +67,71 @@ describe('strict mid-run master naming', () => {
   });
 });
 
-describe('processMedia validation', () => {
-  it('rejects a truncated package and never publishes it', async () => {
+// ffmpeg 6.1.1 writes a master with only the #EXT-X-MEDIA audio line for sources without per-stream
+// bit_rate metadata; the published master must still be complete.
+describe('audio-only ffmpeg master', () => {
+  it('publishes a master with the variant tag built from the plan', async () => {
     const dir = tempRoot();
     mkdirSync(join(dir, 'content'), { recursive: true });
     writeFileSync(join(dir, 'content/a.mkv'), 'x');
     const run: RunFfmpeg = async (args, o) => {
       if (!args.includes('-var_stream_map')) return;
-      writeFileSync(join(mainOut(args), 'master.m3u8'), MASTER_PHASE1);
+      const out = mainOut(args);
+      writeFileSync(join(out, 'master.m3u8'), MASTER_PHASE1);
+      writeFileSync(join(out, 'v/index.m3u8'), VALID_VIDEO);
+      writeFileSync(join(out, 'v/seg_00000.m4s'), 'v');
+      writeFileSync(join(out, 'a0/index.m3u8'), VALID_VIDEO);
+      writeFileSync(join(out, 'a0/seg_00000.m4s'), 'a');
+      o?.onProgress?.(50);
+    };
+    await processMedia(
+      { dataDir: join(dir, 'data'), contentDir: join(dir, 'content'), runFfmpeg: run, probeStreams: async () => INFO },
+      { id: 42, path: 'a.mkv' },
+    );
+    const master = readFileSync(join(dir, 'data', 'hls', '42', 'master.m3u8'), 'utf8');
+    expect(master).toContain('#EXT-X-STREAM-INF:');
+    expect(master).toContain('v/index.m3u8');
+  });
+});
+
+describe('buildMaster', () => {
+  it('writes the master from the plan and the segments on disk', async () => {
+    const dir = tempRoot();
+    for (const rendition of ['v', 'a0', 'a1']) mkdirSync(join(dir, rendition), { recursive: true });
+    writeFileSync(join(dir, 'v/seg_00000.m4s'), 'x'.repeat(1000));
+    writeFileSync(join(dir, 'a0/seg_00000.m4s'), 'x'.repeat(300));
+    writeFileSync(join(dir, 'a1/seg_00000.m4s'), 'x'.repeat(200));
+    const plan: Plan = {
+      video: { index: 0, mode: 'x264' },
+      audio: [
+        { index: 1, codec: 'flac', language: 'jpn', title: null, channels: 2, n: 0, mode: 'aac', bitrate: '192k', playlist: 'a0/index.m3u8' },
+        { index: 2, codec: 'aac', language: null, title: 'Dub', channels: 2, n: 1, mode: 'copy', bitrate: null, playlist: 'a1/index.m3u8' },
+      ],
+      subtitles: [],
+      fonts: [],
+    };
+    await buildMaster(dir, plan, 10);
+    // 1500 segment bytes over 10 s: ceil((1000 + 300 + 200) * 8 / 10), default names on the first track only.
+    expect(readFileSync(join(dir, 'master.m3u8'), 'utf8')).toBe(
+      '#EXTM3U\n#EXT-X-VERSION:7\n' +
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_aud",NAME="jpn",DEFAULT=YES,LANGUAGE="jpn",URI="a0/index.m3u8"\n' +
+        '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_aud",NAME="Dub",URI="a1/index.m3u8"\n' +
+        '#EXT-X-STREAM-INF:BANDWIDTH=1200,AUDIO="group_aud"\n' +
+        'v/index.m3u8\n',
+    );
+  });
+});
+
+describe('processMedia validation', () => {
+  it('rejects a package without a video playlist and never publishes it', async () => {
+    const dir = tempRoot();
+    mkdirSync(join(dir, 'content'), { recursive: true });
+    writeFileSync(join(dir, 'content/a.mkv'), 'x');
+    const run: RunFfmpeg = async (args, o) => {
+      if (!args.includes('-var_stream_map')) return;
+      const out = mainOut(args);
+      writeFileSync(join(out, 'master.m3u8'), MASTER_PHASE1);
+      writeFileSync(join(out, 'a0/index.m3u8'), VALID_VIDEO);
       o?.onProgress?.(50);
     };
     const deps = { dataDir: join(dir, 'data'), contentDir: join(dir, 'content'), runFfmpeg: run, probeStreams: async () => INFO };
