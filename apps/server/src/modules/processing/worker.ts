@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { type ProbeStreams, type RunFfmpeg, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
-import { SourceMissingError, processMedia } from './process.ts';
-import { claimNext, complete, fail, recover, requeue, setProgress, setTracks } from './queue.ts';
+import { InvalidPackageError, SourceMissingError, processMedia } from './process.ts';
+import { type ProcessResult, claimNext, complete, fail, recover, requeue, setProgress, setTracks } from './queue.ts';
 
 const POLL_MS = 5_000;
 const PROGRESS_EVERY_MS = 1_000;
@@ -51,21 +51,39 @@ export function createWorker(opts: WorkerOptions): Worker {
   const running = new Map<number, { mediaFileId: number; ctl: AbortController; preempted: boolean }>();
   let timer: NodeJS.Timeout | undefined;
   let idle: (() => void)[] = [];
+  // One automatic reprocess per file per worker lifetime: a truncated package is usually transient, a loop is not.
+  // In memory (no schema change); a restart grants at most one more reprocess for the file.
+  const reprocessedInvalid = new Set<number>();
 
   async function runJob(job: NonNullable<ReturnType<typeof claimNext>>) {
     let lastWrite = Number.NEGATIVE_INFINITY;
+    let retried = false;
     const entry = { mediaFileId: job.mediaFileId, ctl: new AbortController(), preempted: false };
     running.set(job.id, entry);
     try {
-      const result = await processMedia(deps, { id: job.mediaFileId, path: job.path }, {
-        onTracks: (tracks) => setTracks(db, job, tracks),
-        signal: AbortSignal.any([abort.signal, entry.ctl.signal]),
-        onProgress: (fraction) => {
-          if (now() - lastWrite < PROGRESS_EVERY_MS) return;
-          lastWrite = now();
-          setProgress(db, job.id, Math.min(fraction, 1) * MAIN_RUN_SHARE);
-        },
-      });
+      let result: ProcessResult;
+      for (;;) {
+        try {
+          result = await processMedia(deps, { id: job.mediaFileId, path: job.path }, {
+            onTracks: (tracks) => setTracks(db, job, tracks),
+            signal: AbortSignal.any([abort.signal, entry.ctl.signal]),
+            onProgress: (fraction) => {
+              if (now() - lastWrite < PROGRESS_EVERY_MS) return;
+              lastWrite = now();
+              setProgress(db, job.id, Math.min(fraction, 1) * MAIN_RUN_SHARE);
+            },
+          });
+          break;
+        } catch (err) {
+          const canRetry =
+            err instanceof InvalidPackageError && !retried && !reprocessedInvalid.has(job.mediaFileId) && !abort.signal.aborted && !entry.preempted;
+          if (!canRetry) throw err;
+          retried = true;
+          reprocessedInvalid.add(job.mediaFileId);
+          lastWrite = Number.NEGATIVE_INFINITY;
+          log('warn', `${job.path}: invalid HLS package produced, reprocessing once`);
+        }
+      }
       complete(db, job, result);
       log('info', `processed ${job.path}`);
     } catch (err) {
@@ -75,7 +93,11 @@ export function createWorker(opts: WorkerOptions): Worker {
         log('info', `${job.path}: interrupted for a play request, requeued`);
         return;
       }
-      const message = (err instanceof SourceMissingError ? err.message : `processing failed: ${(err as Error).message}`).slice(0, MAX_ERROR_CHARS);
+      const message = (
+        err instanceof SourceMissingError
+          ? err.message
+          : `processing failed${retried ? ' after one automatic reprocess' : ''}: ${(err as Error).message}`
+      ).slice(0, MAX_ERROR_CHARS);
       fail(db, job, message);
       log('warn', `${job.path}: ${message}`);
     } finally {

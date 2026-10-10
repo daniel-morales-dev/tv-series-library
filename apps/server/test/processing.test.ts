@@ -29,6 +29,21 @@ const INFO: StreamInfo = {
 };
 const PLAN: Plan = buildPlan(INFO);
 
+// A complete package as ffmpeg leaves it: master with every rendition and the playlists it references.
+function writeHlsPackage(out: string) {
+  writeFileSync(
+    join(out, 'master.m3u8'),
+    '#EXTM3U\n#EXT-X-VERSION:7\n' +
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_aud",NAME="audio_1",DEFAULT=YES,LANGUAGE="jpn",URI="a0/index.m3u8"\n' +
+      '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="group_aud",NAME="audio_2",LANGUAGE="eng",URI="a1/index.m3u8"\n' +
+      '#EXT-X-STREAM-INF:BANDWIDTH=211200,RESOLUTION=1920x1080,CODECS="avc1.640028,mp4a.40.2",AUDIO="group_aud"\n' +
+      'v/index.m3u8\n\n',
+  );
+  for (const p of ['v/index.m3u8', 'a0/index.m3u8', 'a1/index.m3u8']) {
+    writeFileSync(join(out, p), '#EXTM3U\n#EXT-X-VERSION:7\n#EXTINF:6.006000,\nseg_00000.m4s\n');
+  }
+}
+
 describe('ffmpeg arguments', () => {
   it('builds one HLS run for video and every audio rendition', () => {
     const args = mainArgs(PLAN, '/src.mkv', '/out');
@@ -94,8 +109,7 @@ function env(runner?: RunFfmpeg, now: () => number = () => 0) {
     if (args.includes('-var_stream_map')) {
       const out = dirname(dirname(args.at(-1)!));
       o?.onProgress?.(50);
-      writeFileSync(join(out, 'master.m3u8'), '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME="audio_1",URI="a0/index.m3u8"\n');
-      writeFileSync(join(out, 'v/index.m3u8'), '#EXTM3U');
+      writeHlsPackage(out);
     } else {
       for (const a of args) if (/\.(vtt|ass|ttf)$/.test(a)) writeFileSync(a, 'x');
     }
@@ -148,8 +162,7 @@ describe('worker', () => {
         writeFileSync(join(dirname(dirname(args.at(-1)!)), 'partial'), 'x');
         throw new Error('ffmpeg exited with 1: Invalid data');
       }
-      const out = dirname(dirname(args.at(-1)!));
-      writeFileSync(join(out, 'master.m3u8'), '#EXTM3U');
+      if (args.includes('-var_stream_map')) writeHlsPackage(dirname(dirname(args.at(-1)!)));
     });
     const bad = e.source('bad.mkv');
     const good = e.source('good.mkv');
@@ -183,7 +196,7 @@ describe('worker', () => {
         o?.onProgress?.(seconds);
         seen.push(get<{ progress: number }>(db, 'SELECT progress FROM jobs')!.progress);
       }
-      writeFileSync(join(dirname(dirname(args.at(-1)!)), 'master.m3u8'), '#EXTM3U');
+      writeHlsPackage(dirname(dirname(args.at(-1)!)));
     }, () => t);
     db = e.db;
     const id = e.source();
@@ -202,7 +215,7 @@ describe('play while processing', () => {
     const e = env(async (args, o) => {
       if (!args.includes('-var_stream_map')) return void args.forEach((a) => /\.(vtt|ass|ttf)$/.test(a) && writeFileSync(a, 'x'));
       const out = outDir(args);
-      writeFileSync(join(out, 'master.m3u8'), '#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,NAME="audio_1",URI="a0/index.m3u8"\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv/index.m3u8\n\n');
+      writeHlsPackage(out);
       o?.onProgress?.(10);
       await new Promise((r) => setTimeout(r, 50));
       namedMidRun = readFileSync(join(out, 'master.m3u8'), 'utf8');
@@ -221,7 +234,7 @@ describe('play while processing', () => {
     const e = env(async (args) => {
       if (!args.includes('-var_stream_map')) return void args.forEach((a) => /\.(vtt|ass|ttf)$/.test(a) && writeFileSync(a, 'x'));
       during = get<any>(db, 'SELECT status, subtitle_tracks, audio_tracks FROM media_files');
-      writeFileSync(join(outDir(args), 'master.m3u8'), '#EXTM3U');
+      writeHlsPackage(outDir(args));
     });
     db = e.db;
     e.source();
@@ -244,7 +257,7 @@ describe('play while processing', () => {
           o?.signal?.addEventListener('abort', () => reject(new Error('aborted')));
         });
       }
-      writeFileSync(join(out, 'master.m3u8'), '#EXTM3U');
+      writeHlsPackage(out);
     });
     const slow = e.source('slow.mkv');
     const fast = e.source('fast.mkv');
