@@ -10,7 +10,7 @@ import { fileStatus, movieStatus, needsPolling } from '../fileStatus.ts';
 import { fileLanguages, titleLanguages } from '../languages.ts';
 import { KIND_LABEL, initial, progressPct, remainingLabel } from '../library.ts';
 import { hasHero, inMyList, loadMyList, toggleMyList } from '../session.ts';
-import { airDateLabel, buildEpisodes, castOf, episodeAction, isPlayable, playPlan, runtimeLabel, type EpisodeRow } from '../titlePage.ts';
+import { airDateLabel, buildEpisodes, castOf, episodeAction, isPlayable, playPlan, runtimeLabel, seasonFinished, type EpisodeRow } from '../titlePage.ts';
 import type { Job, MediaFile, TitleDetail } from '../types.ts';
 
 const route = useRoute();
@@ -104,6 +104,19 @@ async function toggleFinished() {
   }
 }
 
+const seasonDone = computed(() => (season.value ? seasonFinished(season.value) : false));
+async function toggleSeasonFinished() {
+  const pid = getProfileId();
+  if (!pid || !detail.value || !season.value || busy.value) return;
+  busy.value = true;
+  try {
+    await api.setSeasonFinished(pid, detail.value.id, season.value.number, !seasonDone.value);
+    await load();
+  } finally {
+    busy.value = false;
+  }
+}
+
 // Episode panel: opened via ?episode=<id>; focus returns to the row that opened it.
 let opener: HTMLElement | null = null;
 function openEpisode(r: EpisodeRow, ev?: Event) {
@@ -174,6 +187,9 @@ async function closeEpisode() {
             </button>
           </div>
           <p v-else-if="season.name" class="muted season-name">{{ season.name }} · {{ season.rows.length }} episodios</p>
+          <button v-if="detail.kind !== 'movie'" class="pill glass season-seen" :disabled="busy" :aria-pressed="seasonDone" @click="toggleSeasonFinished">
+            <Icon :name="seasonDone ? 'close' : 'check'" :size="20" /> {{ seasonDone ? 'Marcar temporada como no vista' : 'Marcar temporada como vista' }}
+          </button>
         </div>
 
         <ol class="list">
@@ -272,6 +288,7 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .eps-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 22px; margin-bottom: 14px; }
 .eps-head h2 { margin: 0; }
 .season-name { margin: 0; }
+.season-seen { margin-left: auto; }
 .tabs { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
 .tabs button { min-height: 40px; padding: 0 16px; border-radius: 999px; font-weight: 600; white-space: nowrap; background: var(--bg-card); color: var(--text-dim); }
 .tabs button.on { background: var(--accent); color: var(--accent-ink); }

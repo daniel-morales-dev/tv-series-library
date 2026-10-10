@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { airDateLabel, buildEpisodes, castOf, episodeAction, playPlan, runtimeLabel } from './titlePage.ts';
+import { airDateLabel, buildEpisodes, castOf, episodeAction, playPlan, runtimeLabel, seasonFinished } from './titlePage.ts';
 import type { Credit, Episode, MediaFile, TitleDetail } from './types.ts';
 
 const ep = (id: number, number: number): Episode => ({ id, number, name: `E${number}`, overview: null, runtimeMin: 24, stillPath: null, airDate: null });
@@ -103,5 +103,19 @@ describe('castOf', () => {
   it('keeps cast only, capped', () => {
     const c = (n: number, role: Credit['role']): Credit => ({ personId: n, name: `P${n}`, profilePath: null, role, character: null });
     expect(castOf([c(1, 'director'), c(2, 'cast'), c(3, 'cast')], 1).map((x) => x.personId)).toEqual([2]);
+  });
+});
+
+describe('seasonFinished', () => {
+  it('is true only when every episode that has a file is completed', () => {
+    const all3 = [prog(11, 1000, true), prog(12, 1000, true), prog(13, 1000, true)];
+    expect(seasonFinished(buildEpisodes(detail({ progress: all3 }))[0]!)).toBe(true);
+    expect(seasonFinished(buildEpisodes(detail({ progress: all3.slice(0, 2) }))[0]!)).toBe(false);
+    expect(seasonFinished(buildEpisodes(detail({ progress: [prog(11, 1000, true), prog(12, 1000, true), prog(13, 100)] }))[0]!)).toBe(false);
+  });
+  it('ignores episodes without a file and is false when no episode has one', () => {
+    const d = detail({ files: [file(11, 1), file(12, 2)], progress: [prog(11, 1000, true), prog(12, 1000, true)] });
+    expect(seasonFinished(buildEpisodes(d)[0]!)).toBe(true);
+    expect(seasonFinished(buildEpisodes(detail({ files: [] }))[0]!)).toBe(false);
   });
 });

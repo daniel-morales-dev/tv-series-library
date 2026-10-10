@@ -29,6 +29,12 @@ export function buildEpisodes(d: TitleDetail): SeasonRows[] {
     }));
 }
 
+/** Every episode of the season that has a file is completed (episodes without a file cannot be marked). */
+export function seasonFinished(s: SeasonRows): boolean {
+  const withFile = s.rows.filter((r) => r.file);
+  return withFile.length > 0 && withFile.every((r) => r.progress?.completed);
+}
+
 /**
  * Newest live row for one episode: highest `id` among rows not `downloading`.
  * If every match is downloading, the highest `id` among them; `null` when empty.

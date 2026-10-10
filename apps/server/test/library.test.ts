@@ -175,6 +175,55 @@ describe('finished', () => {
     ]);
   });
 
+  it('season true/false completes or clears only that season of that profile and title', async () => {
+    const { app, db } = setup();
+    const p = addProfile(db);
+    const other = addProfile(db, 'b');
+    const t = addTitle(db, 'Show', { kind: 'series' });
+    const s1a = addEpisode(db, t, 1, 1);
+    const s1b = addEpisode(db, t, 1, 2);
+    const s2a = addEpisode(db, t, 2, 1);
+    const extra = addFile(db, t, { extraLabel: 'NCOP' });
+    progress(db, p, s1a, 100, 1000, '2026-01-01T00:00:00Z');
+    progress(db, other, s1b, 100, 1000, '2026-01-01T00:00:00Z');
+    const done = () =>
+      all<any>(db, 'SELECT profile_id, media_file_id, completed FROM watch_progress ORDER BY profile_id, media_file_id');
+
+    expect((await put(app, `/api/profiles/${p}/titles/${t}/seasons/1/finished`, { finished: true })).statusCode).toBe(204);
+    expect(done()).toEqual([
+      { profile_id: p, media_file_id: s1a, completed: 1 },
+      { profile_id: p, media_file_id: s1b, completed: 1 },
+      { profile_id: other, media_file_id: s1b, completed: 0 },
+    ]);
+    expect(done().some((r) => r.media_file_id === s2a || r.media_file_id === extra)).toBe(false);
+
+    expect((await put(app, `/api/profiles/${p}/titles/${t}/seasons/1/finished`, { finished: false })).statusCode).toBe(204);
+    expect(done()).toEqual([{ profile_id: other, media_file_id: s1b, completed: 0 }]);
+  });
+
+  it('unmarking a season drops the title-level finished flag', async () => {
+    const { app, db } = setup();
+    const p = addProfile(db);
+    const t = addTitle(db, 'Show', { kind: 'series' });
+    addEpisode(db, t, 1, 1);
+    addEpisode(db, t, 2, 1);
+    await put(app, `/api/profiles/${p}/titles/${t}/finished`, { finished: true });
+    await put(app, `/api/profiles/${p}/titles/${t}/seasons/2/finished`, { finished: false });
+    expect((await app.inject(`/api/titles/${t}?profileId=${p}`)).json().finished).toBe(false);
+  });
+
+  it('season endpoint 404s on unknown profile, title or season and validates the body', async () => {
+    const { app, db } = setup();
+    const p = addProfile(db);
+    const t = addTitle(db, 'Show', { kind: 'series' });
+    addEpisode(db, t, 1, 1);
+    const url = (pid: number, tid: number, n: number) => `/api/profiles/${pid}/titles/${tid}/seasons/${n}/finished`;
+    expect((await put(app, url(99, t, 1), { finished: true })).statusCode).toBe(404);
+    expect((await put(app, url(p, 99, 1), { finished: true })).statusCode).toBe(404);
+    expect((await put(app, url(p, t, 7), { finished: true })).statusCode).toBe(404);
+    expect((await put(app, url(p, t, 1), { finished: 'yes' })).statusCode).toBe(400);
+  });
+
   it('validates body and existence', async () => {
     const { app, db } = setup();
     const p = addProfile(db);

@@ -41,6 +41,8 @@ export const api = {
   title: (id: number, profileId: number) => request<TitleDetail>(`/titles/${id}?profileId=${profileId}`),
   setFinished: (pid: number, titleId: number, finished: boolean) =>
     request<void>(`/profiles/${pid}/titles/${titleId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
+  setSeasonFinished: (pid: number, titleId: number, season: number, finished: boolean) =>
+    request<void>(`/profiles/${pid}/titles/${titleId}/seasons/${season}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   config: () => request<AppConfig>('/config'),
   dirs: (path?: string) => request<DirListing>(`/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   network: () => request<NetworkInfo>('/network'),
