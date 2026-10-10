@@ -5,6 +5,7 @@ import { processingRoutes } from './modules/processing/routes.ts';
 import type { Worker } from './modules/processing/worker.ts';
 import { ingestRoutes } from './modules/ingest/routes.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
+import { randomRoutes } from './modules/random/routes.ts';
 import { profileRoutes } from './modules/profiles/routes.ts';
 import { myListRoutes } from './modules/my-list/routes.ts';
 import { progressRoutes } from './modules/progress/routes.ts';
@@ -39,6 +40,7 @@ export function buildApp({ db, logger = false, dataDir = './data', ingestor, wor
       fsRoutes(api, fs);
       profileRoutes(api, db);
       catalogRoutes(api, db);
+      randomRoutes(api, db);
       searchRoutes(api, db);
       myListRoutes(api, db);
       progressRoutes(api, db);
