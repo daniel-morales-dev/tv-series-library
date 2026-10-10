@@ -1,7 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { join, resolve } from 'node:path';
+import { type Statfs, LowDiskError, createCache } from './cache.ts';
 import { KeepChildren, type ProbeStreams, type RunFfmpeg, type SpawnInfo, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
-import { type Adoption, InvalidPackageError, SourceMissingError, processMedia } from './process.ts';
+import { type Adoption, InvalidPackageError, type ProcessDeps, SourceMissingError, processMedia } from './process.ts';
 import { findWriters, isOurFfmpeg, signalIfSame, terminate } from './proc.ts';
 import {
   type ProcessResult,
@@ -34,6 +35,14 @@ export interface WorkerOptions {
   /** Poll interval for progress files and adopted processes. */
   pollMs?: number;
   now?: () => number;
+  /** T47c: copy-mode files stay unpackaged until first play (default true). */
+  lazyCopy?: boolean;
+  /** Cache of copy packages is evicted LRU above this many bytes (default 20 GB). */
+  cacheBudgetBytes?: number;
+  /** Free space kept on the HLS volume: the larger of this (default 10 GB) and `minFreePct` (default 10 %) of it. */
+  minFreeBytes?: number;
+  minFreePct?: number;
+  statfs?: Statfs;
   log?: (level: 'info' | 'warn', message: string) => void;
 }
 
@@ -53,12 +62,14 @@ export interface Worker {
   /** Resumes claiming queued work by priority. */
   resume(): void;
   isPaused(): boolean;
+  /** Set while processing is paused for lack of disk space. */
+  lowDisk(): { message: string } | null;
 }
 
 export function createWorker(opts: WorkerOptions): Worker {
   const { db } = opts;
   const concurrency = Math.max(1, opts.concurrency ?? 1);
-  const deps = {
+  const deps: ProcessDeps = {
     dataDir: opts.dataDir,
     contentDir: opts.contentDir,
     runFfmpeg: opts.runFfmpeg ?? realRun,
@@ -69,6 +80,19 @@ export function createWorker(opts: WorkerOptions): Worker {
   const hlsRoot = join(resolve(opts.dataDir), 'hls');
   const now = opts.now ?? Date.now;
   const log = opts.log ?? (() => {});
+  const lazyCopy = opts.lazyCopy ?? true;
+  const cache = createCache({
+    db,
+    dataDir: opts.dataDir,
+    contentDir: opts.contentDir,
+    budgetBytes: opts.cacheBudgetBytes ?? 20 * 1024 ** 3,
+    minFreeBytes: opts.minFreeBytes ?? 10 * 1024 ** 3,
+    minFreePct: opts.minFreePct ?? 10,
+    probeStreams: deps.probeStreams,
+    statfs: opts.statfs,
+    log,
+  });
+  deps.ensureSpace = (needed, id) => cache.ensureSpace(needed, id);
   const abort = new AbortController();
   let active = 0;
   // `proc` is the job's main ffmpeg once known; `stopped` means a pause froze it with SIGSTOP (job still running).
@@ -77,6 +101,9 @@ export function createWorker(opts: WorkerOptions): Worker {
   let idle: (() => void)[] = [];
   // In memory only: a server restart resumes processing with the backlog.
   let paused = false;
+  // Set while the pause is for lack of disk space; `required` is the free space the job that hit it needs to start.
+  let lowDisk: { message: string; needed: number } | null = null;
+  let checkingDisk = false;
   // False while orphan ffmpeg processes from a previous server are being terminated: no job may start before that.
   let ready = true;
   let startup: Promise<void> = Promise.resolve();
@@ -106,6 +133,7 @@ export function createWorker(opts: WorkerOptions): Worker {
               setSpawned(db, job.id, p);
             },
             adopt: retried ? undefined : adopt,
+            lazyCopy: lazyCopy && job.lazyEligible === true,
             signal: AbortSignal.any([abort.signal, entry.ctl.signal]),
             onProgress: (fraction) => {
               if (now() - lastWrite < PROGRESS_EVERY_MS) return;
@@ -125,12 +153,23 @@ export function createWorker(opts: WorkerOptions): Worker {
         }
       }
       complete(db, job, result);
-      log('info', `processed ${job.path}`);
+      if (result.hlsDir === null) log('info', `${job.path}: copy-mode source, package deferred until its first play`);
+      else log('info', `processed ${job.path}`);
+      if (result.mode === 'copy' && result.hlsDir !== null) {
+        await cache.enforceBudget(job.mediaFileId).catch((e) => log('warn', `cache: eviction failed: ${(e as Error).message}`));
+      }
     } catch (err) {
       if (abort.signal.aborted) return; // shutting down: the job stays running and is requeued on the next start
       if (entry.preempted) {
         requeue(db, job);
         log('info', `${job.path}: interrupted for a play request, requeued`);
+        return;
+      }
+      if (err instanceof LowDiskError) {
+        requeue(db, job);
+        log('warn', err.message);
+        lowDisk = { message: err.message, needed: err.neededBytes };
+        pause();
         return;
       }
       const message = (
@@ -145,8 +184,23 @@ export function createWorker(opts: WorkerOptions): Worker {
     }
   }
 
+  // Paused for lack of space: resumes by itself once the job that stopped can fit (evicting cache if that is enough).
+  async function resumeIfSpace() {
+    if (!lowDisk || checkingDisk) return;
+    checkingDisk = true;
+    try {
+      await cache.ensureSpace(lowDisk.needed, -1);
+    } catch {
+      return;
+    } finally {
+      checkingDisk = false;
+    }
+    resume();
+  }
+
   function kick() {
     if (abort.signal.aborted || !ready) return;
+    if (lowDisk) void resumeIfSpace();
     while (active < concurrency) {
       if (paused) break;
       const job = claimNext(db);
@@ -190,6 +244,7 @@ export function createWorker(opts: WorkerOptions): Worker {
 
   function resume() {
     paused = false;
+    lowDisk = null;
     for (const entry of running.values()) {
       if (!entry.stopped || !entry.proc) continue;
       signalIfSame(entry.proc.pid, entry.proc.pidStart, 'SIGCONT');
@@ -210,8 +265,10 @@ export function createWorker(opts: WorkerOptions): Worker {
     pause,
     resume,
     isPaused: () => paused,
+    lowDisk: () => (lowDisk ? { message: lowDisk.message } : null),
     drain,
     start() {
+      void cache.classifyLegacy().catch((e) => log('warn', `cache: classification failed: ${(e as Error).message}`));
       // Jobs whose ffmpeg survived the last server are adopted; any other writer on a package folder is an orphan.
       const adopted = new Map<number, Adoption & { job: ReturnType<typeof runningWithProcess>[number] }>();
       for (const job of runningWithProcess(db)) {

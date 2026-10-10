@@ -58,7 +58,7 @@ function scene() {
     return real(args, o);
   };
   const worker = (o: { concurrency?: number } = {}) =>
-    createWorker({ db, dataDir, contentDir, runFfmpeg: spy, probeStreams: async () => INFO, pollMs: 40, ...o });
+    createWorker({ db, dataDir, contentDir, runFfmpeg: spy, probeStreams: async () => INFO, pollMs: 40, lazyCopy: false, ...o });
   const job = () => get<any>(db, 'SELECT * FROM jobs')!;
   const file = () => get<any>(db, 'SELECT * FROM media_files WHERE id = ?', fileId)!;
   const tmpDir = join(dataDir, 'hls', `${fileId}.tmp`);

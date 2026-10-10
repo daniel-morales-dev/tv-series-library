@@ -6,6 +6,8 @@ export interface ClaimedJob {
   mediaFileId: number;
   path: string;
   durationS: number | null;
+  /** Imported/queued without a play request and without a package: a copy-mode file may stay unpackaged (T47c). */
+  lazyEligible?: boolean;
 }
 
 export interface JobView {
@@ -19,11 +21,17 @@ export interface JobView {
   updatedAt: string;
 }
 
-export interface ProcessResult {
-  /** Relative to DATA_DIR. */
-  hlsDir: string;
+export interface ProcessTracks {
   audio: unknown[];
   subtitles: unknown[];
+}
+
+export interface ProcessResult extends ProcessTracks {
+  /** Relative to DATA_DIR; null when a copy-mode package was deferred until the first play. */
+  hlsDir: string | null;
+  mode?: 'copy' | 'x264';
+  /** Size of the published package. */
+  bytes?: number;
 }
 
 export interface SpawnedProcess {
@@ -114,16 +122,22 @@ export function requeueErrors(db: DatabaseSync): void {
 // Requested-to-play first, then episodes and movies before extras, then oldest first.
 export function claimNext(db: DatabaseSync): ClaimedJob | undefined {
   return transaction(db, () => {
-    const row = get<{ id: number; media_file_id: number; path: string; duration_s: number | null }>(
+    const row = get<{ id: number; media_file_id: number; path: string; duration_s: number | null; priority: number; hls_dir: string | null }>(
       db,
-      `SELECT j.id, j.media_file_id, m.path, m.duration_s FROM jobs j JOIN media_files m ON m.id = j.media_file_id
+      `SELECT j.id, j.media_file_id, m.path, m.duration_s, j.priority, m.hls_dir FROM jobs j JOIN media_files m ON m.id = j.media_file_id
        WHERE j.type = 'process' AND j.status = 'queued'
        ORDER BY j.priority DESC, (m.extra_label IS NOT NULL), j.id LIMIT 1`,
     );
     if (!row) return undefined;
     run(db, `UPDATE jobs SET status = 'running', progress = 0, error = NULL, ${CLEAR_PROCESS}, updated_at = ${NOW} WHERE id = ?`, row.id);
     run(db, "UPDATE media_files SET status = 'processing', error = NULL WHERE id = ?", row.media_file_id);
-    return { id: row.id, mediaFileId: row.media_file_id, path: row.path, durationS: row.duration_s };
+    return {
+      id: row.id,
+      mediaFileId: row.media_file_id,
+      path: row.path,
+      durationS: row.duration_s,
+      lazyEligible: row.priority === 0 && row.hls_dir === null,
+    };
   });
 }
 
@@ -152,7 +166,7 @@ export function setProgress(db: DatabaseSync, jobId: number, progress: number): 
 }
 
 // Track outputs are known once subtitles are extracted, long before the video finishes.
-export function setTracks(db: DatabaseSync, job: ClaimedJob, tracks: Omit<ProcessResult, 'hlsDir'>): void {
+export function setTracks(db: DatabaseSync, job: ClaimedJob, tracks: ProcessTracks): void {
   run(
     db,
     'UPDATE media_files SET audio_tracks = ?, subtitle_tracks = ? WHERE id = ?',
@@ -167,10 +181,15 @@ export function complete(db: DatabaseSync, job: ClaimedJob, result: ProcessResul
     run(db, `UPDATE jobs SET status = 'done', progress = 1, error = NULL, ${CLEAR_PROCESS}, updated_at = ${NOW} WHERE id = ?`, job.id);
     run(
       db,
-      "UPDATE media_files SET status = 'ready', hls_dir = ?, audio_tracks = ?, subtitle_tracks = ?, error = NULL WHERE id = ?",
+      `UPDATE media_files SET status = 'ready', hls_dir = ?, audio_tracks = ?, subtitle_tracks = ?, error = NULL,
+         pkg_mode = COALESCE(?, pkg_mode), pkg_bytes = ?,
+         last_played_at = CASE WHEN ? IS NULL THEN last_played_at ELSE ${NOW} END WHERE id = ?`,
       result.hlsDir,
       JSON.stringify(result.audio),
       JSON.stringify(result.subtitles),
+      result.mode ?? null,
+      result.bytes ?? null,
+      result.hlsDir,
       job.mediaFileId,
     );
   });

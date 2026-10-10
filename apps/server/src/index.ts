@@ -6,6 +6,7 @@ import { openDb } from './db/connection.ts';
 import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
 import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
 import { networkRoutes } from './modules/network/routes.ts';
+import { GB } from './modules/processing/cache.ts';
 import { requeueErrors } from './modules/processing/queue.ts';
 import { createWorker } from './modules/processing/worker.ts';
 import { createShutdown } from './shutdown.ts';
@@ -44,6 +45,12 @@ if (process.env.INGEST !== 'off') {
   if (!token) console.warn('TMDB_READ_ACCESS_TOKEN is not set: ingesting offline');
 }
 
+// T47c: non-negative number from the environment, else the default.
+const envNumber = (name: string, fallback: number) => {
+  const n = Number(process.env[name]);
+  return process.env[name] && Number.isFinite(n) && n >= 0 ? n : fallback;
+};
+
 const worker =
   process.env.PROCESSING === 'off'
     ? undefined
@@ -54,6 +61,9 @@ const worker =
         concurrency: Number(process.env.PROCESS_CONCURRENCY ?? 1),
         // T35: 8 threads measured ~1.24x over 4 while still leaving half of the 16 cores free for playback.
         threads: Number(process.env.FFMPEG_THREADS ?? 8),
+        cacheBudgetBytes: envNumber('CACHE_BUDGET_GB', 20) * GB,
+        minFreeBytes: envNumber('MIN_FREE_GB', 10) * GB,
+        minFreePct: envNumber('MIN_FREE_PCT', 10),
         log: (level, message) => app.log[level](message),
       });
 

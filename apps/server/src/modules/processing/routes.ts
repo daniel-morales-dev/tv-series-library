@@ -4,6 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { sendFile } from '../../http/static-file.ts';
 import { all, get } from '../../db/sql.ts';
+import { touchPlayed } from './cache.ts';
 import { enqueue, listJobs } from './queue.ts';
 import type { Worker } from './worker.ts';
 
@@ -94,7 +95,19 @@ function activityView(db: DatabaseSync) {
 
 export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir: string, worker?: Worker): void {
   api.get('/jobs', async () => listJobs(db));
-  api.get('/activity', async () => ({ ...activityView(db), paused: worker?.isPaused() ?? false }));
+  api.get('/activity', async () => {
+    const lowDisk = worker?.lowDisk() ?? null;
+    return { ...activityView(db), paused: worker?.isPaused() ?? false, lowDisk: lowDisk !== null, lowDiskMessage: lowDisk?.message ?? null };
+  });
+
+  // A ready copy-mode file whose package was never built (or was evicted): built on demand, ahead of the queue.
+  const isLazy = (f: { status: string; hls_dir: string | null; pkg_mode: string | null }) =>
+    f.status === 'ready' && f.hls_dir === null && f.pkg_mode === 'copy';
+  function requestPackage(id: number): number {
+    const jobId = enqueue(db, id, true);
+    worker?.prioritize(id);
+    return jobId;
+  }
 
   api.post('/processing/pause', async (_req, reply) => {
     if (!worker) return reply.code(409).send({ error: 'processing_disabled' });
@@ -118,13 +131,20 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir
   });
 
   api.post<{ Params: { id: number } }>('/media-files/:id/play', { schema: { params: idParams('id') } }, async (req, reply) => {
-    const file = get<{ status: string }>(db, 'SELECT status FROM media_files WHERE id = ?', req.params.id);
+    const file = get<{ status: string; hls_dir: string | null; pkg_mode: string | null }>(
+      db,
+      'SELECT status, hls_dir, pkg_mode FROM media_files WHERE id = ?',
+      req.params.id,
+    );
     if (!file) return reply.code(404).send({ error: 'not_found' });
     if (file.status === 'downloading') return reply.code(409).send({ error: 'downloading' });
-    if (file.status === 'ready') return { status: 'ready' };
-    const jobId = enqueue(db, req.params.id, true);
-    worker?.prioritize(req.params.id);
-    return reply.code(202).send({ status: 'processing', jobId });
+    const lazy = isLazy(file);
+    if (file.status === 'ready' && !lazy) {
+      touchPlayed(db, req.params.id);
+      return { status: 'ready' };
+    }
+    // `processing` is what the player already waits on; `preparing` tells it this is only the on-demand package.
+    return reply.code(202).send({ status: 'processing', preparing: lazy, jobId: requestPackage(req.params.id) });
   });
 
   // Playlists change when a file is reprocessed, so only the media itself may be cached.
@@ -135,6 +155,18 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir
     async (req, reply) => {
       const dir = join(dataDir, 'hls', String(req.params.mediaFileId));
       const base = (await stat(dir).catch(() => null))?.isDirectory() ? dir : `${dir}.tmp`;
+      if (base !== dir && !(await stat(base).catch(() => null))?.isDirectory()) {
+        const file = get<{ status: string; hls_dir: string | null; pkg_mode: string | null }>(
+          db,
+          'SELECT status, hls_dir, pkg_mode FROM media_files WHERE id = ?',
+          req.params.mediaFileId,
+        );
+        if (file && isLazy(file)) {
+          requestPackage(req.params.mediaFileId);
+          return reply.code(503).header('Retry-After', '2').send({ error: 'preparing' });
+        }
+      }
+      touchPlayed(db, req.params.mediaFileId);
       return sendFile(reply, base, req.params['*'], STREAM_TYPES, (ext) => (ext === '.m3u8' ? 'no-cache' : 'public, max-age=3600'));
     },
   );

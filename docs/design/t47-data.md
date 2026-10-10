@@ -42,7 +42,7 @@ Bajar solo el bitrate ahorra ~7–9 GB (~10 %); lo grande es no duplicar lo ya c
 ## Tareas (≈ 22 pts)
 - T47a (3, en curso) resolvedor `stateDir`/`libraryDir`; BD e imágenes fuera del repo con migración; unit/lanzador/backup/`index.ts` lo usan; eliminar la BD sobrante.
 - T47b (2, en curso) fuentes por hash, purga de huérfanos con dry-run y confirmación, informe.
-- T47c (5) copy perezoso + LRU + presupuesto + ADR 0006.
+- T47c (5, hecha) copy perezoso + LRU + presupuesto + ADR 0006 (`docs/adr/0006-copy-perezoso-y-cache.md`; migración 008, `processing/cache.ts`).
   - Presupuesto de caché configurable con default seguro. El LRU expulsa solo cachés regenerables (copy); nunca paquetes x264 ni originales.
   - Comprobar espacio libre antes de generar una caché de copy.
 - T47d (5) HLS bajo `.sala/hls` + guardián de disco ausente + watcher acotado.

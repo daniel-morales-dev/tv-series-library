@@ -3,9 +3,10 @@ import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/p
 import { join, resolve } from 'node:path';
 import { LOG_FILE, PROGRESS_FILE, type ProbeStreams, type RunFfmpeg, type SpawnInfo, extractArgs, keepsChildren, mainArgs, nameRenditions } from './ffmpeg.ts';
 import { isOurFfmpeg, readProgress, terminate, waitForExit, watchProgress } from './proc.ts';
+import { ESTIMATE_RATIO, dirBytes } from './cache.ts';
 import { dedupeFontsDir } from './fonts.ts';
 import { type Plan, buildPlan } from './plan.ts';
-import type { ProcessResult } from './queue.ts';
+import type { ProcessResult, ProcessTracks } from './queue.ts';
 
 const HAS_VARIANT = /^#EXT-X-STREAM-INF:/m;
 const ENDS_WITH_PLAYLIST = /\.m3u8\n*$/;
@@ -30,6 +31,8 @@ export interface ProcessDeps {
   threads?: number;
   /** How often progress files and adopted processes are polled. */
   pollMs?: number;
+  /** Called before any package is written: throws (LowDiskError) when the volume cannot take `neededBytes` safely. */
+  ensureSpace?: (neededBytes: number, mediaFileId: number) => Promise<void>;
 }
 
 /** A job's ffmpeg left running by the previous server. */
@@ -143,14 +146,17 @@ export async function processMedia(
   file: { id: number; path: string },
   opts: {
     onProgress?: (fraction: number) => void;
-    onTracks?: (tracks: Omit<ProcessResult, 'hlsDir'>) => void;
+    onTracks?: (tracks: ProcessTracks) => void;
+    /** A copy-mode source is left unpackaged (T47c); the package is built when somebody plays it. */
+    lazyCopy?: boolean;
     onSpawn?: (info: SpawnInfo & { planHash: string }) => void;
     adopt?: Adoption;
     signal?: AbortSignal;
   } = {},
 ): Promise<ProcessResult> {
   const src = join(deps.contentDir, file.path);
-  if (!(await stat(src).catch(() => null))?.isFile()) throw new SourceMissingError(file.path);
+  const srcStat = await stat(src).catch(() => null);
+  if (!srcStat?.isFile()) throw new SourceMissingError(file.path);
 
   const info = await deps.probeStreams(src);
   const plan = buildPlan(info);
@@ -163,6 +169,11 @@ export async function processMedia(
       index: s.index, codec: s.codec, language: s.language, title: s.title, supported: s.supported, vtt: s.vtt, ass: s.ass,
     })),
   };
+  const mode = plan.video.mode;
+  if (opts.lazyCopy && !opts.adopt && mode === 'copy') {
+    opts.onTracks?.(tracks);
+    return { hlsDir: null, mode, ...tracks };
+  }
   const args = mainArgs(plan, src, tmpDir, { threads: deps.threads });
   const planHash = createHash('sha1').update(JSON.stringify(args)).digest('hex');
   const { signal } = opts;
@@ -175,6 +186,7 @@ export async function processMedia(
       finished = await adoptRunning(deps, opts.adopt, { tmpDir, planHash, signal, onProgress: report });
     }
     if (!finished) {
+      await deps.ensureSpace?.(Math.ceil(srcStat.size * ESTIMATE_RATIO[mode]), file.id);
       await rm(tmpDir, { recursive: true, force: true });
       for (const dir of ['v', ...plan.audio.map((a) => `a${a.n}`), 'subs', 'fonts']) await mkdir(join(tmpDir, dir), { recursive: true });
       // Subtitles and fonts first, so they exist as soon as playback can start.
@@ -217,5 +229,5 @@ export async function processMedia(
     throw err;
   }
 
-  return { hlsDir: rel, ...tracks };
+  return { hlsDir: rel, mode, bytes: await dirBytes(finalDir), ...tracks };
 }
