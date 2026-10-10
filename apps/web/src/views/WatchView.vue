@@ -4,7 +4,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router';
 import { api, getProfileId, playErrorMessage, saveProgress, streamUrl } from '../api.ts';
 import { isBackKey } from '../spatial.ts';
-import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
+import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
 import { SPEEDS, loadSpeed, saveSpeed, speedLabel } from '../speed.ts';
 import type { MediaFile, SubtitleTrack, TitleDetail } from '../types.ts';
 import Icon from '../components/Icon.vue';
@@ -31,6 +31,9 @@ const idle = ref(false);
 const fullscreen = ref(false);
 const next = ref<{ fileId: number; name: string } | null>(null);
 const countdown = ref(0);
+const playing = ref(false);
+const volume = ref(1);
+const muted = ref(false);
 
 let hls: Hls | undefined;
 let run = 0; // bumped on every (re)start so stale async work can bail out
@@ -118,6 +121,8 @@ async function start() {
 
 function attach(f: MediaFile, startAt: number) {
   const v = video.value!;
+  v.volume = volume.value;
+  v.muted = muted.value;
   const url = streamUrl(f.id);
   if (v.canPlayType('application/vnd.apple.mpegurl')) {
     // Native HLS (Safari): the browser owns audio-track selection; there is no JS API to list or pick tracks here.
@@ -185,12 +190,35 @@ function onVideoClick() {
   if (menu.value) menu.value = null;
   else togglePlay();
 }
+function skip(s: number) {
+  const v = video.value;
+  if (!v) return;
+  v.currentTime = Math.min(Math.max(0, v.currentTime + s), Number.isFinite(v.duration) ? v.duration : Infinity);
+  poke();
+}
+function applyVolume() {
+  const v = video.value;
+  if (!v) return;
+  v.volume = volume.value;
+  v.muted = muted.value;
+}
+function onVolume(e: Event) {
+  const value = Number((e.target as HTMLInputElement).value);
+  volume.value = value;
+  muted.value = value === 0;
+  applyVolume();
+}
+function toggleMute() {
+  muted.value = !muted.value;
+  if (!muted.value && volume.value === 0) volume.value = 1;
+  applyVolume();
+}
 function pickAudio(i: number) {
   if (hls) hls.audioTrack = i;
   audioIndex.value = i;
 }
 
-// ponytail: app-owned progress row for streams the native `controls` scrubber cannot seek (EVENT playlist while processing); T25 replaces native controls entirely.
+// ponytail: app-owned controls; the native scrubber cannot seek an EVENT playlist while the package is still processing (T25 removed the native controls).
 const now = ref(0);
 const total = ref(NaN);
 const seekState = computed(() => seekRange(now.value, total.value));
@@ -210,11 +238,13 @@ function onSeek(e: Event) {
 }
 
 const onPlay = () => {
+  playing.value = true;
   clearInterval(saveTimer);
   saveTimer = setInterval(save, 10_000);
   poke();
 };
 const onPause = () => {
+  playing.value = false;
   clearInterval(saveTimer);
   save();
   poke();
@@ -233,11 +263,22 @@ function cancelNext() {
   clearInterval(nextTimer);
   next.value = null;
 }
+const prevEp = computed(() => (detail.value && file.value ? prevFile(detail.value, file.value.id) : null));
+const nextEp = computed(() => (detail.value && file.value ? nextFile(detail.value, file.value.id) : null));
+function goTo(f: { fileId: number }) {
+  clearInterval(nextTimer);
+  router.replace({ path: `/watch/${f.fileId}`, query: { title: titleId.value } });
+}
 function goNext() {
   const n = next.value;
   if (!n) return;
-  clearInterval(nextTimer);
-  router.replace({ path: `/watch/${n.fileId}`, query: { title: titleId.value } });
+  goTo(n);
+}
+function goPrev() {
+  if (prevEp.value) goTo(prevEp.value);
+}
+function goNextEp() {
+  if (nextEp.value) goTo(nextEp.value);
 }
 const back = () => router.push(`/title/${titleId.value}`);
 
@@ -292,8 +333,6 @@ watch([fileId, titleId], start, { immediate: true });
     <video
       ref="video"
       v-show="phase === 'playing'"
-      controls
-      controlslist="nofullscreen"
       playsinline
       @click="onVideoClick"
       @play="onPlay"
@@ -331,7 +370,22 @@ watch([fileId, titleId], start, { immediate: true });
           <Icon :name="fullscreen ? 'fullscreenExit' : 'fullscreen'" :size="26" />
         </button>
       </div>
-      <div class="seek chrome">
+      <div class="controls chrome">
+        <button class="round" :aria-label="playing ? 'Pausar' : 'Reproducir'" :title="playing ? 'Pausar' : 'Reproducir'" @click="togglePlay">
+          <Icon :name="playing ? 'pause' : 'play'" :size="24" />
+        </button>
+        <button class="round" aria-label="Retroceder 10 segundos" title="Retroceder 10 segundos" @click="skip(-10)">
+          <Icon name="replay10" :size="24" />
+        </button>
+        <button class="round" aria-label="Avanzar 10 segundos" title="Avanzar 10 segundos" @click="skip(10)">
+          <Icon name="forward10" :size="24" />
+        </button>
+        <button class="round" aria-label="Episodio anterior" title="Episodio anterior" :disabled="!prevEp" @click="goPrev">
+          <Icon name="skipPrev" :size="24" />
+        </button>
+        <button class="round" aria-label="Episodio siguiente" title="Episodio siguiente" :disabled="!nextEp" @click="goNextEp">
+          <Icon name="skipNext" :size="24" />
+        </button>
         <span class="time">{{ clock(now) }}</span>
         <input
           type="range"
@@ -341,10 +395,15 @@ watch([fileId, titleId], start, { immediate: true });
           :value="seekState?.value ?? 0"
           :disabled="!seekState"
           aria-label="Posición de reproducción"
+          class="seekbar"
           @input="onSeek"
         />
         <span class="time">{{ clock(total) }}</span>
         <span v-if="!seekState" class="live">Procesando…</span>
+        <button class="round" :aria-label="muted ? 'Activar sonido' : 'Silenciar'" :title="muted ? 'Activar sonido' : 'Silenciar'" @click="toggleMute">
+          <Icon :name="muted ? 'volumeOff' : 'volumeUp'" :size="24" />
+        </button>
+        <input type="range" min="0" max="1" step="0.05" :value="muted ? 0 : volume" aria-label="Volumen" class="vol" @input="onVolume" />
       </div>
       <div v-if="menu === 'tracks'" class="menu" role="menu">
         <template v-if="audio.length > 1">
@@ -388,15 +447,18 @@ video { width: 100%; height: 100%; background: #000; }
 .menu h2 { margin: 8px 0 0; font-size: 1rem; color: var(--text-dim); }
 .menu button { min-height: 44px; text-align: left; }
 .menu .on { background: var(--accent); color: var(--accent-ink); }
-.seek {
-  position: absolute; left: 12px; right: 12px; bottom: 64px; z-index: 2; display: flex; align-items: center; gap: 10px;
-  padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.6);
+.controls {
+  position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 2; display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.6);
 }
-.seek input { flex: 1; min-width: 0; accent-color: var(--accent); }
-.seek .time { font-variant-numeric: tabular-nums; font-size: 0.9rem; }
-.seek .live { color: var(--text-dim); font-size: 0.9rem; }
+.controls input[type='range'] { cursor: pointer; accent-color: var(--accent); }
+.controls .seekbar { flex: 1; min-width: 0; }
+.controls .vol { width: 90px; }
+.controls button:disabled { opacity: 0.4; }
+.controls .time { font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.controls .live { color: var(--text-dim); font-size: 0.9rem; }
 .next {
-  position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 2; display: flex; gap: 12px;
+  position: absolute; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 2; display: flex; gap: 12px;
   align-items: center; flex-wrap: wrap; justify-content: center; padding: 12px 20px; border-radius: 12px; background: rgba(15, 15, 18, 0.95);
 }
 .next p { margin: 0; }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, resumePosition, seekRange, subtitleLabel } from './player.ts';
+import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from './player.ts';
 import type { Episode, MediaFile, SubtitleTrack, TitleDetail } from './types.ts';
 
 const p = (mediaFileId: number, positionS: number, completed = false) => ({ mediaFileId, positionS, durationS: 1400, completed });
@@ -122,5 +122,29 @@ describe('nextFile', () => {
     const d = detail([mediaFile(11, 1), mediaFile(12, 2)]);
     expect(nextFile(d, 12)).toBeNull();
     expect(nextFile(d, 999)).toBeNull();
+  });
+});
+
+describe('prevFile', () => {
+  it('goes back from the newest file of a duplicated episode to the previous episode’s newest file', () => {
+    const d = detail([mediaFile(42, 1), mediaFile(88, 1, { status: 'pending' }), mediaFile(52, 2), mediaFile(98, 2, { status: 'pending' })]);
+    expect(prevFile(d, 98)).toEqual({ fileId: 88, name: 'E1' });
+  });
+  it('goes back from a stale playing row to the previous episode’s newest file', () => {
+    const d = detail([mediaFile(42, 1), mediaFile(88, 1, { status: 'pending' }), mediaFile(52, 2), mediaFile(98, 2, { status: 'pending' })]);
+    expect(prevFile(d, 52)).toEqual({ fileId: 88, name: 'E1' });
+  });
+  it('never navigates to extras', () => {
+    const d = detail([mediaFile(11, 1), mediaFile(20, 2, { extraLabel: 'OP' }), mediaFile(13, 3)]);
+    expect(prevFile(d, 13)).toEqual({ fileId: 11, name: 'E1' });
+  });
+  it('orders by episode number, not array order', () => {
+    const d = detail([mediaFile(12, 2), mediaFile(11, 1)], [episode(2, 2, 'E2'), episode(1, 1, 'E1')]);
+    expect(prevFile(d, 12)).toEqual({ fileId: 11, name: 'E1' });
+  });
+  it('returns null at the first episode and for unknown files', () => {
+    const d = detail([mediaFile(11, 1), mediaFile(12, 2)]);
+    expect(prevFile(d, 11)).toBeNull();
+    expect(prevFile(d, 999)).toBeNull();
   });
 });

@@ -21,20 +21,43 @@ export function subtitleLabel(t: SubtitleTrack, i: number): string {
   return t.title && !plain.includes(t.title.toLowerCase()) ? `${lang} · ${t.title}` : lang;
 }
 
-/** Next episode with a file, in season → episode order. The newest live file per episode wins; extras don't count. */
-export function nextFile(detail: TitleDetail, fileId: number): { fileId: number; name: string } | null {
-  const current = detail.files.find((f) => f.id === fileId);
-  const ordered = [...detail.seasons]
+interface EpisodeFile {
+  episodeId: number;
+  fileId: number;
+  name: string;
+}
+
+/** Playable rows in season → episode order; the newest live file per episode wins, extras don't count. */
+function orderedFiles(detail: TitleDetail): EpisodeFile[] {
+  return [...detail.seasons]
     .sort((a, b) => a.number - b.number)
     .flatMap((s) => [...s.episodes].sort((a, b) => a.number - b.number))
     .flatMap((e) => {
       const f = pickFile(detail.files.filter((x) => x.episodeId === e.id && !x.extraLabel));
       return f ? [{ episodeId: e.id, fileId: f.id, name: e.name || `Episodio ${e.number}` }] : [];
     });
-  // A stale duplicate row must not hide its episode: match the playing row's episode too.
-  const i = ordered.findIndex((x) => x.fileId === fileId || x.episodeId === current?.episodeId);
+}
+
+/** Index of the playing row in `ordered`; a stale duplicate must not hide its episode, so match the episode too. */
+function playingIndex(detail: TitleDetail, ordered: EpisodeFile[], fileId: number): number {
+  const current = detail.files.find((f) => f.id === fileId);
+  return ordered.findIndex((x) => x.fileId === fileId || x.episodeId === current?.episodeId);
+}
+
+/** Next episode with a file, in season → episode order. */
+export function nextFile(detail: TitleDetail, fileId: number): { fileId: number; name: string } | null {
+  const ordered = orderedFiles(detail);
+  const i = playingIndex(detail, ordered, fileId);
   const next = i >= 0 ? ordered[i + 1] : undefined;
   return next ? { fileId: next.fileId, name: next.name } : null;
+}
+
+/** Previous episode with a file, in season → episode order. Mirrors `nextFile`. */
+export function prevFile(detail: TitleDetail, fileId: number): { fileId: number; name: string } | null {
+  const ordered = orderedFiles(detail);
+  const i = playingIndex(detail, ordered, fileId);
+  const prev = i > 0 ? ordered[i - 1] : undefined;
+  return prev ? { fileId: prev.fileId, name: prev.name } : null;
 }
 
 /** One row of the player's audio menu; `id` is the hls.js track index used by `pickAudio`. */
