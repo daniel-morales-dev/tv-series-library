@@ -7,6 +7,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     if (res.status === 409) {
       const body = await res.json().catch(() => null);
       if (body?.error === 'downloading') throw new Error('downloading');
+      if (body?.error === 'processing_disabled') throw new Error('processing_disabled');
     }
     throw new Error(`${res.status}`);
   }
@@ -35,6 +36,8 @@ export const api = {
     request<void>(`/profiles/${pid}/titles/${titleId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   jobs: () => request<Job[]>('/jobs'),
   activity: () => request<Activity>('/activity'),
+  pauseProcessing: () => request<{ paused: boolean }>('/processing/pause', { method: 'POST' }),
+  resumeProcessing: () => request<{ paused: boolean }>('/processing/resume', { method: 'POST' }),
   retryFile: (mediaFileId: number) => request<{ jobId: number }>(`/media-files/${mediaFileId}/process`, { method: 'POST' }),
   play: (mediaFileId: number) => request<{ status: 'ready' | 'processing' }>(`/media-files/${mediaFileId}/play`, { method: 'POST' }),
 };

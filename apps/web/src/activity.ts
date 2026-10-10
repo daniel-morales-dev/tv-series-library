@@ -19,6 +19,8 @@ export interface Activity {
   queued: ActivityItem[];
   queuedTotal: number;
   failed: ActivityItem[];
+  /** Automatic backlog paused; a job the user asked to play still runs. */
+  paused: boolean;
 }
 
 /** Badge number: everything running plus everything waiting, not just the preview. */
@@ -33,4 +35,17 @@ export function itemContext(item: ActivityItem): string | null {
   const code = item.season !== null && item.episode !== null ? `T${item.season}E${item.episode}` : null;
   const name = item.episodeName?.trim() || null;
   return [code, name].filter(Boolean).join(' · ') || 'Episodio';
+}
+
+/** Pause/resume control for the activity panel; `disabled` is the 409 fallback (server without processing). */
+export type ProcessingControl =
+  | { kind: 'pause'; label: string }
+  | { kind: 'resume'; label: string; chip: string }
+  | { kind: 'disabled'; note: string };
+
+export function processingControl(paused: boolean, disabled: boolean): ProcessingControl {
+  if (disabled) return { kind: 'disabled', note: 'Procesado desactivado en este servidor' };
+  return paused
+    ? { kind: 'resume', label: 'Reanudar procesado', chip: 'En pausa' }
+    : { kind: 'pause', label: 'Pausar procesado' };
 }

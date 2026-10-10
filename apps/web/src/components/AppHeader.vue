@@ -100,6 +100,7 @@ useDismiss(menuRoot, () => {
 const panelOpen = ref(false);
 const activity = ref<Activity | null>(null);
 const activityError = ref(false);
+const processingDisabled = ref(false);
 const retrying = ref<number[]>([]);
 const activeCount = computed(() => activityCount(activity.value));
 let actTimer: ReturnType<typeof setTimeout> | undefined;
@@ -133,6 +134,18 @@ async function retryFile(mediaFileId: number) {
     showToast('No se pudo reintentar.');
   } finally {
     retrying.value = retrying.value.filter((id) => id !== mediaFileId);
+    if (panelOpen.value) loadActivity();
+  }
+}
+
+// Processing pause/resume (T37): a 409 means this server runs without a processing worker.
+async function setProcessing(action: 'pause' | 'resume') {
+  try {
+    await (action === 'pause' ? api.pauseProcessing() : api.resumeProcessing());
+  } catch (e) {
+    if (e instanceof Error && e.message === 'processing_disabled') processingDisabled.value = true;
+    else showToast('No se pudo cambiar el procesado.');
+  } finally {
     if (panelOpen.value) loadActivity();
   }
 }
@@ -237,8 +250,10 @@ watch(() => route.fullPath, () => (menuOpen.value = false));
     :activity="activity"
     :error="activityError"
     :retrying="retrying"
+    :disabled="processingDisabled"
     @close="panelOpen = false"
     @retry="retryFile"
+    @processing="setProcessing"
   />
 </template>
 

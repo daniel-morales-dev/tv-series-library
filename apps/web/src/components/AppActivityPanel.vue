@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { itemContext, type Activity } from '../activity.ts';
+import { itemContext, processingControl, type Activity } from '../activity.ts';
 import { useDismiss } from '../dismiss.ts';
 import Icon from './Icon.vue';
 
-const props = defineProps<{ open: boolean; activity: Activity | null; error: boolean; retrying: number[] }>();
-const emit = defineEmits<{ close: []; retry: [mediaFileId: number] }>();
+const props = defineProps<{ open: boolean; activity: Activity | null; error: boolean; retrying: number[]; disabled: boolean }>();
+const emit = defineEmits<{ close: []; retry: [mediaFileId: number]; processing: [action: 'pause' | 'resume'] }>();
 
 const root = ref<HTMLElement | null>(null);
 const closeBtn = ref<HTMLButtonElement | null>(null);
@@ -37,6 +37,7 @@ const more = computed(() => {
   const a = props.activity;
   return a ? Math.max(0, a.queuedTotal - a.queued.length) : 0;
 });
+const control = computed(() => (props.activity ? processingControl(props.activity.paused, props.disabled) : null));
 </script>
 
 <template>
@@ -52,6 +53,14 @@ const more = computed(() => {
             <Icon name="close" :size="20" />
           </button>
         </header>
+
+        <div v-if="control" class="control">
+          <span v-if="control.kind === 'resume'" class="tag" role="status">{{ control.chip }}</span>
+          <button v-if="control.kind !== 'disabled'" class="toggle" @click="emit('processing', control.kind)">
+            {{ control.label }}
+          </button>
+          <span v-if="control.kind === 'disabled'" class="off">{{ control.note }}</span>
+        </div>
 
         <div class="body">
           <p v-if="error" class="note">No se pudo actualizar. Esto es lo último que se vio.</p>
@@ -129,6 +138,10 @@ const more = computed(() => {
 .x { display: grid; place-items: center; min-height: 0; width: 40px; height: 40px; padding: 0; border-radius: 50%; background: none; color: var(--text-dim); }
 .x:hover { background: var(--bg-hover); color: var(--text); }
 
+.control { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 20px; border-bottom: 1px solid var(--line); }
+.tag { padding: 4px 10px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.78rem; font-weight: 700; }
+.off { font-size: 0.84rem; color: var(--text-dim); }
+
 .body { flex: 1; overflow-y: auto; padding: 2px 20px 28px; }
 section { margin-top: 20px; }
 section h3 { margin: 0 0 6px; font-size: 0.8rem; font-weight: 700; color: var(--text-dim); }
@@ -150,12 +163,12 @@ section h3 { margin: 0 0 6px; font-size: 0.8rem; font-weight: 700; color: var(--
 .pct { font-size: 0.78rem; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .rank { flex: none; width: 1.5em; font-size: 0.78rem; color: var(--text-dim); text-align: right; font-variant-numeric: tabular-nums; }
-.retry {
+.retry, .toggle {
   flex: none; min-height: 36px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px;
   background: var(--bg-card); color: var(--text); font-size: 0.84rem; font-weight: 600;
 }
-.retry:hover:not(:disabled) { background: var(--bg-hover); }
-.retry:disabled { opacity: 0.55; cursor: default; }
+.retry:hover:not(:disabled), .toggle:hover:not(:disabled) { background: var(--bg-hover); }
+.retry:disabled, .toggle:disabled { opacity: 0.55; cursor: default; }
 .note { margin: 16px 0 0; font-size: 0.88rem; color: var(--text-dim); }
 
 @media (prefers-reduced-motion: reduce) {

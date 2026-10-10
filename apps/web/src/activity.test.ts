@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { activityCount, itemContext, type Activity, type ActivityItem } from './activity.ts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { activityCount, itemContext, processingControl, type Activity, type ActivityItem } from './activity.ts';
+import { api } from './api.ts';
 
 const item = (extra: Partial<ActivityItem> = {}): ActivityItem => ({
   mediaFileId: 1,
@@ -23,13 +24,14 @@ describe('activityCount', () => {
       queued: [item(), item()],
       queuedTotal: 12,
       failed: [item({ status: 'error' })],
+      paused: false,
     };
     expect(activityCount(activity)).toBe(14);
   });
 
   it('is zero for no data and for an idle library with only failures', () => {
     expect(activityCount(null)).toBe(0);
-    expect(activityCount({ running: [], queued: [], queuedTotal: 0, failed: [item({ status: 'error' })] })).toBe(0);
+    expect(activityCount({ running: [], queued: [], queuedTotal: 0, failed: [item({ status: 'error' })], paused: false })).toBe(0);
   });
 });
 
@@ -50,5 +52,29 @@ describe('itemContext', () => {
 
   it('film has no context line', () => {
     expect(itemContext(item({ kind: 'film' }))).toBeNull();
+  });
+});
+
+describe('processingControl', () => {
+  it('normal state offers pause', () => {
+    expect(processingControl(false, false)).toEqual({ kind: 'pause', label: 'Pausar procesado' });
+  });
+
+  it('paused state shows the chip and offers resume', () => {
+    expect(processingControl(true, false)).toEqual({ kind: 'resume', label: 'Reanudar procesado', chip: 'En pausa' });
+  });
+
+  it('processing-disabled server replaces the control with a note', () => {
+    expect(processingControl(false, true)).toEqual({ kind: 'disabled', note: 'Procesado desactivado en este servidor' });
+    expect(processingControl(true, true).kind).toBe('disabled');
+  });
+});
+
+describe('processing 409', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('maps the processing_disabled body to its own error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'processing_disabled' }), { status: 409 })));
+    await expect(api.pauseProcessing()).rejects.toThrow('processing_disabled');
   });
 });
