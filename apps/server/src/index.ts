@@ -87,6 +87,7 @@ const app = buildApp({
   dataDir,
   hlsDir,
   disk: { present: diskPresent, hlsOnLibrary },
+  contentDir: () => resolveContentDir(),
   ingestor,
   worker,
   webDir: resolve(process.env.WEB_DIR ?? '../web/dist'),

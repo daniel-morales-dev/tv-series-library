@@ -5,6 +5,7 @@ import type { IngestContext } from './metadata.ts';
 import { type Parsed, parsePath } from './parser.ts';
 import type { ProbeResult } from './probe.ts';
 import { showDirKey } from './scanner.ts';
+import { saveChapters } from '../catalog/chapters.ts';
 import { enqueue } from '../processing/queue.ts';
 
 export type PendingReason = 'unparsed' | 'no_match' | 'unmapped_episode';
@@ -37,6 +38,7 @@ export function registerFile(
     placement.parsedSeason,
     placement.parsedNumber,
   );
+  if (f.probe.chapters) saveChapters(db, lastInsertId, f.probe.chapters);
   enqueue(db, lastInsertId);
 }
 
@@ -74,6 +76,7 @@ export function promoteDownload(db: DatabaseSync, id: number, size: number, prob
     JSON.stringify(probe.subtitles),
     id,
   );
+  if (probe.chapters) saveChapters(db, id, probe.chapters);
   enqueue(db, id);
 }
 

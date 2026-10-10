@@ -1,3 +1,5 @@
+import type { Chapter } from './skip.ts';
+
 export interface Profile {
   id: number;
   name: string;
@@ -71,6 +73,9 @@ export interface MediaFile {
   durationS: number | null;
   audioTracks: AudioTrack[];
   subtitleTracks: SubtitleTrack[];
+  /** T26: cached chapters; `chaptersChecked` false means the server never probed this file yet. */
+  chapters?: Chapter[];
+  chaptersChecked?: boolean;
 }
 
 export interface Episode {

@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { type Chapter, parseChapters } from '../catalog/chapters.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -16,6 +17,8 @@ export interface ProbeResult {
   durationS: number;
   audio: TrackInfo[];
   subtitles: TrackInfo[];
+  /** Absent when the probe did not look (tests, fakes): the file is then backfilled lazily. */
+  chapters?: Chapter[];
 }
 
 // Rejects when the file cannot be read as media, which is how an unfinished download looks.
@@ -32,10 +35,10 @@ interface FfprobeStream {
 export const ffprobe: Probe = async (absPath) => {
   const { stdout } = await execFileAsync(
     'ffprobe',
-    ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', absPath],
+    ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', '-show_chapters', absPath],
     { maxBuffer: 32 * 1024 * 1024, timeout: 60_000 },
   );
-  const data = JSON.parse(stdout) as { format?: { duration?: string }; streams?: FfprobeStream[] };
+  const data = JSON.parse(stdout) as { format?: { duration?: string }; streams?: FfprobeStream[] } & Parameters<typeof parseChapters>[0];
   const durationS = Number(data.format?.duration);
   const streams = data.streams ?? [];
   if (!Number.isFinite(durationS) || durationS <= 0 || streams.length === 0) throw new Error('ffprobe: no usable media');
@@ -49,5 +52,6 @@ export const ffprobe: Probe = async (absPath) => {
     durationS,
     audio: streams.filter((s) => s.codec_type === 'audio').map((s) => ({ ...track(s), channels: s.channels })),
     subtitles: streams.filter((s) => s.codec_type === 'subtitle').map(track),
+    chapters: parseChapters(data),
   };
 };

@@ -6,6 +6,7 @@ import { type DiskGuard, processingRoutes } from './modules/processing/routes.ts
 import type { Worker } from './modules/processing/worker.ts';
 import { ingestRoutes } from './modules/ingest/routes.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
+import { type ProbeChapters, probeChapters as realProbeChapters } from './modules/catalog/chapters.ts';
 import { randomRoutes } from './modules/random/routes.ts';
 import { profileRoutes } from './modules/profiles/routes.ts';
 import { myListRoutes } from './modules/my-list/routes.ts';
@@ -33,9 +34,12 @@ export interface AppOptions {
   config?: ConfigRoutesDeps;
   /** T46: read-only folder browser; defaults read the real filesystem. */
   fs?: FsRoutesDeps;
+  /** T26: library folder for the lazy chapter backfill; absent = no backfill (cached chapters still served). */
+  contentDir?: () => string;
+  probeChapters?: ProbeChapters;
 }
 
-export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs }: AppOptions) {
+export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs, contentDir, probeChapters }: AppOptions) {
   const app = Fastify({ logger });
 
   app.register(
@@ -44,7 +48,7 @@ export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk,
       configRoutes(api, config);
       fsRoutes(api, fs);
       profileRoutes(api, db);
-      catalogRoutes(api, db);
+      catalogRoutes(api, db, contentDir && { contentDir, probe: probeChapters ?? realProbeChapters });
       randomRoutes(api, db);
       searchRoutes(api, db);
       myListRoutes(api, db);

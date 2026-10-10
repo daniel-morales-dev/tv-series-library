@@ -7,6 +7,7 @@ import { fullscreenMode, isIOS, isMobile, volumeWritable } from '../device.ts';
 import { isBackKey } from '../spatial.ts';
 import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
 import { SPEEDS, loadSpeed, saveSpeed, speedLabel } from '../speed.ts';
+import { type Chapter, activeSkip, skipLabel } from '../skip.ts';
 import type { MediaFile, SubtitleTrack, TitleDetail } from '../types.ts';
 import Icon from '../components/Icon.vue';
 
@@ -73,6 +74,7 @@ function teardown() {
     video.value.load();
   }
   file.value = null;
+  chapters.value = [];
   next.value = null;
   menu.value = null;
   audio.value = [];
@@ -106,6 +108,7 @@ async function start() {
     file.value = f;
     subs.value = f.subtitleTracks.filter((t) => t.supported && t.vtt);
     next.value = null;
+    loadChapters(f, mine);
 
     const play = await api.play(f.id);
     if (run !== mine) return;
@@ -123,6 +126,23 @@ async function start() {
   } catch (e) {
     if (run === mine) fail(playErrorMessage(e));
   }
+}
+
+// T26: files without chapters just show no button; a failed request is ignored.
+function loadChapters(f: MediaFile, mine: number) {
+  chapters.value = f.chapters ?? [];
+  if (f.chaptersChecked) return;
+  api
+    .chapters(f.id)
+    .then((r) => {
+      if (run === mine) chapters.value = r.chapters;
+    })
+    .catch(() => {});
+}
+function skipSection() {
+  const s = skipTarget.value;
+  if (s && video.value) video.value.currentTime = s.endS;
+  poke();
 }
 
 function attach(f: MediaFile, startAt: number) {
@@ -238,6 +258,8 @@ function pickAudio(i: number) {
 const now = ref(0);
 const total = ref(NaN);
 const seekState = computed(() => seekRange(now.value, total.value));
+const chapters = ref<Chapter[]>([]);
+const skipTarget = computed(() => activeSkip(chapters.value, now.value));
 function syncTime() {
   const v = video.value;
   if (!v) return;
@@ -419,6 +441,7 @@ watch([fileId, titleId], start, { immediate: true });
           <Icon :name="fullscreen ? 'fullscreenExit' : 'fullscreen'" :size="26" />
         </button>
       </div>
+      <button v-if="skipTarget" class="skip" @click="skipSection">{{ skipLabel(skipTarget.kind) }}</button>
       <div class="controls chrome">
         <div class="group">
           <button class="round" :aria-label="playing ? 'Pausar' : 'Reproducir'" :title="playing ? 'Pausar' : 'Reproducir'" @click="togglePlay">
@@ -530,4 +553,9 @@ video { width: 100%; height: 100%; background: #000; }
   align-items: center; flex-wrap: wrap; justify-content: center; padding: 12px 20px; border-radius: 12px; background: rgba(15, 15, 18, 0.95);
 }
 .next p { margin: 0; }
+/* Above the controls bar (which can wrap to two rows on narrow screens). */
+.skip {
+  position: absolute; right: max(12px, env(safe-area-inset-right)); bottom: 150px; z-index: 2; min-height: 44px; padding: 0 20px;
+  border-radius: 999px; font-weight: 700; background: rgba(15, 15, 18, 0.95); border: 1px solid var(--text-dim);
+}
 </style>

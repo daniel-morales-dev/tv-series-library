@@ -1,9 +1,17 @@
+import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
+import { get } from '../../db/sql.ts';
+import { type ProbeChapters, loadChapters, saveChapters } from './chapters.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import { FranchiseError, type FranchiseRelation, linkFranchise, unlinkFranchise } from './franchise.ts';
 import { getTitleDetail, listTitles, type TitleFilters } from './repository.ts';
 
-export function catalogRoutes(api: FastifyInstance, db: DatabaseSync): void {
+export interface ChaptersDeps {
+  contentDir: () => string;
+  probe: ProbeChapters;
+}
+
+export function catalogRoutes(api: FastifyInstance, db: DatabaseSync, chapters?: ChaptersDeps): void {
   api.get<{ Querystring: Partial<TitleFilters> }>(
     '/titles',
     {
@@ -64,4 +72,18 @@ export function catalogRoutes(api: FastifyInstance, db: DatabaseSync): void {
   api.delete<{ Params: { id: number } }>('/titles/:id/franchise', { schema: { params: idParams } }, async (req, reply) =>
     unlinkFranchise(db, req.params.id) ? reply.code(204).send() : reply.code(404).send({ error: 'not_found' }),
   );
+
+  // T26: chapters of a file, probed lazily the first time and cached (also "has none"). A failed probe is not cached.
+  api.get<{ Params: { id: number } }>('/media-files/:id/chapters', { schema: { params: idParams } }, async (req, reply) => {
+    const file = get<{ path: string; chapters_checked: number }>(db, 'SELECT path, chapters_checked FROM media_files WHERE id = ?', req.params.id);
+    if (!file) return reply.code(404).send({ error: 'not_found' });
+    if (!file.chapters_checked && chapters) {
+      try {
+        saveChapters(db, req.params.id, await chapters.probe(join(chapters.contentDir(), file.path)));
+      } catch {
+        /* disk away or unreadable: try again next time */
+      }
+    }
+    return { chapters: loadChapters(db, req.params.id) };
+  });
 }

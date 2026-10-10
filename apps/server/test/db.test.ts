@@ -9,7 +9,7 @@ import { setup } from './helpers.ts';
 describe('database', () => {
   it('applies migrations and records the version', () => {
     const db = openDb(':memory:');
-    expect(get<{ user_version: number }>(db, 'PRAGMA user_version')?.user_version).toBe(9);
+    expect(get<{ user_version: number }>(db, 'PRAGMA user_version')?.user_version).toBe(10);
   });
 
   it('enforces foreign keys with cascade', () => {
@@ -36,7 +36,7 @@ describe('database', () => {
 
     migrate(db);
 
-    expect(get(db, 'PRAGMA user_version')).toMatchObject({ user_version: 9 });
+    expect(get(db, 'PRAGMA user_version')).toMatchObject({ user_version: 10 });
     expect(get(db, 'SELECT id, path, status, parsed_number FROM media_files')).toMatchObject({ id: file, path: 'films/x.mkv', status: 'ready', parsed_number: 4 });
     expect(all(db, 'SELECT * FROM watch_progress')).toHaveLength(1);
     expect(all(db, 'SELECT * FROM jobs')).toHaveLength(1);

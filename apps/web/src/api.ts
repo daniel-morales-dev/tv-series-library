@@ -3,6 +3,7 @@ import type { AppConfig } from './config.ts';
 import type { Franchise } from './franchise.ts';
 import type { DirListing } from './folderPicker.ts';
 import type { NetworkInfo } from './network.ts';
+import type { Chapter } from './skip.ts';
 import type { ContinueItem, Job, Profile, Suggestion, TitleDetail, TitleSummary } from './types.ts';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -54,6 +55,7 @@ export const api = {
   network: () => request<NetworkInfo>('/network'),
   setContentDir: (path: string, create = false) =>
     request<AppConfig>('/config/content-dir', { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ path, create }) }),
+  chapters: (mediaFileId: number) => request<{ chapters: Chapter[] }>(`/media-files/${mediaFileId}/chapters`),
   jobs: () => request<Job[]>('/jobs'),
   activity: () => request<Activity>('/activity'),
   pauseProcessing: () => request<{ paused: boolean }>('/processing/pause', { method: 'POST' }),

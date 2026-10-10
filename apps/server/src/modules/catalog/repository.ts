@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, parseJsonArray } from '../../db/sql.ts';
 import { getFranchise } from './franchise.ts';
+import { loadChapters } from './chapters.ts';
 
 export interface TitleSummary {
   id: number;
@@ -135,6 +136,8 @@ export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number)
     durationS: f.duration_s,
     audioTracks: parseJsonArray(f.audio_tracks),
     subtitleTracks: parseJsonArray(f.subtitle_tracks),
+    chaptersChecked: f.chapters_checked === 1,
+    chapters: loadChapters(db, f.id),
   }));
 
   const detail = { ...toSummary(row), seasons, credits, collection: saga ?? null, franchise: getFranchise(db, id, row.franchise_id), files };
