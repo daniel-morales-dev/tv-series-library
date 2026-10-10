@@ -1,5 +1,6 @@
 import type { Activity } from './activity.ts';
 import type { AppConfig } from './config.ts';
+import type { NetworkInfo } from './network.ts';
 import type { ContinueItem, Job, Profile, Suggestion, TitleDetail, TitleSummary } from './types.ts';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -40,6 +41,7 @@ export const api = {
   setFinished: (pid: number, titleId: number, finished: boolean) =>
     request<void>(`/profiles/${pid}/titles/${titleId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   config: () => request<AppConfig>('/config'),
+  network: () => request<NetworkInfo>('/network'),
   setContentDir: (path: string, create = false) =>
     request<AppConfig>('/config/content-dir', { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ path, create }) }),
   jobs: () => request<Job[]>('/jobs'),

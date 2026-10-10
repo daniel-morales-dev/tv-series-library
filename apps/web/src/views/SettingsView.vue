@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { api } from '../api.ts';
 import type { AppConfig } from '../config.ts';
 import ConfigForm from '../components/ConfigForm.vue';
+import NetworkPanel from '../components/NetworkPanel.vue';
 import { showToast } from '../toast.ts';
 
 const config = ref<AppConfig | null>(null);
@@ -40,11 +41,12 @@ onMounted(load);
       <h2>Cambiar carpeta</h2>
       <ConfigForm :key="config.contentDir ?? ''" :suggested="config.suggestedDefault" :initial="config.contentDir ?? ''" @saved="saved" />
     </template>
+    <NetworkPanel />
   </main>
 </template>
 
 <style scoped>
-.settings { max-width: 640px; margin: 0 auto; padding: calc(var(--header-h) + 24px) var(--gutter) 48px; display: grid; gap: 16px; }
+.settings { max-width: min(960px, 100%); margin: 0 auto; padding: calc(var(--header-h) + 24px) var(--gutter) 48px; display: grid; gap: 16px; }
 h1, h2, dl { margin: 0; }
 dt { color: var(--text-dim); font-size: 0.85rem; margin-top: 10px; }
 dd { margin: 2px 0 0; overflow-wrap: anywhere; }
