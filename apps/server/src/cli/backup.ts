@@ -1,8 +1,9 @@
 // ExecStartPre of sala.service: verified SQLite snapshot before the server opens the database.
 // @ts-expect-error scripts/dev.mjs is untyped JS shared with the dev launcher
 import { backupLibrary, checkPort } from '../../../../scripts/dev.mjs';
+import { resolveDataPaths } from '../config/paths.ts';
 
-const dataDir = process.env.DATA_DIR ?? './data';
+const paths = resolveDataPaths();
 const port = Number(process.env.PORT ?? 8080);
 
 // A busy port means the server cannot start: fail here so neither a backup nor the server touches the database.
@@ -13,5 +14,5 @@ try {
   process.exit(1);
 }
 
-const path: string | undefined = await backupLibrary(dataDir, { minAgeMs: 10 * 60_000 });
+const path: string | undefined = await backupLibrary(paths.stateDir, { minAgeMs: 10 * 60_000 });
 console.log(path ? `SQLite backup verified: ${path}` : 'No library.db yet: nothing to back up');

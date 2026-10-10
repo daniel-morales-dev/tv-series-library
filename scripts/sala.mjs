@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 import { spawn, spawnSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { run, apiBase } from './sala-cli.mjs';
 
 const stdio = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8' });
@@ -21,6 +23,13 @@ const deps = {
         resolve(1);
       });
       child.on('close', (code) => resolve(code ?? 0));
+    }),
+  migrateState: (args) =>
+    new Promise((resolve) => {
+      const script = join(dirname(fileURLToPath(import.meta.url)), 'migrate-state.mjs');
+      const child = spawn(process.execPath, [script, ...args], { stdio: 'inherit' });
+      child.on('error', () => resolve(1));
+      child.on('close', (code) => resolve(code ?? 1));
     }),
   http: async (method, path) => {
     const res = await fetch(apiBase(process.env) + path, { method, signal: AbortSignal.timeout(3000) });

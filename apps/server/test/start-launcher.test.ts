@@ -34,4 +34,6 @@ test('sala.service ExecStart runs the same server command and web dir as npm sta
   expect(execStart).toBe(SERVER_COMMAND.slice(1).join(' ').replace('../../.env', '@REPO@/.env'));
   expect(unit).toContain('WorkingDirectory=@REPO@/apps/server');
   expect(unit).toContain('Environment=WEB_DIR=@REPO@/apps/web/dist');
+  // T47a: DATA_DIR would pin the legacy repo folder forever; the server and backup.ts resolve it themselves.
+  expect(unit).not.toMatch(/^Environment=DATA_DIR/m);
 });

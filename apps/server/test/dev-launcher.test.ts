@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 /** Points the launcher at an empty temp config dir so tests never read the real user config. */
-const noConfig = (root: string) => ({ SALA_CONFIG_DIR: join(root, 'user-config') });
+const noConfig = (root: string) => ({ SALA_CONFIG_DIR: join(root, 'user-config'), XDG_DATA_HOME: join(root, 'user-data') });
 
 function procState(pid: number | undefined): string {
   try {
@@ -44,9 +44,9 @@ test('anchors relative paths to the repository, keeps absolutes, external env wi
   expect(process.env.PRIVATE_TOKEN).toBeUndefined();
   const fresh = fixture();
   const defaults = resolveEnvironment(fresh, noConfig(fresh));
-  expect(defaults.DATA_DIR).toBe(join(fresh, 'data'));
+  expect(defaults.DATA_DIR).toBeUndefined(); // not exported: the server resolves state and HLS itself (T47a)
   expect(defaults.CONTENT_DIR).toBe(join(fresh, 'content'));
-  expect(isAbsolute(defaults.DATA_DIR ?? '')).toBe(true);
+  expect(isAbsolute(defaults.CONTENT_DIR ?? '')).toBe(true);
   expect(resolveEnvironment(root, { DATA_DIR: '/external/data', CONTENT_DIR: 'relative', ...noConfig(root) }).DATA_DIR).toBe('/external/data');
   expect(resolveEnvironment(root, { CONTENT_DIR: 'relative', ...noConfig(root) }).CONTENT_DIR).toBe(join(root, 'relative'));
   expect(() => resolveEnvironment(root, { PORT: '9000', ...noConfig(root) })).toThrow(/8080/);
@@ -59,6 +59,25 @@ test('missing DATA_DIR still fails closed with the resolved path and creates not
   await expect(data).rejects.toThrow(/no existe/);
   await expect(data).rejects.toThrow(join(root, 'disconnected-data'));
   expect(readdirSync(root).sort()).toEqual(['content', 'data']);
+});
+
+test('prepare resolves the data location: legacy stays and is backed up, fresh uses the user dir without creating it', async () => {
+  const legacy = fixture();
+  seedDb(legacy);
+  const prepared = await prepare(legacy, noConfig(legacy), [0, 0]);
+  expect(prepared.paths).toMatchObject({ source: 'legacy', stateDir: join(legacy, 'data') });
+  expect(prepared.paths.notice).toContain('sala migrate-state');
+  expect(prepared.backup).toContain(join(legacy, 'data/recovery'));
+
+  const fresh = fixture();
+  const first = await prepare(fresh, noConfig(fresh), [0, 0]);
+  expect(first.paths).toMatchObject({ source: 'user', stateDir: join(fresh, 'user-data/sala') });
+  expect(first.backup).toBeUndefined();
+  expect(readdirSync(fresh).sort()).toEqual(['content', 'data']);
+
+  writeFileSync(join(fresh, '.env'), 'DATA_DIR=archive\n');
+  mkdirSync(join(fresh, 'archive'));
+  expect((await prepare(fresh, noConfig(fresh), [0, 0])).paths).toMatchObject({ source: 'env', stateDir: join(fresh, 'archive') });
 });
 
 test('missing CONTENT_DIR no longer blocks the launcher; the server reports the status instead', async () => {
@@ -78,7 +97,7 @@ test('CONTENT_DIR precedence: external env → user config.json → root .env �
   const external = { SALA_CONFIG_DIR: userConfig };
   expect(resolveEnvironment(root, external).CONTENT_DIR).toBe('/library/from-config');
   expect(resolveEnvironment(root, { ...external, CONTENT_DIR: '/external/videos' }).CONTENT_DIR).toBe('/external/videos');
-  expect(resolveEnvironment(root, external).DATA_DIR).toBe(join(root, 'data'));
+  expect(resolveEnvironment(root, external).DATA_DIR).toBeUndefined();
   writeFileSync(join(userConfig, 'config.json'), '{broken');
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   try {

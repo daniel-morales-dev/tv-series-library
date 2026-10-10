@@ -2,10 +2,11 @@
 import { join } from 'node:path';
 import { saveImages } from '../modules/ingest/images.ts';
 import { createTmdbClient } from '../modules/ingest/tmdb.ts';
+import { resolveDataPaths } from '../config/paths.ts';
 import { openDb } from './connection.ts';
 import { all, run } from './sql.ts';
 
-const dataDir = process.env.DATA_DIR ?? './data';
+const dataDir = resolveDataPaths().stateDir;
 const token = process.env.TMDB_READ_ACCESS_TOKEN;
 if (!token) throw new Error('TMDB_READ_ACCESS_TOKEN is not set');
 

@@ -52,7 +52,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     }
     if (!controller.signal.aborted) {
       const env = { ...prepared.env, WEB_DIR: join(root, 'apps/web/dist') };
-      console.log(`Datos: ${env.DATA_DIR} | Contenido: ${env.CONTENT_DIR}`);
+      if (prepared.paths.notice) console.warn(prepared.paths.notice);
+      console.log(`Datos: ${prepared.paths.stateDir} | HLS: ${prepared.paths.hlsDir} | Contenido: ${env.CONTENT_DIR}`);
       console.log('Producción: app en http://localhost:8080 (sin watch ni Vite). Ctrl+C detiene el servidor.');
       process.exitCode = await supervise([SERVER_COMMAND], env, { cwd: join(root, 'apps/server'), signal: controller.signal });
     }

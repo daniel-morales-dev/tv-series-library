@@ -1,6 +1,7 @@
 import { join, resolve } from 'node:path';
 import { buildApp } from './app.ts';
 import { autoScanAllowed, configStatus, resolveContentDir } from './config/config.ts';
+import { hlsReachable, resolveDataPaths } from './config/paths.ts';
 import { openDb } from './db/connection.ts';
 import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
 import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
@@ -9,7 +10,14 @@ import { requeueErrors } from './modules/processing/queue.ts';
 import { createWorker } from './modules/processing/worker.ts';
 import { createShutdown } from './shutdown.ts';
 
-const dataDir = process.env.DATA_DIR ?? './data';
+// T47a: one resolver for state (database, images, recovery); the workers address HLS as `<dataDir>/hls`.
+const dataPaths = resolveDataPaths();
+const dataDir = dataPaths.stateDir;
+if (dataPaths.notice) console.warn(dataPaths.notice);
+if (!hlsReachable(dataPaths)) {
+  console.error(`El HLS está en ${dataPaths.hlsDir} pero el servidor lo busca en ${join(dataDir, 'hls')}. Restaura el enlace (sala migrate-state) o mueve la carpeta; no se inicia para no crear un HLS vacío.`);
+  process.exit(1);
+}
 const port = Number(process.env.PORT ?? 8080);
 const scanIntervalMin = Number(process.env.INGEST_SCAN_INTERVAL_MIN ?? 5);
 

@@ -6,12 +6,15 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Node 24 strips types on import; the same module resolves the config for the server, so both agree.
 import { configDir, readUserConfig } from '../apps/server/src/config/config.ts';
+import { resolveDataPaths } from '../apps/server/src/config/paths.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
  * Single path-resolution point for the launcher (T22: consumes the user's content-folder choice).
- * CONTENT_DIR: external env → user config.json → root .env → default; DATA_DIR keeps external env → .env → default.
+ * CONTENT_DIR: external env → user config.json → root .env → default.
+ * DATA_DIR is exported only when set explicitly (external env → .env, made absolute); otherwise the server and the
+ * launcher both ask `resolveDataPaths` (T47a), because state and HLS can live in different folders.
  * Defaults are anchored to the repository, never to the caller's cwd.
  * @returns {NodeJS.ProcessEnv}
  */
@@ -30,16 +33,13 @@ export function resolveEnvironment(repository = root, external = process.env) {
   }
   env.PORT = '8080';
   const configured = readUserConfig({ dir: configDir(env) })?.contentDir;
-  const fallback = { DATA_DIR: 'data', CONTENT_DIR: 'content' };
-  const chosen = {
-    DATA_DIR: external.DATA_DIR ?? local.DATA_DIR,
-    CONTENT_DIR: external.CONTENT_DIR ?? configured ?? local.CONTENT_DIR,
-  };
-  for (const key of ['DATA_DIR', 'CONTENT_DIR']) {
-    const value = chosen[key];
-    if (value === '') throw new Error(`${key} está vacío. Quita la variable para usar ${fallback[key]}/ o dale una ruta.`);
-    env[key] = resolve(repository, value ?? fallback[key]);
-  }
+  const explicitData = external.DATA_DIR ?? local.DATA_DIR;
+  if (explicitData === '') throw new Error('DATA_DIR está vacío. Quita la variable para usar la ubicación por defecto o dale una ruta.');
+  delete env.DATA_DIR;
+  if (explicitData !== undefined) env.DATA_DIR = resolve(repository, explicitData);
+  const content = external.CONTENT_DIR ?? configured ?? local.CONTENT_DIR;
+  if (content === '') throw new Error('CONTENT_DIR está vacío. Quita la variable para usar content/ o dale una ruta.');
+  env.CONTENT_DIR = resolve(repository, content ?? 'content');
   return env;
 }
 
@@ -230,14 +230,14 @@ export async function backupLibrary(dataDir, { keep = 5, minAgeMs = 0 } = {}) {
 }
 
 /**
- * Preflight before spawning anything: resolve paths, verify DATA_DIR exists, verify ports are free,
+ * Preflight before spawning anything: resolve paths, verify an explicit DATA_DIR exists, verify ports are free,
  * back up SQLite. A port held by this repository's own orphaned dev process (backend or vite) is
  * reclaimed first (linux only): only a verified holder is signalled, never a foreign process; a
  * hung holder that ignores SIGTERM is escalated to SIGKILL (its ffmpeg is left for adoption).
  * CONTENT_DIR is not validated here any more (T22): the server reports unset/missing
  * to the UI and never scans or creates an empty library. Never creates directories or a replacement
  * library, never migrates the database.
- * @returns {Promise<{env: NodeJS.ProcessEnv, backup: string | undefined}>}
+ * @returns {Promise<{env: NodeJS.ProcessEnv, paths: import('../apps/server/src/config/paths.ts').DataPaths, backup: string | undefined}>}
  */
 export async function prepare(
   repository = root,
@@ -252,16 +252,19 @@ export async function prepare(
   } = {},
 ) {
   const env = resolveEnvironment(repository, external);
-  let dataValid = false;
-  try {
-    dataValid = statSync(env.DATA_DIR).isDirectory();
-  } catch {
-    // Storage must already exist: creating it here could build an empty library on a disconnected disk.
+  const paths = resolveDataPaths(env, { root: repository });
+  let dataValid = paths.source !== 'env'; // legacy exists by definition; the per-user default is created by the server
+  if (!dataValid) {
+    try {
+      dataValid = statSync(paths.stateDir).isDirectory();
+    } catch {
+      // Storage must already exist: creating it here could build an empty library on a disconnected disk.
+    }
   }
   if (!dataValid) {
     throw new Error(
-      `La carpeta configurada en DATA_DIR no existe: ${env.DATA_DIR}. Reconecta el disco o la unidad donde vive la biblioteca; ` +
-        `en una instalación nueva, créala a propósito (por ejemplo: mkdir -p '${env.DATA_DIR}'). No se creó nada para no fabricar una biblioteca vacía.`,
+      `La carpeta configurada en DATA_DIR no existe: ${paths.stateDir}. Reconecta el disco o la unidad donde vive la biblioteca; ` +
+        `en una instalación nueva, créala a propósito (por ejemplo: mkdir -p '${paths.stateDir}'). No se creó nada para no fabricar una biblioteca vacía.`,
     );
   }
   for (const port of ports) {
@@ -277,7 +280,7 @@ export async function prepare(
       await checkPort(port);
     }
   }
-  return { env, backup: await backupLibrary(env.DATA_DIR) };
+  return { env, paths, backup: await backupLibrary(paths.stateDir) };
 }
 
 /**
@@ -353,7 +356,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const prepared = await prepare();
     if (prepared.backup) console.log(`Copia SQLite verificada (solo base de datos, no videos ni HLS): ${prepared.backup}`);
     if (!controller.signal.aborted) {
-      console.log(`Datos: ${prepared.env.DATA_DIR} | Contenido: ${prepared.env.CONTENT_DIR}`);
+      if (prepared.paths.notice) console.warn(prepared.paths.notice);
+      console.log(`Datos: ${prepared.paths.stateDir} | HLS: ${prepared.paths.hlsDir} | Contenido: ${prepared.env.CONTENT_DIR}`);
       console.log('Iniciando backend (8080) y frontend (5174). Interfaz: http://localhost:5174 | Salud API: http://localhost:8080/api/health');
       console.log('Que el proceso haya arrancado no prueba que la app esté lista: verifica la salud HTTP. Ctrl+C detiene ambos procesos.');
       process.exitCode = await supervise(

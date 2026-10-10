@@ -94,6 +94,7 @@ Al instalar con `scripts/linux-install.sh` queda el comando `sala` (en `~/.local
 - `sala pause` / `sala resume`: pausar y reanudar el procesado de videos.
 - `sala url`: la dirección para el celular y la TV. `sala open`: abre la biblioteca en este equipo.
 - `sala logs`: el registro en vivo (Ctrl+C para salir). `sala --help`: la ayuda.
+- `sala migrate-state [--dry-run] [--yes]`: copia la base de datos, imágenes y copias de recuperación de `data/` a `~/.local/share/sala/` (T47a). Verifica la copia, **no borra el origen** (te dice cómo hacerlo) y se niega si Sala está activa o el destino no está vacío. Mientras no la ejecutes, todo sigue usando `data/` como siempre. El video (HLS) no se mueve todavía.
 
 Si `npm run dev` está usando el puerto 8080, `sala start` te lo avisa en vez de fallar sin explicar. `npm run dev` y `npm start` siguen funcionando igual.
 

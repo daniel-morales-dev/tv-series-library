@@ -9,7 +9,8 @@ StartLimitBurst=5
 Type=simple
 WorkingDirectory=@REPO@/apps/server
 Environment=PORT=8080
-Environment=DATA_DIR=@REPO@/data
+# Sin DATA_DIR: el servidor y backup.ts resuelven la carpeta de datos (T47a). Con la biblioteca aun en <repo>/data
+# siguen usandola; tras 'sala migrate-state' pasan a ~/.local/share/sala. Fijar DATA_DIR aqui lo impediria.
 Environment=WEB_DIR=@REPO@/apps/web/dist
 # Copia SQLite verificada antes de arrancar (falla cerrado: sin copia valida, o con el puerto ocupado, no arranca).
 ExecStartPre=@NODE@ --env-file-if-exists=@REPO@/.env src/cli/backup.ts

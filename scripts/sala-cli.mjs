@@ -14,6 +14,8 @@ Uso: sala <comando>
   sala open       Abre la biblioteca en el navegador de este equipo.
   sala url        Muestra la dirección para celular y TV (misma red WiFi).
   sala logs       Muestra el registro del servicio en vivo (Ctrl+C para salir).
+  sala migrate-state [--dry-run] [--yes]
+                  Copia la base de datos e imágenes a tu carpeta de usuario (no borra nada).
   sala --help     Muestra esta ayuda.
 `;
 
@@ -141,6 +143,8 @@ export async function run(argv, deps) {
       return url(deps);
     case 'open':
       return open(deps);
+    case 'migrate-state':
+      return deps.migrateState(argv.slice(1));
     case 'logs':
       return deps.journal(['--user', '-u', UNIT, '-n', '50', '-f']);
     default:
