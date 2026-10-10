@@ -3,6 +3,7 @@ import Hls from 'hls.js';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, getProfileId, playErrorMessage, saveProgress, streamUrl } from '../api.ts';
+import { fullscreenMode, isIOS, isMobile, volumeWritable } from '../device.ts';
 import { isBackKey } from '../spatial.ts';
 import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
 import { SPEEDS, loadSpeed, saveSpeed, speedLabel } from '../speed.ts';
@@ -34,6 +35,11 @@ const countdown = ref(0);
 const playing = ref(false);
 const volume = ref(1);
 const muted = ref(false);
+const canSetVolume = ref(true); // false on iOS: the system owns the level, only mute works
+const touch = navigator.maxTouchPoints;
+const ios = isIOS(navigator.userAgent, navigator.platform, touch);
+const mobile = isMobile(navigator.userAgent, navigator.platform, touch);
+let autoFullscreen = false; // enter fullscreen once per file, on its first play
 
 let hls: Hls | undefined;
 let run = 0; // bumped on every (re)start so stale async work can bail out
@@ -121,6 +127,8 @@ async function start() {
 
 function attach(f: MediaFile, startAt: number) {
   const v = video.value!;
+  canSetVolume.value = volumeWritable(v);
+  autoFullscreen = mobile;
   v.volume = volume.value;
   v.muted = muted.value;
   const url = streamUrl(f.id);
@@ -247,6 +255,10 @@ function onSeek(e: Event) {
 
 const onPlay = () => {
   playing.value = true;
+  if (autoFullscreen) {
+    autoFullscreen = false;
+    if (!fullscreen.value) enterFullscreen(); // the browser may refuse without a gesture; the button still works
+  }
   clearInterval(saveTimer);
   saveTimer = setInterval(save, 10_000);
   poke();
@@ -291,12 +303,37 @@ function goNextEp() {
 const back = () => router.push(`/title/${titleId.value}`);
 
 // Fullscreen the container, not the <video>, so the menus and the next-episode prompt stay visible.
+// iPhone is the exception (T43): it uses the native player, which rotates by itself.
+type FsVideo = HTMLVideoElement & { webkitEnterFullscreen?: () => void; webkitExitFullscreen?: () => void; webkitDisplayingFullscreen?: boolean };
 const root = ref<HTMLElement>();
-const syncFullscreen = () => (fullscreen.value = !!document.fullscreenElement);
+const syncFullscreen = () => (fullscreen.value = !!document.fullscreenElement || !!(video.value as FsVideo | undefined)?.webkitDisplayingFullscreen);
+async function enterFullscreen() {
+  try {
+    if (fullscreenMode(ios) === 'native') return void (video.value as FsVideo | undefined)?.webkitEnterFullscreen?.();
+    if (!root.value?.requestFullscreen) return;
+    await root.value.requestFullscreen();
+    if (mobile) await (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape');
+  } catch {
+    /* blocked or unsupported: stay as we are */
+  }
+}
+function exitFullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else (video.value as FsVideo | undefined)?.webkitExitFullscreen?.();
+}
 function toggleFullscreen() {
-  if (document.fullscreenElement) return void document.exitFullscreen();
-  if (root.value?.requestFullscreen) return void root.value.requestFullscreen().catch(() => {});
-  (video.value as HTMLVideoElement & { webkitEnterFullscreen?: () => void })?.webkitEnterFullscreen?.(); // iOS Safari
+  if (fullscreen.value) exitFullscreen();
+  else enterFullscreen();
+}
+function onFullscreenChange() {
+  syncFullscreen();
+  if (!document.fullscreenElement) {
+    try {
+      screen.orientation?.unlock?.();
+    } catch {
+      /* nothing was locked */
+    }
+  }
 }
 
 function onKey(e: KeyboardEvent) {
@@ -323,14 +360,14 @@ function onKey(e: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('keydown', onKey);
   window.addEventListener('pagehide', save);
-  document.addEventListener('fullscreenchange', syncFullscreen);
+  document.addEventListener('fullscreenchange', onFullscreenChange);
   video.value?.addEventListener('volumechange', onVolumeChange);
   poke();
 });
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey);
   window.removeEventListener('pagehide', save);
-  document.removeEventListener('fullscreenchange', syncFullscreen);
+  document.removeEventListener('fullscreenchange', onFullscreenChange);
   video.value?.removeEventListener('volumechange', onVolumeChange);
   clearTimeout(idleTimer);
   teardown();
@@ -351,6 +388,8 @@ watch([fileId, titleId], start, { immediate: true });
       @timeupdate="syncTime"
       @durationchange="syncTime"
       @seeked="syncTime"
+      @webkitbeginfullscreen="syncFullscreen"
+      @webkitendfullscreen="syncFullscreen"
     >
       <track
         v-for="(t, i) in subs"
@@ -381,39 +420,45 @@ watch([fileId, titleId], start, { immediate: true });
         </button>
       </div>
       <div class="controls chrome">
-        <button class="round" :aria-label="playing ? 'Pausar' : 'Reproducir'" :title="playing ? 'Pausar' : 'Reproducir'" @click="togglePlay">
-          <Icon :name="playing ? 'pause' : 'play'" :size="24" />
-        </button>
-        <button class="round" aria-label="Retroceder 10 segundos" title="Retroceder 10 segundos" @click="skip(-10)">
-          <Icon name="replay10" :size="24" />
-        </button>
-        <button class="round" aria-label="Avanzar 10 segundos" title="Avanzar 10 segundos" @click="skip(10)">
-          <Icon name="forward10" :size="24" />
-        </button>
-        <button class="round" aria-label="Episodio anterior" title="Episodio anterior" :disabled="!prevEp" @click="goPrev">
-          <Icon name="skipPrev" :size="24" />
-        </button>
-        <button class="round" aria-label="Episodio siguiente" title="Episodio siguiente" :disabled="!nextEp" @click="goNextEp">
-          <Icon name="skipNext" :size="24" />
-        </button>
-        <span class="time">{{ clock(now) }}</span>
-        <input
-          type="range"
-          min="0"
-          step="0.1"
-          :max="seekState?.max ?? 0"
-          :value="seekState?.value ?? 0"
-          :disabled="!seekState"
-          aria-label="Posición de reproducción"
-          class="seekbar"
-          @input="onSeek"
-        />
-        <span class="time">{{ clock(total) }}</span>
-        <span v-if="!seekState" class="live">Procesando…</span>
-        <button class="round" :aria-label="muted ? 'Activar sonido' : 'Silenciar'" :title="muted ? 'Activar sonido' : 'Silenciar'" @click="toggleMute">
-          <Icon :name="muted ? 'volumeOff' : 'volumeUp'" :size="24" />
-        </button>
-        <input type="range" min="0" max="1" step="0.01" :value="muted ? 0 : volume" aria-label="Volumen" class="vol" @input="onVolume" />
+        <div class="group">
+          <button class="round" :aria-label="playing ? 'Pausar' : 'Reproducir'" :title="playing ? 'Pausar' : 'Reproducir'" @click="togglePlay">
+            <Icon :name="playing ? 'pause' : 'play'" :size="24" />
+          </button>
+          <button class="round" aria-label="Retroceder 10 segundos" title="Retroceder 10 segundos" @click="skip(-10)">
+            <Icon name="replay10" :size="24" />
+          </button>
+          <button class="round" aria-label="Avanzar 10 segundos" title="Avanzar 10 segundos" @click="skip(10)">
+            <Icon name="forward10" :size="24" />
+          </button>
+          <button class="round" aria-label="Episodio anterior" title="Episodio anterior" :disabled="!prevEp" @click="goPrev">
+            <Icon name="skipPrev" :size="24" />
+          </button>
+          <button class="round" aria-label="Episodio siguiente" title="Episodio siguiente" :disabled="!nextEp" @click="goNextEp">
+            <Icon name="skipNext" :size="24" />
+          </button>
+        </div>
+        <div class="seekrow">
+          <span class="time">{{ clock(now) }}</span>
+          <input
+            type="range"
+            min="0"
+            step="0.1"
+            :max="seekState?.max ?? 0"
+            :value="seekState?.value ?? 0"
+            :disabled="!seekState"
+            aria-label="Posición de reproducción"
+            class="seekbar"
+            @input="onSeek"
+          />
+          <span class="time">{{ clock(total) }}</span>
+          <span v-if="!seekState" class="live">Procesando…</span>
+        </div>
+        <div class="group">
+          <button class="round" :aria-label="muted ? 'Activar sonido' : 'Silenciar'" :title="muted ? 'Activar sonido' : 'Silenciar'" @click="toggleMute">
+            <Icon :name="muted ? 'volumeOff' : 'volumeUp'" :size="24" />
+          </button>
+          <input v-if="canSetVolume" type="range" min="0" max="1" step="0.01" :value="muted ? 0 : volume" aria-label="Volumen" class="vol" @input="onVolume" />
+        </div>
       </div>
       <div v-if="menu === 'tracks'" class="menu" role="menu">
         <template v-if="audio.length > 1">
@@ -458,8 +503,16 @@ video { width: 100%; height: 100%; background: #000; }
 .menu button { min-height: 44px; text-align: left; }
 .menu .on { background: var(--accent); color: var(--accent-ink); }
 .controls {
-  position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 2; display: flex; align-items: center; gap: 8px;
+  position: absolute; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom)); z-index: 2; display: flex; align-items: center; gap: 8px;
   flex-wrap: wrap; padding: 6px 12px; border-radius: 999px; background: rgba(0, 0, 0, 0.6);
+}
+.controls .group { display: flex; align-items: center; gap: 8px; }
+.controls .seekrow { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+/* T43: on a narrow screen the time bar takes its own full-width row (time · bar · duration), buttons go below. */
+@media (max-width: 700px) {
+  .controls { border-radius: 20px; justify-content: space-between; }
+  .controls .seekrow { order: -1; flex: 1 1 100%; }
 }
 .controls input[type='range'] {
   cursor: pointer;
