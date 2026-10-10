@@ -134,7 +134,7 @@
 - T32: commit `e1d338a` — `GET /api/activity` + panel Actividad con badge y Reintentar; 281 server + 130 web.
 - T33: commit `e488f5f` — `requeueErrors` al arranque; 270 server.
 - T34: commit `8a23ee5` — shutdown con señales (fix de ffmpeg huérfano); 275 server (5 nuevos).
-- T25/T35: commits `4a90e6f` (hilos 8; 281 server) y `d9f93c0` (barra propia del player: RED 5 → GREEN 135 web, typecheck limpio). El reinicio de `--watch` al guardar `index.ts` re-encoló Tetris (job 101) desde 0 con 8 hilos.
+- T25/T35: commits `4a90e6f` (hilos 8; 281 server) y `d9f93c0` (barra propia del player: RED 5 → GREEN 135 web, typecheck limpio). El reinicio de `--watch` al guardar `index.ts` re-encoló Tetris (job 101) desde 0 con 8 hilos. Assess: `medium`, `under_budget` (tramo base `2b1194e`; 171 líneas).
 - T18: commit `a06823e` — lanzador único `npm run dev` (`scripts/dev.mjs`, 197 líneas) + 11 tests (191 líneas) + `package.json` raíz; RED 4/11 → GREEN 11/11; verificación viva `pass` (backup esquema 4 íntegro, migración 4→5 sin pérdida, HLS 200, cierre limpio). Detalle en T18a/T18b.
 - T17: commit `75dc09d`, 177 líneas añadidas/eliminadas; `git diff --check` y lectura estructural correctos, bloques de shell validados y backup SQLite probado solo en datos desechables por el writer. Evaluación nativa: `passive` (`non_executable_only`), sin revisión requerida. No se ejecutaron arranque, migración, ingesta ni pruebas HTTP sobre la biblioteca real. Rollback documental: README, guía local y actualización T17, sin cambios de código ni datos.
 - T1: `node:sqlite` + FTS5 verificado en Node 24.14 (`mas*` → "Más allá del final").
