@@ -1,5 +1,6 @@
 import type { Activity } from './activity.ts';
 import type { AppConfig } from './config.ts';
+import type { Franchise } from './franchise.ts';
 import type { DirListing } from './folderPicker.ts';
 import type { NetworkInfo } from './network.ts';
 import type { ContinueItem, Job, Profile, Suggestion, TitleDetail, TitleSummary } from './types.ts';
@@ -38,7 +39,10 @@ export const api = {
   myList: (pid: number) => request<TitleSummary[]>(`/profiles/${pid}/my-list`),
   addToMyList: (pid: number, titleId: number) => request<void>(`/profiles/${pid}/my-list/${titleId}`, { method: 'PUT' }),
   removeFromMyList: (pid: number, titleId: number) => request<void>(`/profiles/${pid}/my-list/${titleId}`, { method: 'DELETE' }),
-  title: (id: number, profileId: number) => request<TitleDetail>(`/titles/${id}?profileId=${profileId}`),
+  title: (id: number, profileId: number) => request<TitleDetail & { franchise: Franchise | null }>(`/titles/${id}?profileId=${profileId}`),
+  linkFranchise: (titleId: number, ofTitleId: number, relation?: 'sequel' | 'prequel') =>
+    request<{ franchiseId: number }>(`/titles/${titleId}/franchise`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ ofTitleId, relation }) }),
+  unlinkFranchise: (titleId: number) => request<void>(`/titles/${titleId}/franchise`, { method: 'DELETE' }),
   setFinished: (pid: number, titleId: number, finished: boolean) =>
     request<void>(`/profiles/${pid}/titles/${titleId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   setSeasonFinished: (pid: number, titleId: number, season: number, finished: boolean) =>

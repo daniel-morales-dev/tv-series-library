@@ -6,6 +6,7 @@ import EpisodePanel from '../components/EpisodePanel.vue';
 import ExtraCard from '../components/ExtraCard.vue';
 import Icon from '../components/Icon.vue';
 import LangLine from '../components/LangLine.vue';
+import { franchiseEntries } from '../franchise.ts';
 import { fileStatus, movieStatus, needsPolling } from '../fileStatus.ts';
 import { fileLanguages, titleLanguages } from '../languages.ts';
 import { KIND_LABEL, initial, progressPct, remainingLabel } from '../library.ts';
@@ -15,7 +16,7 @@ import type { Job, MediaFile, TitleDetail } from '../types.ts';
 
 const route = useRoute();
 const router = useRouter();
-const detail = ref<TitleDetail | null>(null);
+const detail = ref<Awaited<ReturnType<typeof api.title>> | null>(null);
 const jobs = ref<Job[]>([]);
 const error = ref('');
 const seasonNumber = ref<number | null>(null);
@@ -74,6 +75,7 @@ const extras = computed(() => detail.value?.files.filter((f) => f.extraLabel) ??
 const cast = computed(() => (detail.value ? castOf(detail.value.credits) : []));
 const langs = computed(() => (detail.value ? titleLanguages(detail.value.files) : { audio: [], subs: [] }));
 const listed = computed(() => (detail.value ? inMyList(detail.value.id) : false));
+const related = computed(() => (detail.value?.franchise ? franchiseEntries(detail.value.franchise.items) : []));
 const epCount = computed(() => allRows.value.length);
 
 const meta = computed(() => {
@@ -257,6 +259,23 @@ async function closeEpisode() {
         </ul>
       </section>
 
+      <section v-if="related.length" aria-labelledby="rel-h">
+        <h2 id="rel-h">Relacionados <span class="muted fr-name">{{ detail.franchise!.name }}</span></h2>
+        <ol class="related">
+          <li v-for="e in related" :key="e.id" :class="{ cur: e.relation === 'Actual' }">
+            <component :is="e.relation === 'Actual' ? 'div' : 'RouterLink'" class="rel-card" v-bind="e.relation === 'Actual' ? { 'aria-current': 'true' } : { to: `/title/${e.id}` }">
+              <span class="rel-poster">
+                <img v-if="e.posterPath" :src="imageUrl(e.posterPath)" :alt="e.name" loading="lazy" draggable="false" />
+                <template v-else>{{ initial(e.name) }}</template>
+              </span>
+              <span class="rel-rel">{{ e.relation }}</span>
+              <span class="rel-name">{{ e.name }}</span>
+              <span class="rel-sub">{{ [e.typeLabel, e.year].filter(Boolean).join(' · ') }}</span>
+            </component>
+          </li>
+        </ol>
+      </section>
+
       <section v-if="cast.length" aria-labelledby="cast-h">
         <h2 id="cast-h">Reparto</h2>
         <ul class="cast">
@@ -347,6 +366,18 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .badge.ready { color: #4cc38a; }
 .badge.processing, .badge.downloading { color: #e8b84a; }
 .badge.error { color: var(--danger); }
+
+.fr-name { margin-left: 8px; font-size: 0.95rem; font-weight: 500; }
+.related { margin: 0; padding: 0 0 6px; list-style: none; display: flex; gap: 16px; overflow-x: auto; scrollbar-width: thin; }
+.related li { flex: none; width: 140px; }
+.rel-card { display: flex; flex-direction: column; gap: 3px; padding: 6px; border-radius: 12px; }
+a.rel-card:hover { background: var(--bg-card); }
+.cur .rel-card { outline: 2px solid var(--accent); }
+.rel-poster { display: grid; place-items: center; aspect-ratio: 2 / 3; overflow: hidden; border-radius: 8px; background: var(--bg-hover); font-size: 2rem; font-weight: 700; color: var(--text-dim); }
+.rel-poster img { width: 100%; height: 100%; object-fit: cover; }
+.rel-rel { margin-top: 4px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); }
+.rel-name { font-size: 0.9rem; font-weight: 600; line-height: 1.25; }
+.rel-sub { font-size: 0.78rem; color: var(--text-dim); }
 
 .extras { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
 
