@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue';
 import { api } from '../api.ts';
 import type { AppConfig } from '../config.ts';
 import ConfigForm from '../components/ConfigForm.vue';
+import DataMigrationPanel from '../components/DataMigrationPanel.vue';
 import NetworkPanel from '../components/NetworkPanel.vue';
 import { showToast } from '../toast.ts';
 
@@ -41,6 +42,7 @@ onMounted(load);
       <h2>Cambiar carpeta</h2>
       <ConfigForm :key="config.contentDir ?? ''" :suggested="config.suggestedDefault" :initial="config.contentDir ?? ''" @saved="saved" />
     </template>
+    <DataMigrationPanel v-if="config?.contentDir" />
     <NetworkPanel />
   </main>
 </template>

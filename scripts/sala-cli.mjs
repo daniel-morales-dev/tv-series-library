@@ -16,6 +16,10 @@ Uso: sala <comando>
   sala logs       Muestra el registro del servicio en vivo (Ctrl+C para salir).
   sala migrate-state [--dry-run] [--yes]
                   Copia la base de datos e imágenes a tu carpeta de usuario (no borra nada).
+  sala migrate-data [--to <carpeta>] [--dry-run] [--yes]
+                  Mueve el video procesado junto a tu biblioteca (.sala/hls) y lo verifica; no borra el origen.
+  sala migrate-data --free-origin [--yes]
+                  Tras reiniciar y comprobar, libera el espacio del origen.
   sala --help     Muestra esta ayuda.
 `;
 
@@ -119,6 +123,9 @@ async function open(deps) {
   return 0;
 }
 
+// Sin dependencia inyectada, el comando carga su script bajo demanda (así `sala.mjs` no necesita conocerlo).
+const defaultMigrateData = async (args) => (await import('./migrate-data.mjs')).runCli(args);
+
 export async function run(argv, deps) {
   switch (argv[0]) {
     case undefined:
@@ -145,6 +152,8 @@ export async function run(argv, deps) {
       return open(deps);
     case 'migrate-state':
       return deps.migrateState(argv.slice(1));
+    case 'migrate-data':
+      return (deps.migrateData ?? defaultMigrateData)(argv.slice(1));
     case 'logs':
       return deps.journal(['--user', '-u', UNIT, '-n', '50', '-f']);
     default:

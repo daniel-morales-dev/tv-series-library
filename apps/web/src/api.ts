@@ -1,4 +1,5 @@
 import type { Activity } from './activity.ts';
+import type { DataPlan, DataStatus } from './dataMigration.ts';
 import type { AppConfig } from './config.ts';
 import type { Franchise } from './franchise.ts';
 import type { DirListing } from './folderPicker.ts';
@@ -21,6 +22,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`${res.status}`);
   }
   return res.status === 204 ? (undefined as T) : res.json();
+}
+
+// T47e: the server answers 409/400 with a Spanish `message` that the panel shows as is.
+async function migrationRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`/api/data-migration${path}`, init);
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(typeof body?.message === 'string' ? body.message : `${res.status}`);
+  }
+  return res.json();
 }
 
 const JSON_HEADERS = { 'content-type': 'application/json' };
@@ -56,6 +67,11 @@ export const api = {
   setContentDir: (path: string, create = false) =>
     request<AppConfig>('/config/content-dir', { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ path, create }) }),
   chapters: (mediaFileId: number) => request<{ chapters: Chapter[] }>(`/media-files/${mediaFileId}/chapters`),
+  dataPlan: () => migrationRequest<DataPlan>('/plan'),
+  dataStatus: () => migrationRequest<DataStatus>('/status'),
+  startDataMove: () => migrationRequest<DataStatus>('/start', { method: 'POST', headers: JSON_HEADERS, body: '{}' }),
+  freeDataOrigin: () =>
+    migrationRequest<{ freedPackages: number; freedBytes: number; kept: string[] }>('/confirm-free-origin', { method: 'POST' }),
   jobs: () => request<Job[]>('/jobs'),
   activity: () => request<Activity>('/activity'),
   pauseProcessing: () => request<{ paused: boolean }>('/processing/pause', { method: 'POST' }),

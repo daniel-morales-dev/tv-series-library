@@ -15,6 +15,8 @@ import { searchRoutes } from './modules/search/routes.ts';
 import { webRoutes } from './http/web.ts';
 import { configRoutes, type ConfigRoutesDeps } from './modules/config/routes.ts';
 import { fsRoutes, type FsRoutesDeps } from './modules/fs/routes.ts';
+import { dataMigrationRoutes } from './modules/data-migration/routes.ts';
+import type { MigrationService } from './modules/data-migration/service.ts';
 
 export interface AppOptions {
   db: DatabaseSync;
@@ -37,9 +39,11 @@ export interface AppOptions {
   /** T26: library folder for the lazy chapter backfill; absent = no backfill (cached chapters still served). */
   contentDir?: () => string;
   probeChapters?: ProbeChapters;
+  /** T47e: guided move of the HLS data to the library folder; absent = endpoints not registered. */
+  dataMigration?: MigrationService;
 }
 
-export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs, contentDir, probeChapters }: AppOptions) {
+export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs, contentDir, probeChapters, dataMigration }: AppOptions) {
   const app = Fastify({ logger });
 
   app.register(
@@ -47,6 +51,7 @@ export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk,
       api.get('/health', async () => ({ ok: true }));
       configRoutes(api, config);
       fsRoutes(api, fs);
+      if (dataMigration) dataMigrationRoutes(api, dataMigration);
       profileRoutes(api, db);
       catalogRoutes(api, db, contentDir && { contentDir, probe: probeChapters ?? realProbeChapters });
       randomRoutes(api, db);

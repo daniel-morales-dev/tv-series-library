@@ -41,6 +41,10 @@ function setup(opts: { active?: boolean; api?: Record<string, Reply>; systemctlF
       f.calls.push('migrate-state ' + args.join(' '));
       return 0;
     },
+    migrateData: async (args: string[]) => {
+      f.calls.push('migrate-data ' + args.join(' '));
+      return 0;
+    },
   };
   const exec = async (...argv: string[]) => {
     f.code = await run(argv, deps);
@@ -192,6 +196,13 @@ describe('sala CLI', () => {
     expect((await m.exec('migrate-state', '--dry-run')).calls).toContain('migrate-state --dry-run');
     expect(m.f.code).toBe(0);
     expect(HELP).toContain('sala migrate-state');
+  });
+
+  test('migrate-data delegates with its flags and is in the help', async () => {
+    const m = setup();
+    expect((await m.exec('migrate-data', '--free-origin', '--yes')).calls).toContain('migrate-data --free-origin --yes');
+    expect(HELP).toContain('sala migrate-data');
+    expect(HELP).toContain('--free-origin');
   });
 
   test('logs follows the user journal of the sala unit', async () => {

@@ -56,6 +56,14 @@ Bajar solo el bitrate ahorra ~7–9 GB (~10 %); lo grande es no duplicar lo ya c
   - Flujo guiado en Ajustes y por CLI `sala` (T45): elegir destino → verificar espacio → mover → verificar → confirmar → liberar origen. Reanudable.
   - Nunca borrar el origen sin confirmación explícita; el origen queda intacto hasta confirmar.
   - Comprobar espacio libre en el destino antes de empezar, con el mismo umbral de T47d.
+  - Implementación (módulo `modules/data-migration/`): `migrate.ts` (planificador + ejecutor puros, fs inyectable), `service.ts` (trabajo en segundo plano y estado), `routes.ts`.
+    - Por paquete (`hls/<id>`): enlaces duros a `<id>.tmp` si el destino está en la misma partición (el origen queda intacto y no ocupa espacio extra); si no hay enlaces (otro FS, `EXDEV`/`EPERM`…), copia a `.tmp`. Se verifica nº de archivos y bytes contra el origen y recién entonces se renombra a `<id>`.
+    - Reanudable sin base de datos: un paquete cuenta como movido si el destino coincide con el origen; los `.tmp` huérfanos se rehacen. Lo único persistido es el diario `<stateDir>/hls-migration.json` (`from`, `to`), que recuerda el origen tras reiniciar (no hay migración SQLite).
+    - Guardas: `libraryDiskPresent` antes de crear nada y antes de cada paquete (nunca se crea `.sala/` en un disco ausente); espacio en el destino = bytes pendientes + umbral `MIN_FREE_GB`/`MIN_FREE_PCT` (0 con enlaces); rechaza origen = destino o anidados; exige `config.json` y que no haya `DATA_DIR` (si no, el puntero no tendría efecto).
+    - Puntero: solo cuando todos los paquetes están verificados se escribe `hlsDir` en `config.json`. El servidor en marcha sigue leyendo el origen hasta reiniciar (`restart_required`).
+    - Liberar el origen es un paso aparte y confirmado: exige puntero cambiado **y** servidor reiniciado (`hlsDir` en uso = destino); borra solo los paquetes del origen verificados en el destino y conserva los demás (p. ej. procesados después de mover: se mueven repitiendo el paso).
+    - API: `GET /api/data-migration/plan` · `GET …/status` · `POST …/start` (202) · `POST …/confirm-free-origin`. Errores 409 `{ error, message }`. CLI: `sala migrate-data [--to <carpeta>] [--dry-run] [--yes]` (con Sala detenida) y `sala migrate-data --free-origin`. Ajustes: sección "Mover datos con la biblioteca".
+    - Recomendación operativa: pausar el procesado (`sala pause`) mientras se mueve; lo que se procese durante el movimiento queda en el origen y se mueve repitiendo el paso.
 - T47f (2, hecha) perfil de encode nuevo: CRF 23 + `-tune animation` y tope `-maxrate`/`-bufsize` (4M/8M HEVC o 10 bits; 8M/16M resto), solo para archivos nuevos. Configurable con `ENCODE_CRF`/`ENCODE_TUNE` (ver `docs/local-development.md`). `planHash` cambia, pero solo se compara al adoptar un ffmpeg en curso: los `ready` no se re-encolan (test en `processing.test.ts`).
 
 ## Riesgos

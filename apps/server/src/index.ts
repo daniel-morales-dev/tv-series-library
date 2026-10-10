@@ -6,6 +6,7 @@ import { openDb } from './db/connection.ts';
 import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
 import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
 import { networkRoutes } from './modules/network/routes.ts';
+import { createMigrationService } from './modules/data-migration/service.ts';
 import { GB } from './modules/processing/cache.ts';
 import { requeueErrors } from './modules/processing/queue.ts';
 import { createWorker } from './modules/processing/worker.ts';
@@ -53,6 +54,16 @@ const envNumber = (name: string, fallback: number) => {
   return process.env[name] && Number.isFinite(n) && n >= 0 ? n : fallback;
 };
 
+// T47e: "mover datos con la biblioteca"; the HLS root is fixed at boot, so a move needs a restart before the origin is freed.
+const dataMigration = createMigrationService({
+  stateDir: dataDir,
+  hlsDir,
+  contentDir: () => resolveContentDir(),
+  diskPresent,
+  minFreeBytes: envNumber('MIN_FREE_GB', 10) * GB,
+  minFreePct: envNumber('MIN_FREE_PCT', 10),
+});
+
 const worker =
   process.env.PROCESSING === 'off'
     ? undefined
@@ -90,6 +101,7 @@ const app = buildApp({
   contentDir: () => resolveContentDir(),
   ingestor,
   worker,
+  dataMigration,
   webDir: resolve(process.env.WEB_DIR ?? '../web/dist'),
   config: {
     currentContentDir: () => resolveContentDir(),
