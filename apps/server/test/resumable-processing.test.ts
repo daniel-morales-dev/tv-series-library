@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { get } from '../src/db/sql.ts';
 import { KeepChildren, type RunFfmpeg, createRunFfmpeg } from '../src/modules/processing/ffmpeg.ts';
-import { findWriters, isOurFfmpeg, procStart, terminate, waitForExit } from '../src/modules/processing/proc.ts';
+import { findWriters, isOurFfmpeg, procStart, signalIfSame, terminate, waitForExit } from '../src/modules/processing/proc.ts';
 import { enqueue } from '../src/modules/processing/queue.ts';
 import { type StreamInfo } from '../src/modules/processing/plan.ts';
 import { createWorker } from '../src/modules/processing/worker.ts';
@@ -56,8 +56,8 @@ function scene() {
     if (args.includes('-var_stream_map')) mainRuns.push(args);
     return real(args, o);
   };
-  const worker = () =>
-    createWorker({ db, dataDir, contentDir, runFfmpeg: spy, probeStreams: async () => INFO, pollMs: 40 });
+  const worker = (o: { concurrency?: number } = {}) =>
+    createWorker({ db, dataDir, contentDir, runFfmpeg: spy, probeStreams: async () => INFO, pollMs: 40, ...o });
   const job = () => get<any>(db, 'SELECT * FROM jobs')!;
   const file = () => get<any>(db, 'SELECT * FROM media_files WHERE id = ?', fileId)!;
   const tmpDir = join(dataDir, 'hls', `${fileId}.tmp`);
@@ -74,7 +74,7 @@ function scene() {
     await vi.waitFor(() => expect(alive(pid)).toBe(true));
     return { pid, progress: job().progress as number };
   }
-  return { db, dataDir, bin, worker, job, file, fileId, tmpDir, open, mainRuns, crashMidJob };
+  return { db, dataDir, contentDir, bin, worker, job, file, fileId, tmpDir, open, mainRuns, crashMidJob };
 }
 
 describe('detached ffmpeg', () => {
@@ -236,5 +236,101 @@ describe('adoption after a server restart', () => {
     expect(alive(foreign.pid!)).toBe(true);
     expect(s.mainRuns).toHaveLength(1);
     expect(s.job().status).toBe('done');
+  });
+});
+
+const state = (pid: number) => {
+  const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+  return stat[stat.lastIndexOf(')') + 2];
+};
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+describe('pause by SIGSTOP', () => {
+  it('freezes the running ffmpeg in place and resume continues the very same process', async () => {
+    const s = scene();
+    const w = s.worker();
+    w.start();
+    await vi.waitFor(() => expect(s.job().progress).toBeGreaterThan(0));
+    const pid = s.job().pid as number;
+    pids.push(pid);
+
+    w.pause();
+    await vi.waitFor(() => expect(state(pid)).toBe('T'));
+    const frozen = { progress: s.job().progress, bytes: statSync(join(s.tmpDir, 'progress.txt')).size };
+    await pause(200);
+    expect(s.job()).toMatchObject({ status: 'running', pid, progress: frozen.progress });
+    expect(s.file().status).toBe('processing');
+    expect(statSync(join(s.tmpDir, 'progress.txt')).size).toBe(frozen.bytes);
+    expect(w.isPaused()).toBe(true);
+
+    w.resume();
+    await vi.waitFor(() => expect(state(pid)).not.toBe('T'));
+    s.open();
+    await w.drain();
+    w.stop();
+    expect(s.mainRuns).toHaveLength(1);
+    expect(s.job()).toMatchObject({ status: 'done', progress: 1, pid: null });
+    expect(s.file().status).toBe('ready');
+  });
+
+  it('claims nothing while paused and resumes the backlog by priority', async () => {
+    const s = scene();
+    const w = s.worker({ concurrency: 2 });
+    w.start();
+    await vi.waitFor(() => expect(s.job().pid).not.toBeNull());
+    pids.push(s.job().pid as number);
+    writeFileSync(join(s.contentDir, 'b.mkv'), 'x');
+    const second = addFile(s.db, addTitle(s.db, 'B'), { status: 'pending' });
+    s.db.prepare("UPDATE media_files SET path = 'b.mkv', duration_s = 100 WHERE id = ?").run(second);
+    const secondJob = enqueue(s.db, second);
+
+    w.pause();
+    w.kick();
+    await pause(150);
+    expect(get<any>(s.db, 'SELECT status FROM jobs WHERE id = ?', secondJob)!.status).toBe('queued');
+
+    w.resume();
+    await vi.waitFor(() => expect(get<any>(s.db, 'SELECT status FROM jobs WHERE id = ?', secondJob)!.status).toBe('running'));
+    await vi.waitFor(() => expect(get<any>(s.db, 'SELECT pid FROM jobs WHERE id = ?', secondJob)!.pid).not.toBeNull());
+    pids.push(get<any>(s.db, 'SELECT pid FROM jobs WHERE id = ?', secondJob)!.pid);
+    s.open();
+    await w.drain();
+    w.stop();
+    expect(s.mainRuns).toHaveLength(2);
+  });
+
+  it('a restart during a pause continues the stopped ffmpeg through adoption', async () => {
+    const s = scene();
+    const a = s.worker();
+    a.start();
+    await vi.waitFor(() => expect(s.job().progress).toBeGreaterThan(0));
+    const pid = s.job().pid as number;
+    pids.push(pid);
+    a.pause();
+    await vi.waitFor(() => expect(state(pid)).toBe('T'));
+    a.stop({ killChildren: false });
+
+    const b = s.worker();
+    b.start();
+    await vi.waitFor(() => expect(state(pid)).not.toBe('T'));
+    expect(s.job()).toMatchObject({ status: 'running', pid });
+    s.open();
+    await b.drain();
+    b.stop();
+    expect(s.mainRuns).toHaveLength(1);
+    expect(s.job()).toMatchObject({ status: 'done', pid: null });
+  });
+
+  it('signals only the verified process and terminate still works on a stopped one', async () => {
+    const child = spawn(process.execPath, ['-e', 'setTimeout(()=>{},30000)'], { stdio: 'ignore' });
+    pids.push(child.pid!);
+    const start = procStart(child.pid!)!;
+    expect(signalIfSame(child.pid!, start + 1, 'SIGSTOP')).toBe(false);
+    await pause(100);
+    expect(state(child.pid!)).not.toBe('T');
+    expect(signalIfSame(child.pid!, start, 'SIGSTOP')).toBe(true);
+    await vi.waitFor(() => expect(state(child.pid!)).toBe('T'));
+    await terminate(child.pid!, start, { graceMs: 1000 });
+    expect(alive(child.pid!)).toBe(false);
   });
 });

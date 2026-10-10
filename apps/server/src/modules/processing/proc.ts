@@ -42,6 +42,18 @@ export function findWriters(hlsRoot: string): { pid: number; pidStart: number }[
   return found;
 }
 
+// Signals the process only if it is still the one recorded (start time), so a recycled pid is never touched.
+// The check and the kill are not atomic; the window is a few microseconds and the start time makes a hit negligible.
+export function signalIfSame(pid: number, pidStart: number, signal: NodeJS.Signals): boolean {
+  if (procStart(pid) !== pidStart) return false;
+  try {
+    process.kill(pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // SIGTERM, then SIGKILL after the grace period. Never signals a process whose start time no longer matches.
@@ -49,11 +61,9 @@ export async function terminate(pid: number, pidStart: number, { graceMs = 5_000
   const same = () => procStart(pid) === pidStart;
   for (const [signal, wait] of [['SIGTERM', graceMs], ['SIGKILL', 2_000]] as const) {
     if (!same()) return;
-    try {
-      process.kill(pid, signal);
-    } catch {
-      return;
-    }
+    // A stopped (SIGSTOP) process keeps SIGTERM pending until it is continued.
+    if (!signalIfSame(pid, pidStart, signal)) return;
+    if (signal === 'SIGTERM') signalIfSame(pid, pidStart, 'SIGCONT');
     for (let waited = 0; same() && waited < wait; waited += pollMs) await sleep(pollMs);
   }
 }

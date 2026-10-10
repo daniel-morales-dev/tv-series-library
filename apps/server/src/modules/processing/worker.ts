@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { join, resolve } from 'node:path';
-import { KeepChildren, type ProbeStreams, type RunFfmpeg, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
+import { KeepChildren, type ProbeStreams, type RunFfmpeg, type SpawnInfo, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
 import { type Adoption, InvalidPackageError, SourceMissingError, processMedia } from './process.ts';
-import { findWriters, isOurFfmpeg, terminate } from './proc.ts';
+import { findWriters, isOurFfmpeg, signalIfSame, terminate } from './proc.ts';
 import {
   type ProcessResult,
   claimNext,
@@ -48,7 +48,7 @@ export interface Worker {
   start(): void;
   /** `killChildren: false` leaves running ffmpeg processes alive so the next `start()` adopts them. */
   stop(opts?: { killChildren?: boolean }): void;
-  /** Stops all processing: running jobs are requeued and restart later, and nothing new is claimed. */
+  /** Stops all processing: running ffmpeg are frozen in place (SIGSTOP) and nothing new is claimed. */
   pause(): void;
   /** Resumes claiming queued work by priority. */
   resume(): void;
@@ -71,7 +71,8 @@ export function createWorker(opts: WorkerOptions): Worker {
   const log = opts.log ?? (() => {});
   const abort = new AbortController();
   let active = 0;
-  const running = new Map<number, { mediaFileId: number; ctl: AbortController; preempted: boolean }>();
+  // `proc` is the job's main ffmpeg once known; `stopped` means a pause froze it with SIGSTOP (job still running).
+  const running = new Map<number, { mediaFileId: number; ctl: AbortController; preempted: boolean; proc?: SpawnInfo; stopped: boolean }>();
   let timer: NodeJS.Timeout | undefined;
   let idle: (() => void)[] = [];
   // In memory only: a server restart resumes processing with the backlog.
@@ -86,7 +87,13 @@ export function createWorker(opts: WorkerOptions): Worker {
   async function runJob(job: NonNullable<ReturnType<typeof claimNext>>, adopt?: Adoption) {
     let lastWrite = Number.NEGATIVE_INFINITY;
     let retried = false;
-    const entry = { mediaFileId: job.mediaFileId, ctl: new AbortController(), preempted: false };
+    const entry: NonNullable<ReturnType<typeof running.get>> = {
+      mediaFileId: job.mediaFileId,
+      ctl: new AbortController(),
+      preempted: false,
+      proc: adopt && { pid: adopt.pid, pidStart: adopt.pidStart },
+      stopped: false,
+    };
     running.set(job.id, entry);
     try {
       let result: ProcessResult;
@@ -94,7 +101,10 @@ export function createWorker(opts: WorkerOptions): Worker {
         try {
           result = await processMedia(deps, { id: job.mediaFileId, path: job.path }, {
             onTracks: (tracks) => setTracks(db, job, tracks),
-            onSpawn: (p) => setSpawned(db, job.id, p),
+            onSpawn: (p) => {
+              entry.proc = p;
+              setSpawned(db, job.id, p);
+            },
             adopt: retried ? undefined : adopt,
             signal: AbortSignal.any([abort.signal, entry.ctl.signal]),
             onProgress: (fraction) => {
@@ -162,12 +172,17 @@ export function createWorker(opts: WorkerOptions): Worker {
     victim.ctl.abort(); // its runJob requeues it, then kick() claims the prioritized job
   }
 
-  // Aborts every running job so the CPU frees immediately; runJob requeues each one and it restarts
-  // from zero later (HLS packages are not resumable mid-encode).
+  // Freezes every running job so the CPU frees immediately. A job whose main ffmpeg is known (also an adopted one)
+  // is SIGSTOPped in place, keeping its package and progress; anything else (probe/extract phase, process already
+  // gone) is aborted and requeued, restarting from zero later.
   function pause() {
     if (paused) return;
     paused = true;
     for (const entry of running.values()) {
+      if (entry.proc && signalIfSame(entry.proc.pid, entry.proc.pidStart, 'SIGSTOP')) {
+        entry.stopped = true;
+        continue;
+      }
       entry.preempted = true;
       entry.ctl.abort();
     }
@@ -175,6 +190,11 @@ export function createWorker(opts: WorkerOptions): Worker {
 
   function resume() {
     paused = false;
+    for (const entry of running.values()) {
+      if (!entry.stopped || !entry.proc) continue;
+      signalIfSame(entry.proc.pid, entry.proc.pidStart, 'SIGCONT');
+      entry.stopped = false;
+    }
     kick();
   }
 
@@ -212,6 +232,8 @@ export function createWorker(opts: WorkerOptions): Worker {
         void startup.then(kick);
       }
       for (const { job, ...adoption } of adopted.values()) {
+        // Pause lives in memory only: a restart resumes processing, so an ffmpeg left stopped by a pause continues.
+        signalIfSame(adoption.pid, adoption.pidStart, 'SIGCONT');
         active++;
         log('info', `${job.path}: adopting running ffmpeg ${job.pid}`);
         void runJob(job, adoption).finally(() => {

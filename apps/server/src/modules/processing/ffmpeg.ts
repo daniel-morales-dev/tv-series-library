@@ -77,6 +77,7 @@ export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000 }: { bin?: stri
       function onAbort() {
         if (keepsChildren(signal)) return done(() => reject(signal!.reason));
         child.kill('SIGTERM');
+        child.kill('SIGCONT'); // a paused (SIGSTOP) ffmpeg only handles SIGTERM once continued
         escalate = setTimeout(() => child.kill('SIGKILL'), KILL_ESCALATION_MS);
         escalate.unref();
       }
