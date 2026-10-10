@@ -1,5 +1,5 @@
 import { watch, type FSWatcher } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
 import { type Assignment, adoptSeries, assignMovie, assignSeries, matchSeries, placeEpisode } from './assign.ts';
@@ -8,7 +8,7 @@ import { type Parsed, parsePath } from './parser.ts';
 import { type Probe, ffprobe } from './probe.ts';
 import { type ConfirmBody, confirmPending } from './pending.ts';
 import { type Placement, addPending, promoteDownload, registerDownloading, registerFile, relinkFiles } from './register.ts';
-import { type VideoFile, listVideos, showDirKey } from './scanner.ts';
+import { ROOTS, type VideoFile, listVideos, showDirKey } from './scanner.ts';
 import { type TmdbClient, memoize } from './tmdb.ts';
 
 const MIN_AGE_MS = 60_000;
@@ -29,6 +29,8 @@ export interface IngestorOptions {
   /** Fixed folder, or a live resolver so T22 can switch folders while the server runs. */
   contentDir: string | (() => string);
   probe?: Probe;
+  /** T47d: false while the library disk is not mounted; scans are skipped and the watchers re-armed on return. */
+  diskPresent?: () => boolean;
   now?: () => number;
   log?: (level: 'info' | 'warn', message: string) => void;
 }
@@ -56,7 +58,10 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
 
   let running: Promise<ScanSummary> | null = null;
   let again = false;
-  let timers: { interval?: NodeJS.Timeout; debounce?: NodeJS.Timeout; recent?: NodeJS.Timeout; watcher?: FSWatcher } = {};
+  let timers: { interval?: NodeJS.Timeout; debounce?: NodeJS.Timeout; recent?: NodeJS.Timeout } = {};
+  let watchers = new Map<string, FSWatcher>();
+  let armed = false;
+  const diskPresent = opts.diskPresent ?? (() => true);
 
   async function scanLoop(): Promise<ScanSummary> {
     let summary: ScanSummary;
@@ -81,6 +86,11 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   async function scanOnce(): Promise<ScanSummary> {
     const state: ScanState = { ctx: { db, tmdb: memoize(opts.tmdb), dataDir }, offline: false, dirs: new Map() };
     const summary: ScanSummary = { ingested: 0, pending: 0, waiting: 0, failed: 0 };
+    if (!diskPresent()) {
+      closeWatchers(); // bound to the unmounted folder: useless once the disk returns
+      return summary;
+    }
+    if (armed) armWatchers(); // picks up shows/ or films/ created after start
     await retryMetadata(state);
     relabelExtras();
 
@@ -295,19 +305,35 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     void scan();
     timers.interval = setInterval(() => void scan(), intervalMin * 60_000);
     timers.interval.unref();
-    try {
-      timers.watcher = watch(contentDir(), { recursive: true }, () => schedule(DEBOUNCE_MS, 'debounce'));
-      timers.watcher.on('error', (err) => log('warn', `watcher error: ${err.message}`));
-    } catch (err) {
-      log('warn', `fs.watch unavailable, relying on periodic scans: ${(err as Error).message}`);
+    armed = true;
+    if (diskPresent()) armWatchers();
+  }
+
+  // Only the folders that hold media: package writes under `.sala/` must not trigger a scan per segment.
+  function armWatchers() {
+    for (const root of ROOTS) {
+      if (watchers.has(root)) continue;
+      try {
+        const watcher = watch(join(contentDir(), root), { recursive: true }, () => schedule(DEBOUNCE_MS, 'debounce'));
+        watcher.on('error', (err) => log('warn', `watcher error: ${err.message}`));
+        watchers.set(root, watcher);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') log('warn', `fs.watch unavailable for ${root}/, relying on periodic scans: ${(err as Error).message}`);
+      }
     }
+  }
+
+  function closeWatchers() {
+    watchers.forEach((w) => w.close());
+    watchers.clear();
   }
 
   function stop() {
     clearInterval(timers.interval);
     clearTimeout(timers.debounce);
     clearTimeout(timers.recent);
-    timers.watcher?.close();
+    closeWatchers();
+    armed = false;
     timers = {};
   }
 

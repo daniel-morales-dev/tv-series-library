@@ -126,38 +126,31 @@ describe('configStatus', () => {
     expect(existsSync(dir)).toBe(false);
   });
 
-  it('reports ready and adopts the marker libraryId into config.json', () => {
-    const dir = join(tempRoot(), 'cfg');
-    const media = tempRoot();
-    writeUserConfig({ contentDir: media, libraryId: 'from-config' }, dir);
-    writeMarker(media, 'from-marker');
-    expect(configStatus(media, { dir })).toEqual({
-      status: 'ready',
-      contentDir: media,
-      libraryId: 'from-marker',
-      suggestedDefault: media,
-    });
-    expect(readUserConfig({ dir })?.libraryId).toBe('from-marker');
-  });
-
-  it('reports ready and writes the missing marker from config.json', () => {
-    const dir = join(tempRoot(), 'cfg');
-    const media = tempRoot();
-    writeUserConfig({ contentDir: media, libraryId: 'lib-x' }, dir);
-    expect(configStatus(media, { dir })).toEqual({ status: 'ready', contentDir: media, libraryId: 'lib-x', suggestedDefault: media });
-    expect(readMarker(media)).toEqual({ libraryId: 'lib-x' });
-  });
-
-  it('reports ready and backfills a generated id when neither marker nor config carry one', () => {
+  it('reports ready and adopts the marker libraryId when config.json carries none', () => {
     const dir = join(tempRoot(), 'cfg');
     const media = tempRoot();
     mkdirSync(dir);
     writeFileSync(join(dir, 'config.json'), JSON.stringify({ contentDir: media }));
-    const status = configStatus(media, { dir });
-    expect(status.status).toBe('ready');
-    expect(status.libraryId).toMatch(UUID);
-    expect(readMarker(media)).toEqual({ libraryId: status.libraryId });
-    expect(readUserConfig({ dir })?.libraryId).toBe(status.libraryId);
+    writeMarker(media, 'from-marker');
+    expect(configStatus(media, { dir })).toEqual({ status: 'ready', contentDir: media, libraryId: 'from-marker', suggestedDefault: media });
+    expect(readUserConfig({ dir })?.libraryId).toBe('from-marker');
+  });
+
+  it('reports ready when marker and config agree', () => {
+    const dir = join(tempRoot(), 'cfg');
+    const media = tempRoot();
+    writeUserConfig({ contentDir: media, libraryId: 'lib-x' }, dir);
+    writeMarker(media, 'lib-x');
+    expect(configStatus(media, { dir })).toEqual({ status: 'ready', contentDir: media, libraryId: 'lib-x', suggestedDefault: media });
+  });
+
+  it('reports missing, without writing a marker, when the folder has none (T47d: only the wizard creates it)', () => {
+    const dir = join(tempRoot(), 'cfg');
+    const media = tempRoot();
+    mkdirSync(dir);
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ contentDir: media }));
+    expect(configStatus(media, { dir })).toMatchObject({ status: 'missing', libraryId: null });
+    expect(readMarker(media)).toBeNull();
   });
 
   it('reports missing without creating or modifying anything', () => {

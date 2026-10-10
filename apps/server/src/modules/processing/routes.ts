@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { sendFile } from '../../http/static-file.ts';
 import { all, get } from '../../db/sql.ts';
@@ -93,12 +93,25 @@ function activityView(db: DatabaseSync) {
   return { running, queued, queuedTotal, failed };
 }
 
-export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir: string, worker?: Worker): void {
+/** T47d: `present` tells whether the library disk is mounted; `hlsOnLibrary` means the HLS tree lives inside it. */
+export interface DiskGuard {
+  present: () => boolean;
+  hlsOnLibrary?: boolean;
+}
+
+export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir: string, worker?: Worker, disk: DiskGuard = { present: () => true }): void {
   api.get('/jobs', async () => listJobs(db));
   api.get('/activity', async () => {
     const lowDisk = worker?.lowDisk() ?? null;
-    return { ...activityView(db), paused: worker?.isPaused() ?? false, lowDisk: lowDisk !== null, lowDiskMessage: lowDisk?.message ?? null };
+    return {
+      ...activityView(db),
+      paused: worker?.isPaused() ?? false,
+      lowDisk: lowDisk !== null,
+      lowDiskMessage: lowDisk?.message ?? null,
+      diskAbsent: !disk.present(),
+    };
   });
+  const diskAbsent = (reply: FastifyReply) => reply.code(503).header('Retry-After', '5').send({ error: 'disk_absent' });
 
   // A ready copy-mode file whose package was never built (or was evicted): built on demand, ahead of the queue.
   const isLazy = (f: { status: string; hls_dir: string | null; pkg_mode: string | null }) =>
@@ -139,6 +152,7 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir
     if (!file) return reply.code(404).send({ error: 'not_found' });
     if (file.status === 'downloading') return reply.code(409).send({ error: 'downloading' });
     const lazy = isLazy(file);
+    if (lazy && !disk.present()) return diskAbsent(reply); // building the package needs the original
     if (file.status === 'ready' && !lazy) {
       touchPlayed(db, req.params.id);
       return { status: 'ready' };
@@ -153,9 +167,11 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, dataDir
     '/stream/:mediaFileId/*',
     { schema: { params: { ...idParams('mediaFileId'), properties: { mediaFileId: { type: 'integer' }, '*': { type: 'string' } } } } },
     async (req, reply) => {
-      const dir = join(dataDir, 'hls', String(req.params.mediaFileId));
+      if (disk.hlsOnLibrary && !disk.present()) return diskAbsent(reply);
+      const dir = join(hlsDir, String(req.params.mediaFileId));
       const base = (await stat(dir).catch(() => null))?.isDirectory() ? dir : `${dir}.tmp`;
       if (base !== dir && !(await stat(base).catch(() => null))?.isDirectory()) {
+        if (!disk.present()) return diskAbsent(reply); // nothing to serve and nothing can be built
         const file = get<{ status: string; hls_dir: string | null; pkg_mode: string | null }>(
           db,
           'SELECT status, hls_dir, pkg_mode FROM media_files WHERE id = ?',

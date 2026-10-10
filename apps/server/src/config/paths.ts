@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve, win32 } from 'node:path';
-import { REPO_ROOT } from './config.ts';
+import { REPO_ROOT, configDir, readUserConfig } from './config.ts';
 
 export interface DataPaths {
   /** SQLite database, images and recovery copies. */
@@ -21,6 +21,8 @@ export interface PathsOptions {
   root?: string;
   platform?: NodeJS.Platform;
   home?: string;
+  /** Directory holding config.json (T47d `hlsDir`); defaults to the per-OS user config dir. */
+  configDir?: string;
 }
 
 /** `$XDG_DATA_HOME/sala` (default `~/.local/share/sala`) on Linux, `%LOCALAPPDATA%\sala\data` on Windows. */
@@ -36,9 +38,16 @@ export function userStateDir(env: NodeJS.ProcessEnv = process.env, { platform = 
  * 2. per-user state once it exists (`library.db` there, written last by `sala migrate-state`).
  * 3. legacy `<repo>/data/library.db` while nothing newer exists: keep using it, never move it silently.
  * 4. otherwise the per-user default (fresh install).
- * HLS is not relocated yet (T47d/e): it stays in the legacy `hls/` while that folder exists.
+ * HLS: config.json `hlsDir` (T47d), else the legacy `hls/` while that folder exists, else `<stateDir>/hls`.
  */
 export function resolveDataPaths(env: NodeJS.ProcessEnv = process.env, options: PathsOptions = {}): DataPaths {
+  const paths = resolveBase(env, options);
+  // T47d: an absolute `hlsDir` in config.json wins; an explicit DATA_DIR keeps the historical layout (dev/test isolation).
+  const hlsDir = paths.source === 'env' ? undefined : readUserConfig({ dir: options.configDir ?? configDir(env), warn: () => {} })?.hlsDir;
+  return hlsDir ? { ...paths, hlsDir } : paths;
+}
+
+function resolveBase(env: NodeJS.ProcessEnv, options: PathsOptions): DataPaths {
   const root = options.root ?? REPO_ROOT;
   const legacyDir = resolve(root, 'data');
   const userDir = userStateDir(env, options);

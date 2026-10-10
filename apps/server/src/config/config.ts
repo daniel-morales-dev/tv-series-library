@@ -11,6 +11,10 @@ export interface UserConfig {
   /** Absolute path chosen by the first-run wizard (T22b); never edited by hand. */
   contentDir: string;
   libraryId?: string;
+  /** T47d: absolute HLS folder (e.g. `<contentDir>/.sala/hls`); absent = `<stateDir>/hls`. */
+  hlsDir?: string;
+  /** T47d: `stat.dev` of a content folder that is a mount point of its own; absent = plain folder. */
+  contentDev?: number;
 }
 
 export interface ConfigOptions {
@@ -51,9 +55,14 @@ export function readUserConfig(options: ConfigOptions = {}): UserConfig | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      const { contentDir, libraryId } = parsed as Record<string, unknown>;
+      const { contentDir, libraryId, hlsDir, contentDev } = parsed as Record<string, unknown>;
       if (typeof contentDir === 'string' && isAbsolute(contentDir)) {
-        return { contentDir, ...(typeof libraryId === 'string' && libraryId ? { libraryId } : {}) };
+        return {
+          contentDir,
+          ...(typeof libraryId === 'string' && libraryId ? { libraryId } : {}),
+          ...(typeof hlsDir === 'string' && isAbsolute(hlsDir) ? { hlsDir } : {}),
+          ...(typeof contentDev === 'number' ? { contentDev } : {}),
+        };
       }
     }
   } catch {
@@ -106,23 +115,53 @@ export function resolveContentDir(env: NodeJS.ProcessEnv = process.env, options:
 
 /**
  * unset: no config.json; the folder may still come from env/root .env/default (legacy and dev flow).
- * ready: config + folder exist; the marker and the config adopt each other's libraryId.
- * missing: the configured folder is gone; never create it, never scan, no empty library.
+ * ready: config + folder exist and the marker proves it is the configured library.
+ * missing: the folder is gone, or it is not the configured library (no marker, another libraryId, or no longer the saved
+ * device: an unmounted disk leaves an empty mount point). Never creates anything: only the wizard/PUT writes the marker.
  */
 export function configStatus(resolvedContentDir: string, options: ConfigOptions = {}): ConfigStatus {
   const config = readUserConfig(options);
   const suggestedDefault = isDirectory(resolvedContentDir) ? resolvedContentDir : null;
   if (!config) return { status: 'unset', contentDir: null, libraryId: null, suggestedDefault };
-  if (!isDirectory(config.contentDir)) {
-    return { status: 'missing', contentDir: config.contentDir, libraryId: config.libraryId ?? null, suggestedDefault };
-  }
+  const missing = { status: 'missing', contentDir: config.contentDir, libraryId: config.libraryId ?? null, suggestedDefault } as const;
+  if (!isDirectory(config.contentDir)) return missing;
   const marker = readMarker(config.contentDir, options.warn ?? console.warn);
-  const libraryId = marker?.libraryId ?? config.libraryId ?? randomUUID();
-  if (!marker) writeMarker(config.contentDir, libraryId);
-  if (config.libraryId !== libraryId) {
-    writeUserConfig({ contentDir: config.contentDir, libraryId }, options.dir ?? configDir());
+  if (!marker || (config.libraryId && config.libraryId !== marker.libraryId) || !sameDevice(config)) return missing;
+  if (!config.libraryId) writeUserConfig({ ...config, libraryId: marker.libraryId }, options.dir ?? configDir());
+  return { status: 'ready', contentDir: config.contentDir, libraryId: marker.libraryId, suggestedDefault };
+}
+
+/**
+ * Cheap, silent and side-effect free: the guard that runs on every stream request and worker tick.
+ * Without config.json (legacy/dev flow) a folder that exists counts as present.
+ */
+export function libraryDiskPresent(resolvedContentDir: string, options: ConfigOptions = {}): boolean {
+  const quiet = { ...options, warn: () => {} };
+  const config = readUserConfig(quiet);
+  if (!config) return isDirectory(resolvedContentDir);
+  if (!isDirectory(config.contentDir)) return false;
+  const marker = readMarker(config.contentDir, quiet.warn);
+  return !!marker && (!config.libraryId || config.libraryId === marker.libraryId) && sameDevice(config);
+}
+
+// A content folder saved as a mount point must still be that device; a plain folder has nothing to compare.
+function sameDevice(config: UserConfig): boolean {
+  if (config.contentDev === undefined) return true;
+  try {
+    return statSync(config.contentDir).dev === config.contentDev;
+  } catch {
+    return false;
   }
-  return { status: 'ready', contentDir: config.contentDir, libraryId, suggestedDefault };
+}
+
+/** `stat.dev` of `path` when it is a mount point of its own (differs from its parent), else undefined. */
+function mountDev(path: string): number | undefined {
+  try {
+    const { dev } = statSync(path);
+    return dev !== statSync(dirname(path)).dev ? dev : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -147,9 +186,15 @@ export function setContentDir(input: string, options: { create?: boolean } & Con
   }
   if (stats && !stats.isDirectory()) return { ok: false, error: 'not_directory' };
   const marker = readMarker(path, options.warn ?? console.warn);
-  const libraryId = marker?.libraryId ?? randomUUID();
+  const previous = readUserConfig({ ...options, warn: () => {} });
+  const same = previous?.contentDir === path;
+  const libraryId = marker?.libraryId ?? (same ? previous.libraryId : undefined) ?? randomUUID();
   if (!marker) writeMarker(path, libraryId);
-  writeUserConfig({ contentDir: path, libraryId }, options.dir ?? configDir());
+  const contentDev = mountDev(path);
+  writeUserConfig(
+    { contentDir: path, libraryId, ...(contentDev !== undefined ? { contentDev } : {}), ...(same && previous.hlsDir ? { hlsDir: previous.hlsDir } : {}) },
+    options.dir ?? configDir(),
+  );
   return { ok: true, status: configStatus(path, options) };
 }
 

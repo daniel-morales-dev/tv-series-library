@@ -44,7 +44,7 @@ function queue(db: ReturnType<typeof setup>['db'], fileId: number): number {
 describe('GET /api/activity', () => {
   it('answers empty sections on an empty library', async () => {
     const { app } = env();
-    expect((await app.inject('/api/activity')).json()).toEqual({ running: [], queued: [], queuedTotal: 0, failed: [], paused: false, lowDisk: false, lowDiskMessage: null });
+    expect((await app.inject('/api/activity')).json()).toEqual({ running: [], queued: [], queuedTotal: 0, failed: [], paused: false, lowDisk: false, lowDiskMessage: null, diskAbsent: false });
   });
 
   it('joins episode, film and extra files with their display names and kind', async () => {

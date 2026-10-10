@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { join, resolve } from 'node:path';
-import { type Statfs, LowDiskError, createCache } from './cache.ts';
+import { type Statfs, DiskAbsentError, LowDiskError, createCache } from './cache.ts';
 import { KeepChildren, type ProbeStreams, type RunFfmpeg, type SpawnInfo, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
 import { type Adoption, InvalidPackageError, type ProcessDeps, SourceMissingError, processMedia } from './process.ts';
 import { findWriters, isOurFfmpeg, signalIfSame, terminate } from './proc.ts';
@@ -26,7 +26,11 @@ const MAIN_RUN_SHARE = 0.99;
 export interface WorkerOptions {
   db: DatabaseSync;
   dataDir: string;
+  /** HLS root (T47d); defaults to `<dataDir>/hls`. */
+  hlsDir?: string;
   contentDir: string;
+  /** T47d: false while the library disk is not mounted; nothing is claimed and failures requeue. Default: always present. */
+  diskPresent?: () => boolean;
   concurrency?: number;
   /** x264 encoder threads. */
   threads?: number;
@@ -64,26 +68,36 @@ export interface Worker {
   isPaused(): boolean;
   /** Set while processing is paused for lack of disk space. */
   lowDisk(): { message: string } | null;
+  /** True while queued work waits for the library disk to come back. */
+  diskAbsent(): boolean;
 }
 
 export function createWorker(opts: WorkerOptions): Worker {
   const { db } = opts;
   const concurrency = Math.max(1, opts.concurrency ?? 1);
+  const hlsRoot = resolve(opts.hlsDir ?? join(opts.dataDir, 'hls'));
+  const diskPresent = opts.diskPresent ?? (() => true);
+  const assertDisk = () => {
+    if (!diskPresent()) throw new DiskAbsentError();
+  };
   const deps: ProcessDeps = {
     dataDir: opts.dataDir,
+    hlsDir: hlsRoot,
+    assertDisk,
     contentDir: opts.contentDir,
     runFfmpeg: opts.runFfmpeg ?? realRun,
     probeStreams: opts.probeStreams ?? realProbe,
     threads: opts.threads,
     pollMs: opts.pollMs,
   };
-  const hlsRoot = join(resolve(opts.dataDir), 'hls');
   const now = opts.now ?? Date.now;
   const log = opts.log ?? (() => {});
   const lazyCopy = opts.lazyCopy ?? true;
   const cache = createCache({
     db,
     dataDir: opts.dataDir,
+    hlsDir: hlsRoot,
+    assertDisk,
     contentDir: opts.contentDir,
     budgetBytes: opts.cacheBudgetBytes ?? 20 * 1024 ** 3,
     minFreeBytes: opts.minFreeBytes ?? 10 * 1024 ** 3,
@@ -104,6 +118,8 @@ export function createWorker(opts: WorkerOptions): Worker {
   // Set while the pause is for lack of disk space; `required` is the free space the job that hit it needs to start.
   let lowDisk: { message: string; needed: number } | null = null;
   let checkingDisk = false;
+  // Refreshed on every kick; the poll timer notices the disk coming back and picks the backlog up again.
+  let diskGone = false;
   // False while orphan ffmpeg processes from a previous server are being terminated: no job may start before that.
   let ready = true;
   let startup: Promise<void> = Promise.resolve();
@@ -165,6 +181,13 @@ export function createWorker(opts: WorkerOptions): Worker {
         log('info', `${job.path}: interrupted for a play request, requeued`);
         return;
       }
+      // A vanished disk surfaces as ENOENT/EIO/ffmpeg errors: whatever the symptom, the file is not at fault.
+      if (err instanceof DiskAbsentError || !diskPresent()) {
+        requeue(db, job);
+        log('warn', `${job.path}: library disk not available, requeued until it returns`);
+        diskGone = true;
+        return;
+      }
       if (err instanceof LowDiskError) {
         requeue(db, job);
         log('warn', err.message);
@@ -200,6 +223,14 @@ export function createWorker(opts: WorkerOptions): Worker {
 
   function kick() {
     if (abort.signal.aborted || !ready) return;
+    diskGone = !diskPresent();
+    if (diskGone) {
+      if (active === 0) {
+        idle.forEach((resolve) => resolve());
+        idle = [];
+      }
+      return;
+    }
     if (lowDisk) void resumeIfSpace();
     while (active < concurrency) {
       if (paused) break;
@@ -266,6 +297,7 @@ export function createWorker(opts: WorkerOptions): Worker {
     resume,
     isPaused: () => paused,
     lowDisk: () => (lowDisk ? { message: lowDisk.message } : null),
+    diskAbsent: () => diskGone,
     drain,
     start() {
       void cache.classifyLegacy().catch((e) => log('warn', `cache: classification failed: ${(e as Error).message}`));

@@ -2,7 +2,8 @@ import { readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
 const VIDEO = /\.(mkv|mp4|m4v|avi|webm|mov|ts)$/i;
-const ROOTS = ['shows', 'films'];
+/** The only folders the library reads and watches (never `.sala/`). */
+export const ROOTS = ['shows', 'films'];
 
 export interface VideoFile {
   /** Relative to the content dir, `/` separated. */

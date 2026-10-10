@@ -45,7 +45,12 @@ Bajar solo el bitrate ahorra ~7–9 GB (~10 %); lo grande es no duplicar lo ya c
 - T47c (5, hecha) copy perezoso + LRU + presupuesto + ADR 0006 (`docs/adr/0006-copy-perezoso-y-cache.md`; migración 008, `processing/cache.ts`).
   - Presupuesto de caché configurable con default seguro. El LRU expulsa solo cachés regenerables (copy); nunca paquetes x264 ni originales.
   - Comprobar espacio libre antes de generar una caché de copy.
-- T47d (5) HLS bajo `.sala/hls` + guardián de disco ausente + watcher acotado.
+- T47d (5, hecha en código; el sistema en uso no cambia hasta T47e) HLS bajo `.sala/hls` + guardián de disco ausente + watcher acotado.
+  - `config.json` admite `hlsDir` (absoluto, opcional): si falta, `<stateDir>/hls`; un `DATA_DIR` explícito lo ignora. Servidor, worker y rutas reciben `hlsDir` explícito (ya no dependen del symlink de `migrate-state`).
+  - Guardián: `configStatus` ya no crea el marcador (solo el wizard/PUT); `missing` si falta el marcador, su `libraryId` difiere o la carpeta dejó de ser el dispositivo guardado (`contentDev`, solo si es punto de montaje propio). `libraryDiskPresent` lo consultan worker, ingestor y `/api/stream`.
+  - Disco ausente: `/api/stream` y `/play` (copy perezoso) responden 503 `disk_absent`; el worker no reclama trabajo, reencola en vez de `error` y `/api/activity` expone `diskAbsent`; se reanuda solo.
+  - `meta.json` por paquete `{ path, size, planHash }`. El `planHash` incluye rutas absolutas y threads: sirve para detectar cambios en la misma máquina, no para comparar entre máquinas (usar `path` + `size`).
+  - El watcher vigila solo `shows/` y `films/`.
   - Comprobar espacio libre antes de procesar (encode/HLS). Si el espacio libre baja del umbral (referencia: 10 % o 10 GB), el worker pausa el procesado y muestra un aviso claro en Actividad; nunca llena el disco.
 - T47e (5) migración (rename/hardlink o copia verificada) + UI "mover datos con la biblioteca".
   - Flujo guiado en Ajustes y por CLI `sala` (T45): elegir destino → verificar espacio → mover → verificar → confirmar → liberar origen. Reanudable.

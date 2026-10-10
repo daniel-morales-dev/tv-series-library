@@ -25,6 +25,10 @@ async function nameMaster(dir: string, plan: Plan): Promise<boolean> {
 
 export interface ProcessDeps {
   dataDir: string;
+  /** HLS root; defaults to `<dataDir>/hls`. */
+  hlsDir?: string;
+  /** Throws DiskAbsentError when the library disk is gone; checked before the package folder is created. */
+  assertDisk?: () => void;
   contentDir: string;
   runFfmpeg: RunFfmpeg;
   probeStreams: ProbeStreams;
@@ -161,7 +165,7 @@ export async function processMedia(
   const info = await deps.probeStreams(src);
   const plan = buildPlan(info);
   const rel = `hls/${file.id}`;
-  const finalDir = join(resolve(deps.dataDir), rel);
+  const finalDir = join(resolve(deps.hlsDir ?? join(deps.dataDir, 'hls')), String(file.id));
   const tmpDir = `${finalDir}.tmp`;
   const tracks = {
     audio: plan.audio.map((a) => ({ index: a.index, codec: a.codec, language: a.language, title: a.title, channels: a.channels, playlist: a.playlist })),
@@ -187,6 +191,7 @@ export async function processMedia(
     }
     if (!finished) {
       await deps.ensureSpace?.(Math.ceil(srcStat.size * ESTIMATE_RATIO[mode]), file.id);
+      deps.assertDisk?.();
       await rm(tmpDir, { recursive: true, force: true });
       for (const dir of ['v', ...plan.audio.map((a) => `a${a.n}`), 'subs', 'fonts']) await mkdir(join(tmpDir, dir), { recursive: true });
       // Subtitles and fonts first, so they exist as soon as playback can start.
@@ -221,6 +226,8 @@ export async function processMedia(
     await Promise.all([PROGRESS_FILE, LOG_FILE].map((f) => rm(join(tmpDir, f), { force: true })));
     await buildMaster(tmpDir, plan, info.durationS);
     await validatePackage(tmpDir);
+    // T47d: lets another machine re-adopt the package by matching the original (relative path + size).
+    await writeFile(join(tmpDir, 'meta.json'), `${JSON.stringify({ path: file.path, size: srcStat.size, planHash })}\n`);
     await rm(finalDir, { recursive: true, force: true });
     await rename(tmpDir, finalDir);
   } catch (err) {

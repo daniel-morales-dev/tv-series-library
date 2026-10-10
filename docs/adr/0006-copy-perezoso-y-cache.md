@@ -17,6 +17,6 @@ Medido en la biblioteca real (`docs/design/t47-data.md`): los 40 paquetes en mod
 - El primer play de un episodio copy espera ~4 s (más con HDD frío) y exige el original presente.
 - Un original ausente al reproducir sigue marcando el archivo en `error` (ver deuda abajo).
 
-## Deuda para T47d
-- Un original ausente por disco desmontado no debe pasar a `error` ni a `requeueErrors`: hoy no hay forma fiable de distinguirlo de un archivo borrado; llegará con el marcador de biblioteca (`libraryId`) y `stat.dev`.
-- `/api/stream` 503 `disk_absent` y el reintento del player cuando falta el disco.
+## Resuelto en T47d
+- Un original ausente por disco desmontado ya no pasa a `error`: el worker comprueba el marcador de biblioteca (`libraryId`) y `stat.dev`, reencola y se reanuda al volver el disco.
+- `/api/stream` y `/play` responden 503 `disk_absent`. El reintento del player queda para el frontend.

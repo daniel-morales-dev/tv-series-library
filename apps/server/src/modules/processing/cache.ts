@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { mkdir, readdir, rename, rm, stat, statfs as realStatfs } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { all, run } from '../../db/sql.ts';
 import { type ProbeStreams, probeStreams as realProbe } from './ffmpeg.ts';
 import { buildPlan } from './plan.ts';
@@ -31,6 +31,13 @@ export class LowDiskError extends Error {
   }
 }
 
+/** The library disk is not mounted: nothing may be written (a mkdir would create `.sala/` on the empty mount point). */
+export class DiskAbsentError extends Error {
+  constructor() {
+    super('El disco de la biblioteca no está disponible. El procesado se reanuda solo cuando vuelva.');
+  }
+}
+
 export async function dirBytes(dir: string): Promise<number> {
   let total = 0;
   for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
@@ -54,7 +61,11 @@ export function touchPlayed(db: DatabaseSync, mediaFileId: number, nowMs = Date.
 export interface CacheOptions {
   db: DatabaseSync;
   dataDir: string;
+  /** HLS root; defaults to `<dataDir>/hls`. */
+  hlsDir?: string;
   contentDir: string;
+  /** Throws DiskAbsentError when the library disk is gone; checked before anything is created. */
+  assertDisk?: () => void;
   /** Copy packages are a regenerable cache: above this many bytes the least recently played are evicted. */
   budgetBytes: number;
   /** Free space that must remain on the HLS volume after writing: the larger of this and `minFreePct` of the volume. */
@@ -75,13 +86,15 @@ interface Candidate {
 
 export function createCache(o: CacheOptions) {
   const { db } = o;
-  const dataRoot = resolve(o.dataDir);
-  const hlsRoot = join(dataRoot, 'hls');
+  const hlsRoot = resolve(o.hlsDir ?? join(o.dataDir, 'hls'));
+  // `media_files.hls_dir` stays `hls/<id>` whatever the root is, so only its last segment is meaningful.
+  const packageDir = (hlsDir: string) => join(hlsRoot, basename(hlsDir));
   const now = o.now ?? Date.now;
   const log = o.log ?? (() => {});
   const probe = o.probeStreams ?? realProbe;
 
   async function volume() {
+    o.assertDisk?.();
     await mkdir(hlsRoot, { recursive: true });
     const s = await (o.statfs ?? realStatfs)(hlsRoot);
     const total = s.blocks * s.bsize;
@@ -115,7 +128,7 @@ export function createCache(o: CacheOptions) {
   // so a concurrent rebuild never races a half-deleted package.
   async function evict(c: Candidate, why: string): Promise<void> {
     log('warn', `cache: evicting ${c.path} (${gb(c.bytes)} GB, ${why}); it is rebuilt from the original on its next play`);
-    const dir = join(dataRoot, c.hlsDir);
+    const dir = packageDir(c.hlsDir);
     const gone = `${dir}.evicting`;
     await rename(dir, gone).catch(() => {});
     run(db, 'UPDATE media_files SET hls_dir = NULL, pkg_bytes = NULL WHERE id = ?', c.id);
@@ -165,7 +178,7 @@ export function createCache(o: CacheOptions) {
         if (!(await stat(src).catch(() => null))?.isFile()) continue;
         try {
           const mode = buildPlan(await probe(src)).video.mode;
-          run(db, 'UPDATE media_files SET pkg_mode = ?, pkg_bytes = ? WHERE id = ?', mode, await dirBytes(join(dataRoot, r.hls_dir)), r.id);
+          run(db, 'UPDATE media_files SET pkg_mode = ?, pkg_bytes = ? WHERE id = ?', mode, await dirBytes(packageDir(r.hls_dir)), r.id);
         } catch {
           // Unprobeable: stays unclassified, which means never evicted.
         }

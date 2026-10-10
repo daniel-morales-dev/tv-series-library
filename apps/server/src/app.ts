@@ -1,7 +1,8 @@
+import { join } from 'node:path';
 import Fastify from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Ingestor } from './modules/ingest/ingestor.ts';
-import { processingRoutes } from './modules/processing/routes.ts';
+import { type DiskGuard, processingRoutes } from './modules/processing/routes.ts';
 import type { Worker } from './modules/processing/worker.ts';
 import { ingestRoutes } from './modules/ingest/routes.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
@@ -18,6 +19,10 @@ export interface AppOptions {
   db: DatabaseSync;
   logger?: boolean;
   dataDir?: string;
+  /** T47d: HLS root; defaults to `<dataDir>/hls`. */
+  hlsDir?: string;
+  /** T47d: library disk guard for streaming; defaults to always present. */
+  disk?: DiskGuard;
   /** Absent when ingestion is off: scan and confirm answer 503. */
   ingestor?: Ingestor;
   /** Absent when PROCESSING=off: files stay queued. */
@@ -30,7 +35,7 @@ export interface AppOptions {
   fs?: FsRoutesDeps;
 }
 
-export function buildApp({ db, logger = false, dataDir = './data', ingestor, worker, webDir, config, fs }: AppOptions) {
+export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs }: AppOptions) {
   const app = Fastify({ logger });
 
   app.register(
@@ -45,7 +50,7 @@ export function buildApp({ db, logger = false, dataDir = './data', ingestor, wor
       myListRoutes(api, db);
       progressRoutes(api, db);
       ingestRoutes(api, db, dataDir, ingestor);
-      processingRoutes(api, db, dataDir, worker);
+      processingRoutes(api, db, hlsDir ?? join(dataDir, 'hls'), worker, disk);
     },
     { prefix: '/api' },
   );
