@@ -144,11 +144,32 @@ const BASE = ['-y', '-nostdin', '-v', 'error'];
 
 // One run for the video and every audio rendition: fMP4 segments, one folder per rendition.
 // The playlist is `event` so it can be played while it grows; ffmpeg adds ENDLIST when done.
-export function mainArgs(plan: Plan, src: string, outDir: string, opts: { threads?: number } = {}): string[] {
+const TUNES = new Set(['film', 'animation', 'grain', 'stillimage', 'fastdecode', 'zerolatency']);
+
+// x264 quality knobs (T47f), read once per call so a restart picks up .env changes.
+export function encodeProfile(env: Record<string, string | undefined> = process.env): { crf: number; tune: string | null } {
+  const crf = Number(env.ENCODE_CRF);
+  const tune = env.ENCODE_TUNE ?? 'animation';
+  return {
+    crf: Number.isInteger(crf) && env.ENCODE_CRF !== '' && crf >= 0 && crf <= 51 ? crf : 23,
+    tune: tune === 'none' ? null : TUNES.has(tune) ? tune : 'animation',
+  };
+}
+
+export function mainArgs(
+  plan: Plan,
+  src: string,
+  outDir: string,
+  opts: { threads?: number; crf?: number; tune?: string | null } = {},
+): string[] {
+  const profile = encodeProfile();
+  const crf = opts.crf ?? profile.crf;
+  const tune = opts.tune === undefined ? profile.tune : opts.tune;
+  const cap = plan.video.maxrate ? ['-maxrate', plan.video.maxrate, '-bufsize', plan.video.bufsize!] : [];
   const video =
     plan.video.mode === 'copy'
       ? ['-c:v', 'copy']
-      : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p', '-force_key_frames', 'expr:gte(t,n_forced*2)', ...(opts.threads ? ['-threads', String(opts.threads)] : [])];
+      : ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', String(crf), ...(tune ? ['-tune', tune] : []), ...cap, '-pix_fmt', 'yuv420p', '-force_key_frames', 'expr:gte(t,n_forced*2)', ...(opts.threads ? ['-threads', String(opts.threads)] : [])];
   const audio = plan.audio.flatMap((a, i) =>
     a.mode === 'copy' ? [`-c:a:${i}`, 'copy'] : [`-c:a:${i}`, 'aac', `-b:a:${i}`, a.bitrate!, `-ac:a:${i}`, String(a.channels)],
   );

@@ -37,7 +37,19 @@ describe('buildPlan video', () => {
     ['HEVC', h264({ codec: 'hevc', profile: 'Main' })],
     ['unknown profile', h264({ profile: null })],
   ])('re-encodes %s with x264', (_name, video) => {
-    expect(buildPlan(info({ video })).video).toEqual({ index: 0, mode: 'x264' });
+    expect(buildPlan(info({ video })).video).toMatchObject({ index: 0, mode: 'x264' });
+  });
+
+  it.each([
+    ['HEVC', h264({ codec: 'hevc', profile: 'Main' })],
+    ['10-bit H.264', h264({ profile: 'High 10', pixFmt: 'yuv420p10le' })],
+  ])('bounds the bitrate tightly for %s sources', (_name, video) => {
+    expect(buildPlan(info({ video })).video).toMatchObject({ maxrate: '4M', bufsize: '8M' });
+  });
+
+  it('uses a looser cap for other re-encoded sources and none for copies', () => {
+    expect(buildPlan(info({ video: h264({ profile: 'Extended' }) })).video).toMatchObject({ maxrate: '8M', bufsize: '16M' });
+    expect(buildPlan(info()).video).toEqual({ index: 0, mode: 'copy' });
   });
 
   it('rejects files without video', () => {

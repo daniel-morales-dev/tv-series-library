@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { all, get } from '../src/db/sql.ts';
-import { extractArgs, mainArgs, nameRenditions } from '../src/modules/processing/ffmpeg.ts';
+import { createHash } from 'node:crypto';
+import { encodeProfile, extractArgs, mainArgs, nameRenditions } from '../src/modules/processing/ffmpeg.ts';
 import { type Plan, type StreamInfo, buildPlan } from '../src/modules/processing/plan.ts';
 import type { RunFfmpeg } from '../src/modules/processing/ffmpeg.ts';
 import { registerFile } from '../src/modules/ingest/register.ts';
-import { enqueue } from '../src/modules/processing/queue.ts';
+import { claimNext, enqueue, recover, requeueErrors } from '../src/modules/processing/queue.ts';
 import { createWorker } from '../src/modules/processing/worker.ts';
 import { addFile, addTitle, setup } from './helpers.ts';
 
@@ -49,7 +50,7 @@ describe('ffmpeg arguments', () => {
     const args = mainArgs(PLAN, '/src.mkv', '/out');
     const joined = args.join(' ');
     expect(joined).toContain('-map 0:0 -map 0:1 -map 0:2');
-    expect(joined).toContain('-c:v libx264 -preset veryfast -crf 20 -pix_fmt yuv420p');
+    expect(joined).toContain('-c:v libx264 -preset veryfast -crf 23 -tune animation -maxrate 4M -bufsize 8M -pix_fmt yuv420p');
     expect(joined).toContain('-c:a:0 aac -b:a:0 192k -ac:a:0 2 -c:a:1 copy');
     expect(joined).toContain('-hls_segment_type fmp4');
     expect(joined).toContain('-hls_time 6');
@@ -65,6 +66,28 @@ describe('ffmpeg arguments', () => {
     expect(args.join(' ')).toContain('-hls_playlist_type event');
     expect(args.join(' ')).toContain('-pix_fmt yuv420p -force_key_frames expr:gte(t,n_forced*2) -threads 2');
     expect(mainArgs(PLAN, '/src.mkv', '/out')).not.toContain('-threads');
+  });
+
+  it('reads CRF and tune from the environment and falls back on invalid values', () => {
+    expect(encodeProfile({ ENCODE_CRF: '24', ENCODE_TUNE: 'film' })).toEqual({ crf: 24, tune: 'film' });
+    expect(encodeProfile({})).toEqual({ crf: 23, tune: 'animation' });
+    expect(encodeProfile({ ENCODE_CRF: 'abc', ENCODE_TUNE: 'bogus' })).toEqual({ crf: 23, tune: 'animation' });
+    expect(encodeProfile({ ENCODE_TUNE: 'none' })).toEqual({ crf: 23, tune: null });
+    const hash = (a: string[]) => createHash('sha1').update(JSON.stringify(a)).digest('hex');
+    const a = mainArgs(PLAN, '/s', '/o', { crf: 23, tune: 'animation' });
+    expect(hash(mainArgs(PLAN, '/s', '/o', { crf: 24, tune: 'animation' }))).not.toBe(hash(a));
+    expect(mainArgs(PLAN, '/s', '/o', { crf: 23, tune: null })).not.toContain('-tune');
+  });
+
+  it('leaves ready packages untouched when the profile changes (plan hash only matches running jobs)', () => {
+    const { db } = setup();
+    const f = addFile(db, addTitle(db, 'T'), { status: 'ready' });
+    db.exec("UPDATE media_files SET hls_dir = 'old/pkg' WHERE id = " + f);
+    recover(db);
+    requeueErrors(db);
+    expect(claimNext(db)).toBeUndefined();
+    expect(all(db, 'SELECT * FROM jobs')).toEqual([]);
+    expect(get(db, 'SELECT status, hls_dir FROM media_files WHERE id = ?', f)).toEqual({ status: 'ready', hls_dir: 'old/pkg' });
   });
 
   it('copies compatible video', () => {

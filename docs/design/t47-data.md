@@ -56,7 +56,7 @@ Bajar solo el bitrate ahorra ~7–9 GB (~10 %); lo grande es no duplicar lo ya c
   - Flujo guiado en Ajustes y por CLI `sala` (T45): elegir destino → verificar espacio → mover → verificar → confirmar → liberar origen. Reanudable.
   - Nunca borrar el origen sin confirmación explícita; el origen queda intacto hasta confirmar.
   - Comprobar espacio libre en el destino antes de empezar, con el mismo umbral de T47d.
-- T47f (2) perfil de encode nuevo (CRF 23–24 + animation; tope para HEVC) solo para nuevos.
+- T47f (2, hecha) perfil de encode nuevo: CRF 23 + `-tune animation` y tope `-maxrate`/`-bufsize` (4M/8M HEVC o 10 bits; 8M/16M resto), solo para archivos nuevos. Configurable con `ENCODE_CRF`/`ENCODE_TUNE` (ver `docs/local-development.md`). `planHash` cambia, pero solo se compara al adoptar un ffmpeg en curso: los `ready` no se re-encolan (test en `processing.test.ts`).
 
 ## Riesgos
 1. T47c cambia "reproducción instantánea" por ~4 s la primera vez (más con HDD frío) y exige el original presente.

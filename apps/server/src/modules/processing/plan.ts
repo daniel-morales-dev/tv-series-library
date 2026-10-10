@@ -40,7 +40,7 @@ export interface SubtitlePlan extends TrackInfo {
 }
 
 export interface Plan {
-  video: { index: number; mode: 'copy' | 'x264' };
+  video: { index: number; mode: 'copy' | 'x264'; maxrate?: string; bufsize?: string };
   audio: AudioPlan[];
   subtitles: SubtitlePlan[];
   fonts: { index: number; file: string }[];
@@ -73,10 +73,20 @@ function planFonts(attachments: AttachmentInfo[]): Plan['fonts'] {
   return fonts;
 }
 
+// Bitrate cap for x264 re-encodes: tight for HEVC / 10-bit sources (heavy, and 10->8 bit
+// inflates banding noise at high rates), looser for the rest.
+function bitrateCap(v: NonNullable<StreamInfo['video']>): { maxrate: string; bufsize: string } {
+  const heavy = v.codec === 'hevc' || (v.pixFmt ?? '').includes('10');
+  return heavy ? { maxrate: '4M', bufsize: '8M' } : { maxrate: '8M', bufsize: '16M' };
+}
+
 export function buildPlan(info: StreamInfo): Plan {
   if (!info.video) throw new Error('no video stream');
   return {
-    video: { index: info.video.index, mode: videoMode(info.video) },
+    video: (() => {
+      const mode = videoMode(info.video!);
+      return mode === 'copy' ? { index: info.video!.index, mode } : { index: info.video!.index, mode, ...bitrateCap(info.video!) };
+    })(),
     audio: info.audio.map((a, n) => {
       const copy = a.codec !== null && COPY_AUDIO.has(a.codec);
       const channels = copy ? (a.channels ?? 2) : Math.min(a.channels ?? 2, MAX_CHANNELS);
