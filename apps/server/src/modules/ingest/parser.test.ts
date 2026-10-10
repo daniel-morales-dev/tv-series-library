@@ -95,6 +95,78 @@ describe('parsePath: shows', () => {
     });
 
     it.each([
+      ['S5E1', 5, 1],
+      ['S05E01', 5, 1],
+      ['s5e1', 5, 1],
+      ['S5-E1', 5, 1],
+      ['S05E01v2', 5, 1],
+      ['S05EP01', 5, 1],
+      ['T05E01', 5, 1],
+      ['T5-EP01', 5, 1],
+    ])('reads glued marker form %s as season %s episode %s', (tag, season, number) => {
+      expect(parsePath(`shows/Show/Show ${tag}.mkv`)).toEqual({ kind: 'episode', show: 'Show', season, number });
+    });
+
+    it.each([
+      ['S5-01', 5, 1],
+      ['S05-01v2', 5, 1],
+      ['T5-01', 5, 1],
+    ])('reads glued dash form %s as season %s episode %s', (tag, season, number) => {
+      expect(parsePath(`shows/Show/Show ${tag}.mkv`)).toEqual({ kind: 'episode', show: 'Show', season, number });
+    });
+
+    it('keeps reading 5x01 as season 5 episode 1', () => {
+      expect(parsePath('shows/Show/Show 5x01.mkv')).toEqual({ kind: 'episode', show: 'Show', season: 5, number: 1 });
+    });
+
+    it('does not treat a bare S501 token as a season pair', () => {
+      expect(parsePath('shows/Show/Show S501.mkv')).toEqual({ kind: 'unparsed' });
+    });
+
+    it.each([
+      ['S5 01', 5, 1],
+      ['S5 E01', 5, 1],
+      ['S5 EP01', 5, 1],
+      ['S05 - 01', 5, 1],
+      ['T5 01', 5, 1],
+      ['T5 EP05', 5, 5],
+    ])('reads adjacent tokens %s as season %s episode %s', (tag, season, number) => {
+      expect(parsePath(`shows/Show/Show ${tag}.mkv`)).toEqual({ kind: 'episode', show: 'Show', season, number });
+    });
+
+    it.each([
+      ['V - 02v2', 5, 2],
+      ['IV - 01', 4, 1],
+      ['VI 05', 6, 5],
+      ['XII EP12', 12, 12],
+    ])('reads uppercase roman season %s as season %s episode %s', (tag, season, number) => {
+      expect(parsePath(`shows/Show/Show ${tag}.mkv`)).toEqual({ kind: 'episode', show: 'Show', season, number });
+    });
+
+    it('reads the real Ryuu DanMachi V - 02v2 file as season 5 episode 2', () => {
+      const path =
+        'shows/danmachi/[Ryuu] Dungeon ni Deai wo Motomeru no wa Machigatteiru Darou ka V - 02v2 [WEB 1080p EAC-3] [3DE13EFD].mkv';
+      expect(parsePath(path)).toEqual({ kind: 'episode', show: 'danmachi', season: 5, number: 2 });
+    });
+
+    it('does not read a roman token with no following episode number as a season', () => {
+      expect(parsePath('shows/Show/Show V [Batch].mkv')).toEqual({ kind: 'unparsed' });
+    });
+
+    it('does not read lowercase roman numerals as a season', () => {
+      expect(parsePath('shows/Show/Show v - 02.mkv')).toEqual({ kind: 'episode', show: 'Show', season: null, number: 2 });
+    });
+
+    it('rejects roman numerals outside 1-20', () => {
+      expect(parsePath('shows/Show/Show IC - 05.mkv')).toEqual({ kind: 'episode', show: 'Show', season: null, number: 5 });
+    });
+
+    // Known limitations left out on purpose: glued roman seasons ("V-02"), a roman marker at
+    // the end of the name or folder ("... ka IV"), word forms ("Season 5 Episode 1",
+    // "Temporada 5 - 01") and tokens between the season and the number ("S5 WEB 01").
+    // Files inside a "... ka IV" folder still resolve when the pair is in the file name.
+
+    it.each([
       ['shows/[SubsPlease] Sousou no Frieren (01-28) (1080p) [Batch]/[SubsPlease] Sousou no Frieren - 09v2 (1080p) [X].mkv', null, 9],
       ['shows/[SubsPlease] Sousou no Frieren S2 (01-10) (1080p) [Batch]/[SubsPlease] Sousou no Frieren - 01 (1080p) [X].mkv', 2, 1],
     ])('keeps the absolute/season-dir result for %s', (path, season, number) => {

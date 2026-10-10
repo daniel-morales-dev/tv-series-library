@@ -13,6 +13,24 @@ const EXTRA = /^(?:(?:OP|ED|PV|SP)\d+[a-z]?|NCOP\d*[a-z]?|NCED\d*[a-z]?|SP|PREVI
 const SEASON_DIR = /^(?:season|temporada|s)[\s._-]*(\d+)$/i;
 // Episode-number token, e.g. "01", "E12", "09v2"; also the value after a season pair ("Show S5 - 01").
 const EPISODE_NUMBER = /^(?:E|EP|EPISODE)?\d{1,4}(?:v\d)?$/i;
+// Glued single-token pairs. Marker form "S5E1"/"S05-E01v2"/"T5-EP01": the marker makes the
+// "-" optional. Dash form "S5-01"/"S05-01v2"/"T5-01": "-" required, so "S501" stays unmatched.
+const GLUED_MARKER = /^[ST](\d{1,2})-?(?:EPISODE|EP|E)(\d{1,4})(?:v\d)?$/i;
+const GLUED_DASH = /^[ST](\d{1,2})-(\d{1,4})(?:v\d)?$/i;
+// Adjacent-token season: "S5"/"T5" or an uppercase roman numeral ("V", "XII"), value 1-20.
+const SEASON_TOKEN = /^[ST](\d{1,2})$/i;
+const ROMAN_TOKEN = /^[IVXLCDM]{1,5}$/;
+const ROMAN_VALUES: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+// Standard roman value, or null when the token is not a valid season candidate (1-20).
+function romanSeason(token: string): number | null {
+  if (!ROMAN_TOKEN.test(token)) return null;
+  let value = 0;
+  for (let i = 0; i < token.length; i++) {
+    const current = ROMAN_VALUES[token[i]!]!;
+    value += current < (ROMAN_VALUES[token[i + 1] ?? ''] ?? 0) ? -current : current;
+  }
+  return value >= 1 && value <= 20 ? value : null;
+}
 
 // Drops [group]/(info) blocks and turns separators into spaces.
 export function cleanName(raw: string): string {
@@ -61,7 +79,7 @@ function parseShow(parts: string[]): Parsed {
     .find(Boolean);
 
   for (const [i, t] of tokens.entries()) {
-    const m = /^S(\d{1,2})E(\d{1,4})$/i.exec(t) ?? /^(\d{1,2})x(\d{1,3})$/i.exec(t);
+    const m = GLUED_MARKER.exec(t) ?? GLUED_DASH.exec(t) ?? /^(\d{1,2})x(\d{1,3})$/i.exec(t);
     if (m) return withShow(show(i), { season: Number(m[1]), number: Number(m[2]) });
   }
   const extra = tokens.findIndex((t) => EXTRA.test(t));
@@ -73,12 +91,15 @@ function parseShow(parts: string[]): Parsed {
     const label = qualified ? `${tokens[extra]} ${next}` : tokens[extra]!;
     return name ? { kind: 'extra', show: name, label } : UNPARSED;
   }
-  // "Show S5 - 01": cleanName drops the "-" later, so the season token and the episode number sit adjacent.
+  // "Show S5 - 01": cleanName drops the "-" later, so the season token and the episode
+  // number sit adjacent. Roman seasons ("V - 02v2", "XII EP12") take the same path.
   for (const [i, t] of tokens.entries()) {
-    const m = /^S(\d{1,2})$/i.exec(t);
     const next = tokens[i + 1];
-    if (m && next && EPISODE_NUMBER.test(next)) {
-      return withShow(show(i), { season: Number(m[1]), number: Number(/\d+/.exec(next)![0]) });
+    if (!next || !EPISODE_NUMBER.test(next)) continue;
+    const m = SEASON_TOKEN.exec(t);
+    const season = m ? Number(m[1]) : romanSeason(t);
+    if (season !== null) {
+      return withShow(show(i), { season, number: Number(/\d+/.exec(next)![0]) });
     }
   }
   const season = seasonDir ? Number(seasonDir[1]) : null;
