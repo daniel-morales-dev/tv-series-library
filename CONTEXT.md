@@ -5,6 +5,7 @@ Lenguaje común del proyecto. Código en inglés (término entre paréntesis), d
 - **Título** (`Title`): obra del catálogo: película, serie o anime. Evitar: "show", "contenido".
 - **Tipo** (`kind`): `movie`, `series` o `anime`. Anime se detecta automáticamente (animación + origen JP) y es editable.
 - **Saga** (`Collection`): grupo de películas relacionadas (ej. Harry Potter). Equivale a una colección de TMDB.
+- **Franquicia**: grupo ordenado de títulos relacionados (precuela/secuela) que TMDB trata como series distintas (ej. Monogatari → Nisemonogatari). Se enlaza a mano y se guarda localmente; ver [ADR 0007](docs/adr/0007-franquicias.md).
 - **Temporada** (`Season`): agrupación de episodios de una serie. La temporada 0 contiene especiales.
 - **Episodio** (`Episode`): unidad reproducible de una temporada.
 - **Extra** (`Extra`): video no numerado como episodio (openings, endings, comentarios). No cuenta para el progreso.
