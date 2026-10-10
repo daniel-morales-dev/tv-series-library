@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { titleExists } from '../catalog/repository.ts';
 import { profileExists } from '../profiles/repository.ts';
-import { hideFromContinue, listContinueWatching, mediaFileExists, saveProgress, seasonExists, setFinished, setSeasonFinished } from './repository.ts';
+import { hideFromContinue, listContinueWatching, mediaFileExists, saveProgress, seasonExists, setFileFinished, setFinished, setSeasonFinished } from './repository.ts';
 
 const pid = { type: 'object', properties: { pid: { type: 'integer' } }, required: ['pid'] } as const;
 const pidTitle = {
@@ -97,6 +97,31 @@ export function progressRoutes(api: FastifyInstance, db: DatabaseSync): void {
       const { pid, titleId, season } = req.params;
       if (!profileExists(db, pid) || !titleExists(db, titleId) || !seasonExists(db, titleId, season)) return notFound(reply);
       setSeasonFinished(db, pid, titleId, season, req.body.finished);
+      return reply.code(204).send();
+    },
+  );
+
+  api.put<{ Params: { pid: number; fileId: number }; Body: { finished: boolean } }>(
+    '/profiles/:pid/media-files/:fileId/finished',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          properties: { pid: { type: 'integer' }, fileId: { type: 'integer' } },
+          required: ['pid', 'fileId'],
+        },
+        body: {
+          type: 'object',
+          properties: { finished: { type: 'boolean' } },
+          required: ['finished'],
+          additionalProperties: false,
+        },
+      },
+    },
+    async (req, reply) => {
+      const { pid, fileId } = req.params;
+      if (!profileExists(db, pid) || !mediaFileExists(db, fileId)) return notFound(reply);
+      setFileFinished(db, pid, fileId, req.body.finished);
       return reply.code(204).send();
     },
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { airDateLabel, buildEpisodes, castOf, episodeAction, playPlan, runtimeLabel, seasonFinished } from './titlePage.ts';
+import { airDateLabel, buildEpisodes, castOf, episodeAction, episodeSeen, playPlan, runtimeLabel, seasonFinished, seenToggle } from './titlePage.ts';
 import type { Credit, Episode, MediaFile, TitleDetail } from './types.ts';
 
 const ep = (id: number, number: number): Episode => ({ id, number, name: `E${number}`, overview: null, runtimeMin: 24, stillPath: null, airDate: null });
@@ -117,5 +117,21 @@ describe('seasonFinished', () => {
     const d = detail({ files: [file(11, 1), file(12, 2)], progress: [prog(11, 1000, true), prog(12, 1000, true)] });
     expect(seasonFinished(buildEpisodes(d)[0]!)).toBe(true);
     expect(seasonFinished(buildEpisodes(detail({ files: [] }))[0]!)).toBe(false);
+  });
+});
+
+describe('episodeSeen / seenToggle', () => {
+  const row = (progress: ReturnType<typeof prog> | null) => ({ progress, file: file(11, 1) });
+  it('is seen only when the file has completed progress', () => {
+    expect(episodeSeen(row(prog(11, 1000, true)))).toBe(true);
+    expect(episodeSeen(row(prog(11, 300)))).toBe(false);
+    expect(episodeSeen(row(null))).toBe(false);
+  });
+  it('is unavailable without a file', () => {
+    expect(seenToggle({ progress: null, file: null })).toBeNull();
+  });
+  it('offers the opposite action with an accessible label', () => {
+    expect(seenToggle(row(null))).toEqual({ fileId: 11, finished: true, label: 'Marcar como visto' });
+    expect(seenToggle(row(prog(11, 1000, true)))).toEqual({ fileId: 11, finished: false, label: 'Marcar como no visto' });
   });
 });

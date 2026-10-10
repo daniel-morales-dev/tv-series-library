@@ -224,6 +224,42 @@ describe('finished', () => {
     expect((await put(app, url(p, t, 1), { finished: 'yes' })).statusCode).toBe(400);
   });
 
+  it('file true/false completes or clears one episode, keeping prior position and dropping the title flag', async () => {
+    const { app, db } = setup();
+    const p = addProfile(db);
+    const other = addProfile(db, 'b');
+    const t = addTitle(db, 'Show', { kind: 'series' });
+    const e1 = addEpisode(db, t, 1, 1);
+    const e2 = addEpisode(db, t, 1, 2);
+    progress(db, p, e1, 100, 1000, '2026-01-01T00:00:00Z');
+    progress(db, other, e1, 100, 1000, '2026-01-01T00:00:00Z');
+    const url = (pid: number, f: number) => `/api/profiles/${pid}/media-files/${f}/finished`;
+    const rows = () => all<any>(db, 'SELECT profile_id, media_file_id, position_s, duration_s, completed FROM watch_progress ORDER BY profile_id, media_file_id');
+
+    expect((await put(app, url(p, e1), { finished: true })).statusCode).toBe(204);
+    expect((await put(app, url(p, e2), { finished: true })).statusCode).toBe(204);
+    expect(rows()).toEqual([
+      { profile_id: p, media_file_id: e1, position_s: 100, duration_s: 1000, completed: 1 },
+      { profile_id: p, media_file_id: e2, position_s: 1000, duration_s: 1000, completed: 1 },
+      { profile_id: other, media_file_id: e1, position_s: 100, duration_s: 1000, completed: 0 },
+    ]);
+
+    await put(app, `/api/profiles/${p}/titles/${t}/finished`, { finished: true });
+    expect((await put(app, url(p, e1), { finished: false })).statusCode).toBe(204);
+    expect(rows().filter((r) => r.profile_id === p && r.media_file_id === e1)).toEqual([]);
+    expect(rows()).toHaveLength(2);
+    expect((await app.inject(`/api/titles/${t}?profileId=${p}`)).json().finished).toBe(false);
+  });
+
+  it('file endpoint 404s on unknown profile or file and validates the body', async () => {
+    const { app, db } = setup();
+    const p = addProfile(db);
+    const f = addEpisode(db, addTitle(db, 'Show', { kind: 'series' }), 1, 1);
+    expect((await put(app, `/api/profiles/99/media-files/${f}/finished`, { finished: true })).statusCode).toBe(404);
+    expect((await put(app, `/api/profiles/${p}/media-files/99/finished`, { finished: true })).statusCode).toBe(404);
+    expect((await put(app, `/api/profiles/${p}/media-files/${f}/finished`, { finished: 'yes' })).statusCode).toBe(400);
+  });
+
   it('validates body and existence', async () => {
     const { app, db } = setup();
     const p = addProfile(db);

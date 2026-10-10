@@ -35,6 +35,15 @@ export function seasonFinished(s: SeasonRows): boolean {
   return withFile.length > 0 && withFile.every((r) => r.progress?.completed);
 }
 
+export const episodeSeen = (row: Pick<EpisodeRow, 'progress'>): boolean => !!row.progress?.completed;
+
+/** The seen/unseen toggle of one episode: `null` when it has no file to mark. */
+export function seenToggle(row: Pick<EpisodeRow, 'progress' | 'file'>): { fileId: number; finished: boolean; label: string } | null {
+  if (!row.file) return null;
+  const seen = episodeSeen(row);
+  return { fileId: row.file.id, finished: !seen, label: seen ? 'Marcar como no visto' : 'Marcar como visto' };
+}
+
 /**
  * Newest live row for one episode: highest `id` among rows not `downloading`.
  * If every match is downloading, the highest `id` among them; `null` when empty.

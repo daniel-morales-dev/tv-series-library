@@ -5,13 +5,14 @@ import type { FileStatus } from '../fileStatus.ts';
 import { fileLanguages } from '../languages.ts';
 import { remainingLabel } from '../library.ts';
 import { isBackKey } from '../spatial.ts';
-import { ACTION_LABEL, airDateLabel, episodeAction, isPlayable, runtimeLabel, type EpisodeRow } from '../titlePage.ts';
+import { ACTION_LABEL, airDateLabel, episodeAction, isPlayable, runtimeLabel, seenToggle, type EpisodeRow } from '../titlePage.ts';
 import Icon from './Icon.vue';
 import LangLine from './LangLine.vue';
 
 const props = defineProps<{ row: EpisodeRow; status: FileStatus | null; titleId: number; fallback: string | null }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; toggleSeen: [] }>();
 
+const toggle = computed(() => seenToggle(props.row));
 const dialog = ref<HTMLElement | null>(null);
 const image = computed(() => props.row.stillPath ?? props.fallback);
 const action = computed(() => episodeAction(props.row));
@@ -71,6 +72,9 @@ onBeforeUnmount(() => {
           <div class="btns">
             <RouterLink v-if="to" data-primary class="pill primary" :to="to"><Icon name="play" /> {{ label }}</RouterLink>
             <button v-else class="pill" disabled>{{ row.file ? 'Descargando' : 'Sin archivo' }}</button>
+            <button v-if="toggle" class="pill glass" :aria-pressed="!!row.progress?.completed" @click="emit('toggleSeen')">
+              <Icon :name="row.progress?.completed ? 'close' : 'check'" :size="20" /> {{ toggle.label }}
+            </button>
           </div>
         </div>
       </div>
@@ -98,7 +102,7 @@ h2 { margin: 0; font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.15; letter
 .meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0; color: var(--text-dim); font-size: 0.92rem; }
 .synopsis { margin: 4px 0; max-width: 62ch; line-height: 1.6; }
 .st { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; font-size: 0.9rem; }
-.btns { display: flex; gap: 16px; margin-top: 8px; }
+.btns { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
 .badge { display: inline-flex; align-items: center; min-height: 0; height: 1.7em; padding: 0 0.85em; white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
 .badge.ready { color: #4cc38a; }
 .badge.processing, .badge.downloading { color: #e8b84a; }

@@ -93,6 +93,40 @@ export function setFinished(db: DatabaseSync, profileId: number, titleId: number
   }
 }
 
+// One episode file. Marking keeps any earlier position; unmarking drops the progress row and the
+// title-level flag, since the title is no longer fully watched.
+export function setFileFinished(db: DatabaseSync, profileId: number, mediaFileId: number, finished: boolean): void {
+  const at = now();
+  db.exec('BEGIN');
+  try {
+    if (finished) {
+      run(
+        db,
+        `INSERT INTO watch_progress (profile_id, media_file_id, position_s, duration_s, completed, updated_at)
+         SELECT ?, id, COALESCE(duration_s, 0), COALESCE(duration_s, 0), 1, ? FROM media_files WHERE id = ?
+         ON CONFLICT (profile_id, media_file_id) DO UPDATE SET completed = 1, updated_at = excluded.updated_at`,
+        profileId,
+        at,
+        mediaFileId,
+      );
+    } else {
+      run(db, 'DELETE FROM watch_progress WHERE profile_id = ? AND media_file_id = ?', profileId, mediaFileId);
+      run(
+        db,
+        `UPDATE title_state SET finished = 0, updated_at = ? WHERE profile_id = ?
+         AND title_id = (SELECT title_id FROM media_files WHERE id = ?)`,
+        at,
+        profileId,
+        mediaFileId,
+      );
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+}
+
 export function seasonExists(db: DatabaseSync, titleId: number, season: number): boolean {
   return get(db, 'SELECT 1 AS x FROM seasons WHERE title_id = ? AND number = ?', titleId, season) !== undefined;
 }

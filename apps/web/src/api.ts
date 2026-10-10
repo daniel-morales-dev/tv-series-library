@@ -43,6 +43,8 @@ export const api = {
     request<void>(`/profiles/${pid}/titles/${titleId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   setSeasonFinished: (pid: number, titleId: number, season: number, finished: boolean) =>
     request<void>(`/profiles/${pid}/titles/${titleId}/seasons/${season}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
+  setFileFinished: (pid: number, mediaFileId: number, finished: boolean) =>
+    request<void>(`/profiles/${pid}/media-files/${mediaFileId}/finished`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ finished }) }),
   config: () => request<AppConfig>('/config'),
   dirs: (path?: string) => request<DirListing>(`/fs/dirs${path ? `?path=${encodeURIComponent(path)}` : ''}`),
   network: () => request<NetworkInfo>('/network'),
@@ -54,6 +56,7 @@ export const api = {
   resumeProcessing: () => request<{ paused: boolean }>('/processing/resume', { method: 'POST' }),
   retryFile: (mediaFileId: number) => request<{ jobId: number }>(`/media-files/${mediaFileId}/process`, { method: 'POST' }),
   play: (mediaFileId: number) => request<{ status: 'ready' | 'processing' }>(`/media-files/${mediaFileId}/play`, { method: 'POST' }),
+  random: (pid?: number | null) => request<{ titleId: number; mediaFileId: number }>(`/random${pid ? `?profile=${pid}` : ''}`),
 };
 
 export function playErrorMessage(e: unknown): string {

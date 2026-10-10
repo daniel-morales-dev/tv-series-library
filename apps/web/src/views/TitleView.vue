@@ -10,7 +10,7 @@ import { fileStatus, movieStatus, needsPolling } from '../fileStatus.ts';
 import { fileLanguages, titleLanguages } from '../languages.ts';
 import { KIND_LABEL, initial, progressPct, remainingLabel } from '../library.ts';
 import { hasHero, inMyList, loadMyList, toggleMyList } from '../session.ts';
-import { airDateLabel, buildEpisodes, castOf, episodeAction, isPlayable, playPlan, runtimeLabel, seasonFinished, type EpisodeRow } from '../titlePage.ts';
+import { airDateLabel, buildEpisodes, castOf, episodeAction, isPlayable, playPlan, runtimeLabel, seasonFinished, seenToggle, type EpisodeRow } from '../titlePage.ts';
 import type { Job, MediaFile, TitleDetail } from '../types.ts';
 
 const route = useRoute();
@@ -98,6 +98,19 @@ async function toggleFinished() {
   busy.value = true;
   try {
     await api.setFinished(pid, detail.value.id, !detail.value.finished);
+    await load();
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function toggleEpisodeSeen(r: EpisodeRow) {
+  const pid = getProfileId();
+  const t = seenToggle(r);
+  if (!pid || !t || busy.value) return;
+  busy.value = true;
+  try {
+    await api.setFileFinished(pid, t.fileId, t.finished);
     await load();
   } finally {
     busy.value = false;
@@ -219,6 +232,18 @@ async function closeEpisode() {
                 <span v-if="episodeAction(r) === 'resume'" class="muted left">{{ remainingLabel(r.progress!.positionS, r.progress!.durationS) }}</span>
               </span>
             </button>
+            <button
+              v-if="seenToggle(r)"
+              class="seen-btn"
+              :class="{ on: r.progress?.completed }"
+              :disabled="busy"
+              :aria-pressed="!!r.progress?.completed"
+              :aria-label="`${seenToggle(r)!.label}: episodio ${r.number}`"
+              :title="seenToggle(r)!.label"
+              @click="toggleEpisodeSeen(r)"
+            >
+              <Icon name="check" :size="20" /><span>{{ r.progress?.completed ? 'Visto' : 'Marcar visto' }}</span>
+            </button>
           </li>
         </ol>
       </section>
@@ -254,6 +279,7 @@ async function closeEpisode() {
       :title-id="detail.id"
       :fallback="detail.backdropPath"
       @close="closeEpisode"
+      @toggle-seen="toggleEpisodeSeen(openRow)"
     />
   </template>
 </template>
@@ -294,8 +320,11 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .tabs button.on { background: var(--accent); color: var(--accent-ink); }
 
 .list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; }
-.row { display: grid; grid-template-columns: clamp(150px, 20vw, 260px) 1fr; gap: clamp(12px, 2vw, 24px); align-items: start; padding: 14px 0; border-top: 1px solid var(--line); }
+.row { display: grid; grid-template-columns: clamp(150px, 20vw, 260px) 1fr auto; gap: clamp(12px, 2vw, 24px); align-items: start; padding: 14px 0; border-top: 1px solid var(--line); }
 .row:first-child { border-top: 0; }
+.seen-btn { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; white-space: nowrap; background: var(--bg-card); color: var(--text-dim); }
+.seen-btn.on { background: var(--accent); color: var(--accent-ink); }
+.seen-btn:disabled { opacity: 0.6; cursor: default; }
 .thumb { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 10px; background: linear-gradient(160deg, var(--bg-hover), var(--bg-card)); }
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
 .row.off .thumb img { opacity: 0.45; }
@@ -333,6 +362,7 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
   .hero::before { background: linear-gradient(90deg, rgba(6, 6, 10, 0.7), rgba(6, 6, 10, 0.2)); }
   .copy { bottom: 28px; gap: 10px; }
   .row { grid-template-columns: 116px 1fr; gap: 12px; }
+  .seen-btn { grid-column: 2; justify-self: start; }
   .syn { -webkit-line-clamp: 3; font-size: 0.86rem; }
   .play { display: none; }
 }
