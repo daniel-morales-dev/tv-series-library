@@ -26,5 +26,5 @@ Firewall (solo si 'sudo ufw status' dice active; cambia la subred por la tuya, v
 
 Estado:  systemctl --user status sala
 Logs:    journalctl --user -u sala -f
-Parar:   systemctl --user stop sala   (antes de 'npm run dev')
+Parar:   systemctl --user stop sala   (antes de 'npm run dev'; luego, al terminar: systemctl --user start sala)
 MSG

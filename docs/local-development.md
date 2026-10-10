@@ -139,6 +139,18 @@ El lanzador **no crea** `data/`: si no existe, falla con un mensaje claro en vez
 
 Crea `.env` desde `.env.example` **únicamente si no existe**; no sustituyas el de una instalación previa. En desarrollo ya es opcional: solo lo necesitas para `TMDB_READ_ACCESS_TOKEN` (`CONTENT_DIR` es un override opcional). Configúralo de forma privada (esta instalación ya lo tiene). Nunca imprimas el token ni subas `.env`. Sin token, la ingesta funciona sin metadata de TMDB y la reintenta cuando esté disponible. Después usa `npm run dev`. No uses `seed` para reparar una biblioteca existente.
 
+## Desarrollo vs producción (`npm run dev` vs `npm start`)
+
+- `npm run dev`: solo desarrollo (backend con watch + Vite en 5174).
+- `npm start`: producción. Reconstruye `apps/web/dist` si falta o algún archivo de `apps/web` (`src`, `public`, `index.html`, configuración) es más nuevo que la compilación, y corre solo el servidor en **http://localhost:8080**, sin watch ni Vite. Reutiliza las guardias del lanzador de desarrollo (puerto 8080, carpeta `DATA_DIR`, copia SQLite verificada). Ctrl+C lo detiene. El servicio `sala` usa el mismo comando de servidor y `WEB_DIR` (un test lo verifica).
+
+### El servicio `sala` y `npm run dev` comparten el puerto 8080
+
+- Con el servicio activo, `npm run dev` y `npm start` se niegan a correr: ocupa el 8080. Detenlo con `systemctl --user stop sala`.
+- Al detener el servicio, la app deja de responder en celular y TV hasta ejecutar `systemctl --user start sala`.
+- Detener `npm run dev` **no** arranca el servicio; hay que iniciarlo a mano.
+- Estado: `systemctl --user status sala` (`inactive (dead)` = detenido; `active (running)` = sirviendo).
+
 ## Servir el frontend compilado desde 8080
 
 Alternativa confirmada por los scripts y el servidor, no ejecutada en esta documentación. Se aplican **las mismas precauciones de copia y aprobación**; para la primera recuperación usa antes el modo sin trabajadores. Desde la raíz, para uso habitual:

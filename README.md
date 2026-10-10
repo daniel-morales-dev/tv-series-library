@@ -79,7 +79,16 @@ Requisitos: Node.js 24 o superior, npm y ffmpeg. No hace falta internet, pero ce
    - Reiniciar: `systemctl --user restart sala`
    - Actualizar: `git pull`, luego `npm ci`, `bash scripts/linux-install.sh` y `systemctl --user restart sala`
 
-> **Aviso:** mientras `sala.service` esté activo, `npm run dev` se niega a correr porque el puerto 8080 lo ocupa el servicio. Antes de desarrollar, ejecuta `systemctl --user stop sala`.
+> **Aviso:** el servicio `sala` y `npm run dev` comparten el puerto 8080.
+> - Con el servicio activo, `npm run dev` se niega a correr. Antes de desarrollar: `systemctl --user stop sala`.
+> - Al detener el servicio, la app deja de responder (celular y TV) hasta que ejecutes `systemctl --user start sala`.
+> - Detener `npm run dev` **no** arranca el servicio: hazlo tú con `systemctl --user start sala`.
+> - Para saber si está corriendo: `systemctl --user status sala` (`inactive (dead)` = detenido).
+
+### Desarrollo vs producción
+
+- `npm run dev`: **solo desarrollo**. Backend con `--watch` (8080) + Vite (5174); la interfaz está en http://localhost:5174.
+- `npm start`: **producción**. Construye `apps/web/dist` si falta o está viejo respecto al código web y corre solo el servidor (sin watch ni Vite) en http://localhost:8080, con las mismas guardias de puerto, carpeta de datos y copia SQLite que `dev`. El servicio `sala` ejecuta el mismo servidor y la misma carpeta `apps/web/dist` (la web la construye `scripts/linux-install.sh`).
 
 ## Documentación
 
