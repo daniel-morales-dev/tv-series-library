@@ -1,8 +1,8 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { get, run, transaction } from '../../db/sql.ts';
+import { all, get, run, transaction } from '../../db/sql.ts';
 import { indexEntry } from '../search/repository.ts';
 import { type ImageWant, saveImages } from './images.ts';
-import type { Credits, EpisodeGroupDetails, EpisodeSubGroup, MovieDetails, SeasonDetails, TmdbClient, TmdbEpisode, TvDetails } from './tmdb.ts';
+import type { Credits, EpisodeGroupDetails, EpisodeSubGroup, MovieDetails, PersonNames, SeasonDetails, TmdbClient, TmdbEpisode, TvDetails } from './tmdb.ts';
 
 export interface IngestContext {
   db: DatabaseSync;
@@ -30,25 +30,75 @@ function creditPeople(credits?: Credits) {
   return { cast, directors };
 }
 
+// A name needs no translation when every letter is Latin (digits, spaces and punctuation are neutral).
+export function isLatinName(name: string): boolean {
+  return [...name.matchAll(/\p{L}/gu)].every((m) => /\p{Script=Latin}/u.test(m[0]));
+}
+
+export function pickLatinName(original: string, names: PersonNames): string {
+  return [names.es, names.en].find((n): n is string => !!n && isLatinName(n)) ?? original;
+}
+
+// One TMDB query per person, sequential to stay under the rate limit. Already resolved people are skipped; a
+// failed query (offline, 429 exhausted) stops the pass and leaves those people unresolved for a later try.
+async function resolveNames(ctx: IngestContext, people: { id: number; name: string }[]): Promise<Map<number, string>> {
+  const resolved = new Map<number, string>();
+  for (const p of people) {
+    if (isLatinName(p.name) || resolved.has(p.id)) continue;
+    if (get(ctx.db, 'SELECT 1 FROM people WHERE tmdb_id = ? AND name_checked = 1', p.id)) continue;
+    try {
+      resolved.set(p.id, pickLatinName(p.name, await ctx.tmdb.personNames(p.id)));
+    } catch {
+      break;
+    }
+  }
+  return resolved;
+}
+
+// Corrects people imported before names were resolved. Needs internet; offline it changes nothing.
+export async function fixPersonNames(ctx: IngestContext): Promise<number> {
+  const rows = all<{ id: number; tmdb_id: number; name: string }>(ctx.db, 'SELECT id, tmdb_id, name FROM people WHERE name_checked = 0');
+  for (const r of rows) if (isLatinName(r.name)) run(ctx.db, 'UPDATE people SET name_checked = 1 WHERE id = ?', r.id);
+  const todo = rows.filter((r) => !isLatinName(r.name));
+  const names = await resolveNames(ctx, todo.map((r) => ({ id: r.tmdb_id, name: r.name })));
+  let changed = 0;
+  for (const r of todo) {
+    const name = names.get(r.tmdb_id);
+    if (name === undefined) continue;
+    run(ctx.db, 'UPDATE people SET name = ?, name_checked = 1 WHERE id = ?', name, r.id);
+    indexEntry(ctx.db, 'person', r.id, name);
+    if (name !== r.name) changed++;
+  }
+  return changed;
+}
+
 type Saved = Awaited<ReturnType<typeof saveImages>>;
 
-function writeCredits(db: DatabaseSync, titleId: number, credits: ReturnType<typeof creditPeople>, saved: Saved): void {
+function writeCredits(db: DatabaseSync, titleId: number, credits: ReturnType<typeof creditPeople>, saved: Saved, names: Map<number, string>): void {
   run(db, 'DELETE FROM credits WHERE title_id = ?', titleId);
   const people = [
     ...credits.cast.map((c) => ({ ...c, role: 'cast', character: c.character, ord: c.order })),
     ...credits.directors.map((d, i) => ({ ...d, role: 'director', character: null, ord: i })),
   ];
   for (const p of people) {
+    const name = names.get(p.id) ?? p.name;
+    const checked = names.has(p.id) || isLatinName(p.name) ? 1 : 0;
+    // A previously resolved name is kept when TMDB hands back the non-Latin original again.
     run(
       db,
-      `INSERT INTO people (tmdb_id, name, profile_path) VALUES (?, ?, ?)
-       ON CONFLICT(tmdb_id) DO UPDATE SET name = excluded.name, profile_path = COALESCE(excluded.profile_path, profile_path)`,
+      `INSERT INTO people (tmdb_id, name, profile_path, name_checked) VALUES (?, ?, ?, ?)
+       ON CONFLICT(tmdb_id) DO UPDATE SET
+         name = CASE WHEN people.name_checked = 1 AND excluded.name_checked = 0 THEN people.name ELSE excluded.name END,
+         name_checked = MAX(people.name_checked, excluded.name_checked),
+         profile_path = COALESCE(excluded.profile_path, profile_path)`,
       p.id,
-      p.name,
+      name,
       saved(PROFILE, p.profile_path),
+      checked,
     );
-    const personId = get<{ id: number }>(db, 'SELECT id FROM people WHERE tmdb_id = ?', p.id)!.id;
-    indexEntry(db, 'person', personId, p.name);
+    const row = get<{ id: number; name: string }>(db, 'SELECT id, name FROM people WHERE tmdb_id = ?', p.id)!;
+    indexEntry(db, 'person', row.id, row.name);
+    const personId = row.id;
     run(
       db,
       'INSERT OR IGNORE INTO credits (title_id, person_id, role, character, ord) VALUES (?, ?, ?, ?, ?)',
@@ -125,6 +175,7 @@ function mergeTitles(db: DatabaseSync, from: number, to: number): void {
 export async function importTv(ctx: IngestContext, tv: TvDetails, reuseId?: number): Promise<number> {
   const logo = pickLogo(tv.images?.logos);
   const credits = creditPeople(tv.credits);
+  const names = await resolveNames(ctx, [...credits.cast, ...credits.directors]);
   const saved = await saveImages(ctx.tmdb, ctx.dataDir, [
     [POSTER, tv.poster_path],
     [BACKDROP, tv.backdrop_path],
@@ -153,7 +204,7 @@ export async function importTv(ctx: IngestContext, tv: TvDetails, reuseId?: numb
       },
       reuseId,
     );
-    writeCredits(ctx.db, id, credits, saved);
+    writeCredits(ctx.db, id, credits, saved, names);
     return id;
   });
 }
@@ -161,6 +212,7 @@ export async function importTv(ctx: IngestContext, tv: TvDetails, reuseId?: numb
 export async function importMovie(ctx: IngestContext, movie: MovieDetails, reuseId?: number): Promise<number> {
   const logo = pickLogo(movie.images?.logos);
   const credits = creditPeople(movie.credits);
+  const names = await resolveNames(ctx, [...credits.cast, ...credits.directors]);
   const collection = movie.belongs_to_collection ? await ctx.tmdb.collection(movie.belongs_to_collection.id) : null;
   const saved = await saveImages(ctx.tmdb, ctx.dataDir, [
     [POSTER, movie.poster_path],
@@ -206,7 +258,7 @@ export async function importMovie(ctx: IngestContext, movie: MovieDetails, reuse
       },
       reuseId,
     );
-    writeCredits(ctx.db, id, credits, saved);
+    writeCredits(ctx.db, id, credits, saved, names);
     return id;
   });
 }

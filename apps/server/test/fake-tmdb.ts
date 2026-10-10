@@ -177,7 +177,10 @@ const inception: MovieDetails = {
 
 export type FakeTmdb = TmdbClient & { calls: string[] };
 
-export function makeFakeTmdb({ offline = false } = {}): FakeTmdb {
+export function makeFakeTmdb({
+  offline = false,
+  people = {},
+}: { offline?: boolean; people?: Record<number, { es?: string | null; en?: string | null }> } = {}): FakeTmdb {
   const calls: string[] = [];
   const hit = <T>(name: string, value: T): Promise<T> => {
     calls.push(name);
@@ -211,6 +214,7 @@ export function makeFakeTmdb({ offline = false } = {}): FakeTmdb {
       ),
     movie: () => hit('movie', inception),
     collection: () => hit('collection', { id: 555, name: 'Saga Origen', overview: 'Todas las películas.', poster_path: '/saga.jpg', backdrop_path: null }),
+    personNames: (id) => hit(`person:${id}`, { es: people[id]?.es ?? null, en: people[id]?.en ?? null }),
     image: (size, path) => hit(`image:${size}${path}`, path === '/still13.jpg' ? null : new Uint8Array([1, 2, 3])),
   };
 }

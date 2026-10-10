@@ -92,6 +92,11 @@ export interface MovieDetails extends MovieSearchResult {
   images?: Logos;
 }
 
+export interface PersonNames {
+  es: string | null;
+  en: string | null;
+}
+
 export interface TmdbClient {
   searchTv(query: string): Promise<TvSearchResult[]>;
   tv(id: number): Promise<TvDetails>;
@@ -101,6 +106,8 @@ export interface TmdbClient {
   searchMovie(query: string, year?: number): Promise<MovieSearchResult[]>;
   movie(id: number): Promise<MovieDetails>;
   collection(id: number): Promise<CollectionDetails>;
+  /** Translated display names of a person; null when TMDB has none for that language. */
+  personNames(id: number): Promise<PersonNames>;
   /** null when the image does not exist (404). */
   image(size: string, path: string): Promise<Uint8Array | null>;
 }
@@ -116,12 +123,20 @@ export class TmdbHttpError extends Error {
 const API = 'https://api.themoviedb.org/3';
 const IMAGES = 'https://image.tmdb.org/t/p';
 const TIMEOUT_MS = 20_000;
+const MAX_RETRIES_429 = 3;
+const MAX_BACKOFF_MS = 10_000;
+const sleepMs = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-export function createTmdbClient(token: string, fetchImpl: typeof fetch = fetch): TmdbClient {
+export function createTmdbClient(token: string, fetchImpl: typeof fetch = fetch, sleep: (ms: number) => Promise<void> = sleepMs): TmdbClient {
   const request = async (url: string, what: string, headers: Record<string, string> = {}) => {
-    const res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    if (!res.ok) throw new TmdbHttpError(res.status, what);
-    return res;
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetchImpl(url, { headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      if (res.ok) return res;
+      if (res.status !== 429 || attempt >= MAX_RETRIES_429) throw new TmdbHttpError(res.status, what);
+      // Honour Retry-After; otherwise 1 s, 2 s, 4 s.
+      const wait = Number(res.headers.get('retry-after')) * 1000 || 1000 * 2 ** attempt;
+      await sleep(Math.min(wait, MAX_BACKOFF_MS));
+    }
   };
   const api = async <T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> => {
     const url = new URL(API + path);
@@ -149,6 +164,13 @@ export function createTmdbClient(token: string, fetchImpl: typeof fetch = fetch)
       (await api<{ results: MovieSearchResult[] }>('/search/movie', { query, year })).results,
     movie: (id) => api(`/movie/${id}`, { append_to_response: 'credits,images', include_image_language: 'es,en,null' }),
     collection: (id) => api(`/collection/${id}`),
+    personNames: async (id) => {
+      const res = await orNull(
+        api<{ translations: { iso_639_1: string; data: { name?: string } }[] }>(`/person/${id}/translations`),
+      );
+      const pick = (lang: string) => res?.translations.find((t) => t.iso_639_1 === lang && t.data.name?.trim())?.data.name?.trim() ?? null;
+      return { es: pick('es'), en: pick('en') };
+    },
     image: async (size, path) => {
       const res = await orNull(request(`${IMAGES}/${size}${path}`, 'image'));
       return res ? new Uint8Array(await res.arrayBuffer()) : null;
@@ -179,6 +201,7 @@ export function memoize(client: TmdbClient): TmdbClient {
     searchMovie: once('searchMovie', client.searchMovie),
     movie: once('movie', client.movie),
     collection: once('collection', client.collection),
+    personNames: once('personNames', client.personNames),
     image: client.image,
   };
 }
@@ -186,5 +209,5 @@ export function memoize(client: TmdbClient): TmdbClient {
 // Used when no token is configured: every call fails, so ingestion runs in offline mode.
 export function unavailableTmdb(): TmdbClient {
   const fail = () => Promise.reject(new Error('TMDB_READ_ACCESS_TOKEN is not set'));
-  return { searchTv: fail, tv: fail, tvSeason: fail, episodeGroup: fail, searchMovie: fail, movie: fail, collection: fail, image: fail };
+  return { searchTv: fail, tv: fail, tvSeason: fail, episodeGroup: fail, searchMovie: fail, movie: fail, collection: fail, personNames: fail, image: fail };
 }

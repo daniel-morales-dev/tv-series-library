@@ -22,7 +22,7 @@ describe('migration 006', () => {
 
     migrate(db);
 
-    expect(get(db, 'PRAGMA user_version')).toEqual({ user_version: 6 });
+    expect(get(db, 'PRAGMA user_version')).toEqual({ user_version: 7 });
     expect(get(db, 'SELECT status, progress, pid, pid_start, plan_hash FROM jobs')).toEqual({
       status: 'running', progress: 0.4, pid: null, pid_start: null, plan_hash: null,
     });

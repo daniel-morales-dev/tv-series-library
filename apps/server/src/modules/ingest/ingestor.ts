@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
 import { type Assignment, adoptSeries, assignMovie, assignSeries, matchSeries, placeEpisode } from './assign.ts';
-import { type IngestContext, createLocalTitle, findSeasonsGroup, importSeasonsGroup, markOfficialSeasons, setSourceDir } from './metadata.ts';
+import { type IngestContext, createLocalTitle, findSeasonsGroup, fixPersonNames, importSeasonsGroup, markOfficialSeasons, setSourceDir } from './metadata.ts';
 import { type Parsed, parsePath } from './parser.ts';
 import { type Probe, ffprobe } from './probe.ts';
 import { type ConfirmBody, confirmPending } from './pending.ts';
@@ -270,6 +270,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
          WHERE m.episode_id IS NULL AND m.extra_label IS NULL AND m.parsed_number IS NOT NULL AND t.metadata_status = 'ready'`,
       );
       for (const o of orphans) await relinkFiles(state.ctx, o.title_id);
+      if (!state.offline) await fixPersonNames(state.ctx);
     } catch (err) {
       goOffline(state, err);
     }
