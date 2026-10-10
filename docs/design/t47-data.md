@@ -1,6 +1,11 @@
 # T47 — `data/` junto a la biblioteca y más liviana
 
-Informe de investigación (2026-10-10, solo lectura, medido sobre la biblioteca real). **Propuesta, no decisión aprobada.**
+Informe de investigación (2026-10-10, solo lectura, medido sobre la biblioteca real). **Decisión aprobada por el dueño (2026-10-10):** copy perezoso + caché LRU y opción B (ver Ubicación).
+
+## Casos de uso objetivo
+1. Usuarios sin HDD: todo queda en la máquina.
+2. Usuarios que empiezan directo en HDD.
+3. Usuarios como el dueño: empiezan en la máquina y luego pasan a HDD.
 
 ## Medido
 - `data/` = 78,2 GB; `content/` = 87,2 GB; mismo disco (79 GB libres, 83 % lleno).
@@ -25,7 +30,7 @@ Informe de investigación (2026-10-10, solo lectura, medido sobre la biblioteca 
 
 Bajar solo el bitrate ahorra ~7–9 GB (~10 %); lo grande es no duplicar lo ya compatible. Cambia el ADR 0002 ("procesar una vez al importar") → ADR 0006.
 
-## Ubicación (recomendada: opción B)
+## Ubicación (aprobada: opción B)
 - **Estado local** (BD, imágenes, recovery; ~27 MB) fuera del repo: `~/.local/share/sala/` (Linux) / `%LOCALAPPDATA%\sala\data` (Windows).
 - **HLS** en `<contenido>/.sala/hls/`, junto a `.sala-library.json`: viaja con el disco y se reconoce por `libraryId`.
 - Descartadas: todo en el disco (SQLite WAL frágil en HDD/USB y el catálogo desaparece con el disco, viola T9); `dataDir` configurable como camino principal (dos punteros que se desincronizan; solo válvula avanzada).
@@ -35,11 +40,17 @@ Bajar solo el bitrate ahorra ~7–9 GB (~10 %); lo grande es no duplicar lo ya c
 - Cambiar la carpeta en Ajustes exige resolvedor en vivo o reinicio.
 
 ## Tareas (≈ 22 pts)
-- T47a (3) resolvedor `stateDir`/`libraryDir`; BD e imágenes fuera del repo con migración; unit/lanzador/backup/`index.ts` lo usan; eliminar la BD sobrante.
-- T47b (2) fuentes por hash, purga de huérfanos con dry-run y confirmación, informe.
+- T47a (3, en curso) resolvedor `stateDir`/`libraryDir`; BD e imágenes fuera del repo con migración; unit/lanzador/backup/`index.ts` lo usan; eliminar la BD sobrante.
+- T47b (2, en curso) fuentes por hash, purga de huérfanos con dry-run y confirmación, informe.
 - T47c (5) copy perezoso + LRU + presupuesto + ADR 0006.
+  - Presupuesto de caché configurable con default seguro. El LRU expulsa solo cachés regenerables (copy); nunca paquetes x264 ni originales.
+  - Comprobar espacio libre antes de generar una caché de copy.
 - T47d (5) HLS bajo `.sala/hls` + guardián de disco ausente + watcher acotado.
+  - Comprobar espacio libre antes de procesar (encode/HLS). Si el espacio libre baja del umbral (referencia: 10 % o 10 GB), el worker pausa el procesado y muestra un aviso claro en Actividad; nunca llena el disco.
 - T47e (5) migración (rename/hardlink o copia verificada) + UI "mover datos con la biblioteca".
+  - Flujo guiado en Ajustes y por CLI `sala` (T45): elegir destino → verificar espacio → mover → verificar → confirmar → liberar origen. Reanudable.
+  - Nunca borrar el origen sin confirmación explícita; el origen queda intacto hasta confirmar.
+  - Comprobar espacio libre en el destino antes de empezar, con el mismo umbral de T47d.
 - T47f (2) perfil de encode nuevo (CRF 23–24 + animation; tope para HEVC) solo para nuevos.
 
 ## Riesgos
