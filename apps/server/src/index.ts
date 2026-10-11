@@ -112,6 +112,7 @@ const app = buildApp({
   hlsDir,
   disk: { present: diskPresent, hlsOnLibrary },
   contentDir: () => resolveContentDir(),
+  roots: { contentDir: () => resolveContentDir() },
   ingestor,
   worker,
   dataMigration,

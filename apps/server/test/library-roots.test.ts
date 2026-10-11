@@ -35,7 +35,7 @@ describe('011 library_roots migration', () => {
 
     migrate(db);
 
-    expect(get(db, 'PRAGMA user_version')).toMatchObject({ user_version: 12 });
+    expect(get(db, 'PRAGMA user_version')).toMatchObject({ user_version: 13 });
     expect(get(db, 'SELECT id, library_id, last_known_path, position FROM library_roots')).toEqual({ id: 1, library_id: null, last_known_path: null, position: 0 });
     expect(all(db, 'SELECT id, root_id, path, size, status, hls_dir, pkg_mode, pkg_bytes, last_played_at, chapters_checked, parsed_number FROM media_files ORDER BY id')).toEqual([
       { id: a, root_id: 1, path: 'shows/s/1.mkv', size: 5, status: 'ready', hls_dir: 'hls/1', pkg_mode: 'copy', pkg_bytes: 7, last_played_at: 't', chapters_checked: 1, parsed_number: 1 },

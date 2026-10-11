@@ -19,6 +19,7 @@ import { fsRoutes, type FsRoutesDeps } from './modules/fs/routes.ts';
 import { dataMigrationRoutes } from './modules/data-migration/routes.ts';
 import type { MigrationService } from './modules/data-migration/service.ts';
 import { maintenanceRoutes } from './modules/maintenance/routes.ts';
+import { rootsRoutes, type RootsRoutesDeps } from './modules/roots/routes.ts';
 
 export interface AppOptions {
   db: DatabaseSync;
@@ -45,9 +46,11 @@ export interface AppOptions {
   dataMigration?: MigrationService;
   /** T52: explicit on-demand TMDB refresh; absent = the refresh endpoint answers 503. */
   tmdb?: TmdbClient;
+  /** T9d: locations API; defaults read the real filesystem. */
+  roots?: RootsRoutesDeps;
 }
 
-export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs, contentDir, probeChapters, dataMigration, tmdb }: AppOptions) {
+export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs, contentDir, probeChapters, dataMigration, tmdb, roots }: AppOptions) {
   const app = Fastify({ logger });
 
   app.register(
@@ -55,6 +58,7 @@ export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk,
       api.get('/health', async () => ({ ok: true }));
       configRoutes(api, config);
       fsRoutes(api, fs);
+      rootsRoutes(api, db, roots);
       if (dataMigration) dataMigrationRoutes(api, dataMigration);
       profileRoutes(api, db);
       catalogRoutes(api, db, contentDir && { contentDir, probe: probeChapters ?? realProbeChapters }, tmdb && { tmdb, dataDir });
