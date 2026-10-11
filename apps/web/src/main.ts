@@ -2,7 +2,7 @@ import { createApp } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import App from './App.vue';
 import { api, getProfileId } from './api.ts';
-import { guardRedirect, type ConfigState } from './config.ts';
+import { guardRedirect, type AppConfig } from './config.ts';
 import { installSpatialNav } from './spatial.ts';
 import { loadTheme } from './theme.ts';
 import './style.css';
@@ -26,18 +26,18 @@ const router = createRouter({
 });
 
 // Boot guard: a library folder must be configured before anything else. Once ready it is not asked again.
-let configState: ConfigState | null = null;
+let appConfig: Pick<AppConfig, 'status' | 'suggestedDefault'> | null = null;
 router.beforeEach(async (to) => {
-  if (configState !== 'ready') {
+  if (appConfig?.status !== 'ready') {
     try {
-      configState = (await api.config()).status;
+      appConfig = await api.config();
     } catch {
       return true; // server unreachable: pages show their own errors
     }
   }
-  return guardRedirect(configState, to.path) ?? true;
+  return guardRedirect(appConfig!, to.path) ?? true;
 });
-router.beforeEach((to) => (to.path !== '/' && !getProfileId() ? '/' : true));
+router.beforeEach((to) => (to.path !== '/' && to.path !== '/setup' && !getProfileId() ? '/' : true));
 
 loadTheme(getProfileId());
 installSpatialNav(router);

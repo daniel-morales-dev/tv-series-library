@@ -43,12 +43,13 @@ export function tmdbSectionState(config: AppConfig | null, input: string, busy: 
 
 /**
  * Where the boot guard sends `path`, or null to let it through.
- * Only `missing` (chosen folder absent) forces /setup, which shows its own error.
- * `unset` never forces the wizard: the development folder from .env keeps working.
+ * `missing` (chosen folder absent) forces /setup, which shows its own error.
+ * `unset` forces the wizard only on a first run (no existing default folder);
+ * with one, the development folder from .env keeps working.
  */
-export function guardRedirect(status: ConfigState, path: string): string | null {
-  if (status === 'ready') return path === '/setup' ? '/' : null;
-  if (status === 'missing') return path === '/setup' ? null : '/setup';
+export function guardRedirect(config: Pick<AppConfig, 'status' | 'suggestedDefault'>, path: string): string | null {
+  if (config.status === 'ready') return path === '/setup' ? '/' : null;
+  if (config.status === 'missing' || !config.suggestedDefault) return path === '/setup' ? null : '/setup';
   return null;
 }
 
