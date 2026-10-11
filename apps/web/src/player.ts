@@ -1,5 +1,5 @@
 import { languageName } from './languages.ts';
-import { pickFile } from './titlePage.ts';
+import { buildEpisodes } from './titlePage.ts';
 import type { SubtitleTrack, TitleDetail, WatchProgress } from './types.ts';
 
 /** Seconds to start from: the saved spot unless finished or barely started. */
@@ -29,13 +29,9 @@ interface EpisodeFile {
 
 /** Playable rows in season → episode order; the newest live file per episode wins, extras don't count. */
 function orderedFiles(detail: TitleDetail): EpisodeFile[] {
-  return [...detail.seasons]
-    .sort((a, b) => a.number - b.number)
-    .flatMap((s) => [...s.episodes].sort((a, b) => a.number - b.number))
-    .flatMap((e) => {
-      const f = pickFile(detail.files.filter((x) => x.episodeId === e.id && !x.extraLabel));
-      return f ? [{ episodeId: e.id, fileId: f.id, name: e.name || `Episodio ${e.number}` }] : [];
-    });
+  return buildEpisodes(detail)
+    .flatMap((s) => s.rows)
+    .flatMap((r) => (r.file ? [{ episodeId: r.id, fileId: r.file.id, name: r.name || `Episodio ${r.number}` }] : []));
 }
 
 /** Index of the playing row in `ordered`; a stale duplicate must not hide its episode, so match the episode too. */
@@ -44,21 +40,19 @@ function playingIndex(detail: TitleDetail, ordered: EpisodeFile[], fileId: numbe
   return ordered.findIndex((x) => x.fileId === fileId || x.episodeId === current?.episodeId);
 }
 
-/** Next episode with a file, in season → episode order. */
-export function nextFile(detail: TitleDetail, fileId: number): { fileId: number; name: string } | null {
+/** The episode `delta` rows away in season → episode order: 1 is next, -1 is previous. */
+export function neighborFile(detail: TitleDetail, fileId: number, delta: 1 | -1): { fileId: number; name: string } | null {
   const ordered = orderedFiles(detail);
   const i = playingIndex(detail, ordered, fileId);
-  const next = i >= 0 ? ordered[i + 1] : undefined;
-  return next ? { fileId: next.fileId, name: next.name } : null;
+  const row = i >= 0 ? ordered[i + delta] : undefined;
+  return row ? { fileId: row.fileId, name: row.name } : null;
 }
 
-/** Previous episode with a file, in season → episode order. Mirrors `nextFile`. */
-export function prevFile(detail: TitleDetail, fileId: number): { fileId: number; name: string } | null {
-  const ordered = orderedFiles(detail);
-  const i = playingIndex(detail, ordered, fileId);
-  const prev = i > 0 ? ordered[i - 1] : undefined;
-  return prev ? { fileId: prev.fileId, name: prev.name } : null;
-}
+/** Next episode with a file, in season → episode order. */
+export const nextFile = (detail: TitleDetail, fileId: number): { fileId: number; name: string } | null => neighborFile(detail, fileId, 1);
+
+/** Previous episode with a file, in season → episode order. */
+export const prevFile = (detail: TitleDetail, fileId: number): { fileId: number; name: string } | null => neighborFile(detail, fileId, -1);
 
 /** One row of the player's audio menu; `id` is the hls.js track index used by `pickAudio`. */
 export function audioMenu(tracks: readonly { lang?: string | null; name?: string | null }[]): { id: number; name: string }[] {
@@ -87,4 +81,9 @@ export function seekRange(current: number, duration: number): { max: number; val
   if (!Number.isFinite(duration) || duration <= 0) return null;
   const value = Number.isFinite(current) ? Math.min(Math.max(current, 0), duration) : 0;
   return { max: duration, value };
+}
+
+/** Whether the idle timer may hide the chrome: focus inside it blocks the fade only for a keyboard/remote user. */
+export function idleAllowed(modality: 'pointer' | 'keyboard', chromeFocused: boolean): boolean {
+  return !chromeFocused || modality === 'pointer';
 }

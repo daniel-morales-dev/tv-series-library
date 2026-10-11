@@ -3,7 +3,7 @@ import { activeSkip, classifyChapter, skipLabel } from './skip.ts';
 
 describe('classifyChapter', () => {
   it.each([
-    ['Opening', 'opening'], ['OP', 'opening'], ['OP1', 'opening'], ['Intro', 'opening'], ['Opening Theme', 'opening'], ['Title Sequence', 'opening'],
+    ['Opening', 'opening'], ['OP', 'opening'], ['OP1', 'opening'], ['Intro', 'intro'], ['Opening Theme', 'opening'], ['Title Sequence', 'opening'],
     ['Ending', 'ending'], ['ED', 'ending'], ['ED2', 'ending'], ['Credits', 'ending'], ['Créditos', 'ending'], ['Outro', 'ending'], ['Preview', 'ending'], ['Avance', 'ending'],
     ['Recap', 'recap'], ['Previously', 'recap'], ['Resumen', 'recap'], ['Anteriormente', 'recap'], ['Previously on', 'recap'],
     ['Part A', 'other'], ['Episode', 'other'], ['Opera scene', 'other'], ['Dedication', 'other'], ['', 'other'],
@@ -30,9 +30,23 @@ describe('activeSkip', () => {
     expect(activeSkip([], 5)).toBeNull();
     expect(activeSkip(undefined, 5)).toBeNull();
   });
+  it('T79: skips the intro to its own end, then the opening separately', () => {
+    const real = [
+      { startS: 0, endS: 25, title: 'Intro' },
+      { startS: 25, endS: 115, title: 'OP' },
+      { startS: 115, endS: 1325, title: 'Part A' },
+      { startS: 1325, endS: 1415, title: 'ED' },
+      { startS: 1415, endS: 1420, title: 'PV' },
+    ];
+    expect(activeSkip(real, 2)).toEqual({ kind: 'intro', endS: 25 });
+    expect(activeSkip(real, 25)).toEqual({ kind: 'opening', endS: 115 });
+    expect(activeSkip(real, 114)).toEqual({ kind: 'opening', endS: 115 });
+    expect(activeSkip(real, 1325)).toEqual({ kind: 'ending', endS: 1415 });
+  });
   it('labels the button in Spanish', () => {
     expect(skipLabel('opening')).toBe('Saltar opening');
     expect(skipLabel('ending')).toBe('Saltar ending');
     expect(skipLabel('recap')).toBe('Saltar resumen');
+    expect(skipLabel('intro')).toBe('Saltar intro');
   });
 });

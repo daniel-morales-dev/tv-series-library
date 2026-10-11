@@ -6,7 +6,7 @@ import { api, getProfileId, playErrorMessage, saveProgress, streamUrl } from '..
 import { fullscreenMode, isIOS, isMobile, volumeWritable } from '../device.ts';
 import { isBackKey } from '../spatial.ts';
 import { decidePlayerKey, stepIndex } from '../player-keys.ts';
-import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
+import { audioMenu, audioSelection, clock, defaultSubtitle, idleAllowed, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
 import { SPEEDS, loadSpeed, saveSpeed, speedLabel } from '../speed.ts';
 import { type Chapter, activeSkip, skipLabel } from '../skip.ts';
 import type { MediaFile, SubtitleTrack, TitleDetail } from '../types.ts';
@@ -50,6 +50,7 @@ let run = 0; // bumped on every (re)start so stale async work can bail out
 let saveTimer: ReturnType<typeof setInterval> | undefined;
 let nextTimer: ReturnType<typeof setInterval> | undefined;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let inputModality: 'pointer' | 'keyboard' = 'pointer'; // T78: a click may leave focus on a chrome button
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fail = (text: string) => {
@@ -210,8 +211,13 @@ function poke() {
   idle.value = false;
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if (video.value && !video.value.paused && !menu.value && !next.value && !needsGesture.value && !chromeHasFocus()) idle.value = true;
+    if (video.value && !video.value.paused && !menu.value && !next.value && !needsGesture.value && idleAllowed(inputModality, chromeHasFocus())) idle.value = true;
   }, 3000);
+}
+// T78: a pointer user still gets the idle fade while focus sits on the chrome button they just clicked.
+function pokePointer() {
+  inputModality = 'pointer';
+  poke();
 }
 // T56: autoplay may be blocked without a gesture (TV policy); keep the paused frame and ask for OK.
 function tryPlay() {
@@ -336,7 +342,8 @@ function goPrev() {
 function goNextEp() {
   if (nextEp.value) goTo(nextEp.value);
 }
-const back = () => router.push(`/title/${titleId.value}`);
+// T78: leave with `replace` so the title page's Back cannot land on the player again.
+const back = () => router.replace(`/title/${titleId.value}`);
 
 // Fullscreen the container, not the <video>, so the menus and the next-episode prompt stay visible.
 // iPhone is the exception (T43): it uses the native player, which rotates by itself.
@@ -404,6 +411,7 @@ function focusPlayButton() {
 }
 
 function onKey(e: KeyboardEvent) {
+  inputModality = 'keyboard'; // T78: a keyboard/remote user keeps the chrome up while focus sits on a control
   const v = video.value;
   if (!v) return;
   const action = decidePlayerKey(e.target, e.key);
@@ -437,6 +445,8 @@ function onKey(e: KeyboardEvent) {
     goPrev();
   } else if (action === 'next-episode') {
     goNextEp();
+  } else if (action === 'toggle-fullscreen') {
+    toggleFullscreen();
   } else {
     return;
   }
@@ -473,7 +483,7 @@ watch([fileId, titleId], start, { immediate: true });
 </script>
 
 <template>
-  <div ref="root" class="watch" :class="{ idle }" @mousemove="poke" @pointerdown="poke" @touchstart.passive="poke">
+  <div ref="root" class="watch" :class="{ idle }" @mousemove="pokePointer" @pointerdown="pokePointer" @touchstart.passive="pokePointer">
     <video
       ref="video"
       v-show="phase === 'playing'"
@@ -498,14 +508,14 @@ watch([fileId, titleId], start, { immediate: true });
       />
     </video>
 
-    <RouterLink class="btn top left" :to="`/title/${titleId || ''}`">← Volver</RouterLink>
+    <RouterLink class="btn top left" replace :to="`/title/${titleId || ''}`">← Volver</RouterLink>
 
     <p v-if="phase === 'loading'" class="center muted">Cargando…</p>
     <p v-else-if="phase === 'preparing'" class="center">Preparando… {{ percent }} %</p>
     <p v-else-if="phase === 'error'" class="center error">{{ message }}</p>
 
     <template v-if="phase === 'playing'">
-      <p v-if="needsGesture" class="hint" role="status">Pulsa OK para reproducir</p>
+      <p v-if="needsGesture" class="hint" role="status" @click="tryPlay">Pulsa OK para reproducir</p>
       <div class="top right actions chrome">
         <button class="round speed" :class="{ on: menu === 'speed' }" aria-label="Velocidad de reproducción" title="Velocidad de reproducción" aria-haspopup="menu" :aria-expanded="menu === 'speed'" @click="toggleMenu('speed')">
           {{ speedLabel(speed) }}
@@ -594,10 +604,10 @@ video { width: 100%; height: 100%; background: #000; }
 .idle { cursor: none; }
 /* T51: the back link is deliberately not .chrome, so it stays visible and tappable while idle. */
 .idle .chrome { opacity: 0; pointer-events: none; }
-/* T56: autoplay was blocked; never swallow a click on the video underneath. */
+/* T56/T78: autoplay was blocked; the hint itself retries playback, so it must take clicks. */
 .hint {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; margin: 0;
-  padding: 12px 24px; border-radius: 999px; background: rgba(15, 15, 18, 0.95); pointer-events: none;
+  padding: 12px 24px; border-radius: 999px; background: rgba(15, 15, 18, 0.95); cursor: pointer;
 }
 .center { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; text-align: center; padding: 0 16px; }
 .menu {

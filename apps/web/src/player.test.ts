@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from './player.ts';
+import { audioMenu, audioSelection, clock, defaultSubtitle, idleAllowed, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from './player.ts';
 import type { Episode, MediaFile, SubtitleTrack, TitleDetail } from './types.ts';
 
 const p = (mediaFileId: number, positionS: number, completed = false) => ({ mediaFileId, positionS, durationS: 1400, completed });
@@ -146,5 +146,18 @@ describe('prevFile', () => {
     const d = detail([mediaFile(11, 1), mediaFile(12, 2)]);
     expect(prevFile(d, 11)).toBeNull();
     expect(prevFile(d, 999)).toBeNull();
+  });
+});
+
+describe('idleAllowed', () => {
+  it('lets the chrome fade after a pointer click even while its button keeps focus', () => {
+    expect(idleAllowed('pointer', true)).toBe(true);
+  });
+  it('keeps the chrome up for a keyboard/remote user while focus is inside it', () => {
+    expect(idleAllowed('keyboard', true)).toBe(false);
+  });
+  it('fades when nothing in the chrome is focused', () => {
+    expect(idleAllowed('keyboard', false)).toBe(true);
+    expect(idleAllowed('pointer', false)).toBe(true);
   });
 });

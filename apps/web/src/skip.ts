@@ -1,4 +1,4 @@
-export type SkipKind = 'opening' | 'ending' | 'recap';
+export type SkipKind = 'opening' | 'ending' | 'recap' | 'intro';
 export interface Chapter {
   startS: number;
   endS: number;
@@ -7,9 +7,11 @@ export interface Chapter {
 
 // Keywords in EN, JP-romaji fansub style (OP/ED) and ES, matched on accent-stripped lowercase words.
 // "preview" (next-episode teaser) is grouped with the ending: it always follows the credits.
+// T79: the intro is its own kind — it ends where the OP starts, so each needs its own skip target.
 const RULES: [SkipKind, RegExp][] = [
   ['recap', /\b(recap|previously|resumen|anteriormente)\b/],
-  ['opening', /\b(op\d*|opening|intro|title sequence|apertura)\b/],
+  ['intro', /\bintro\b/],
+  ['opening', /\b(op\d*|opening|title sequence|apertura)\b/],
   ['ending', /\b(ed\d*|ending|credit\w*|outro|preview|avance|cierre)\b/],
 ];
 
@@ -26,4 +28,5 @@ export function activeSkip(chapters: Chapter[] | undefined, time: number): { kin
   return null;
 }
 
-export const skipLabel = (kind: SkipKind) => `Saltar ${kind === 'recap' ? 'resumen' : kind}`;
+const LABELS: Record<SkipKind, string> = { intro: 'Saltar intro', opening: 'Saltar opening', ending: 'Saltar ending', recap: 'Saltar resumen' };
+export const skipLabel = (kind: SkipKind) => LABELS[kind];
