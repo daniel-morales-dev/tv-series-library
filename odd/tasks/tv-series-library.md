@@ -369,3 +369,36 @@ Pendiente del dueño: confirmación visual en TV/iPhone (T6d) del render ASS y d
 - Regla de UX del dueño: "Reparar subtítulos" debe invalidar la caché solo — sin hard refresh, también en TV/celular. Verificado en vivo: `cache-control: no-cache` y `subs/0.vtt?v=1791756830602` en el detalle; las entradas viejas (sin `?v`) ya no se usan en ningún dispositivo.
 - Push a `fix/qa-usage-round3` (PR #12).
 - ✅ Cierre de ronda: PR #12 mezclada en main (`9e34feb`), servicio desplegado en main (health ok, `no-cache` verificado en vivo), tag `v0.5.0` empujada → `build-windows-installer.yml` publicó la release **v0.5.0** con `sala-setup-0.5.0.exe` (82.6 MB) + `SHA256SUMS.txt` adjuntos (https://github.com/daniel-morales-dev/tv-series-library/releases/tag/v0.5.0).
+
+### Ronda 5 (2026-10-11) — v0.6.0: instalador de macOS + fixes visuales (T88–T94)
+
+Reporte del dueño: (1) en el detalle de título el bloque logo/texto/botones pisa la barra fija de arriba (hero absoluto; con logo alto + overview + botones el copy crece hacia arriba); (2) en el inicio el scrim oscuro detrás del logo/texto/botones es un parche con bordes visibles: no llega a la barra de arriba ni al fondo del contenedor; (3) nuevo instalador de macOS con paridad funcional con Windows (todo incluido, doble clic, arranque al iniciar sesión), para usuarios sin conocimientos. Entrega: PR a main, merge, tag `v0.6.0` con assets Windows y macOS, notificación al dueño.
+
+- [x] T88 (web) Detalle: hero en flujo — `.hero` flex column `justify-content: flex-end` + `min-height` (antes `height` fijo) y `.copy` en flujo con `padding-top: calc(var(--header-h) + 16px)` + `padding-bottom` (antes absoluto con `bottom`); el hero crece si el copy es alto y nunca pisa la barra. Ruta: inline. 2 pts.
+- [x] T89 (web) Inicio: scrim único `.hero::after` (inset 0, z-index 1, degradado 90deg 0.85→0.5@40% → transparente@74%) que cubre el hero completo, de la barra de arriba al fondo; se elimina `.copy::before` (parche) y `.slide::before` (duplicado). Ruta: inline. 1 pt.
+- [x] T90 (server) macOS: `userStateDir`/`configDir` → `~/Library/Application Support/sala[/data]` (antes caían en XDG); `defaultLibraryDir` en darwin → `~/Movies/Sala` (`~/Videos` no existe en macOS). Ruta: inline. 1 pt.
+- [x] T91 (packaging) `packaging/macos`: launcher bash (paridad con `sala-launcher.vbs`: health → backup SQLite → server en segundo plano → health ≤30 s → abre navegador; flags `--no-open`/`--no-agent`; instala LaunchAgent `com.sala.launcher` solo si la app vive en `/Applications`), `Info.plist` (LSUIElement), `Instalar Sala.command` (copia a /Applications, quita cuarentena, abre), `build.sh` (ensambla Sala.app, firma ad-hoc, DMG con `hdiutil`), `LEEME.txt`, README. Ruta: delegada (writer). 8 pts.
+- [x] T92 (ci) `build-macos-installer.yml`: matrix arm64 (`macos-latest`) + x64 (`macos-15-intel`; macos-13 retirado 2025-12), staging idéntico a Windows (workspace aislado, guardas tamaño/symlinks), Node y ffmpeg pinned por sha256, smoke test real (arranca la app con `--no-open --no-agent` y HOME temporal, espera `/api/health`, mata el node), artefactos + publish a la release en tag + notify issue #1 (éxito/fallo). Ruta: delegada (writer). 5 pts.
+- [x] T93 (docs) README raíz + `packaging/macos/README.md` + ADR 0008 (DMG + .app sin notarizar: Gatekeeper → clic derecho → Abrir; firma ad-hoc obligatoria en Apple Silicon). Ruta: delegada (writer). 2 pts.
+- [ ] T94 (flujo) Verificación local (web build+suite, server suite+typecheck, shellcheck), commits por unidad, PR a main (asignado; sección T88–T93), checks verdes, merge, `workflow_dispatch` de macOS en main antes del tag, tag `v0.6.0`, ambos workflows publican assets (exe + dmg), notas de release completas, notificación bot. Ruta: padre. 3 pts.
+
+**Resultados (parcial, pre-PR):**
+- ✅ T88 → `acd0ea3` · ✅ T89 → `f8a4580` (web build vue-tsc+vite ok; sin runner E2E en el repo: los fixes CSS se validan visualmente en el navegador del dueño).
+- ✅ T90 → `b9e9e2a` (server typecheck limpio).
+- ✅ T91 → `f788c16` · ✅ T92 → `40e2bae` · ✅ T93 → `52beda5`.
+- ✅ Verificación local de ronda: web build ok · web 309/309 tests · server typecheck limpio · server 715/715 tests · `bash -n` ok y shellcheck limpio en los 3 scripts nuevos · Info.plist válido (plistlib) · YAML del workflow válido.
+- ✅ Spot check del padre: launcher leído completo, workflow leído completo, pins de actions idénticos a Windows, `grep` confirma que `.content` en TitleView vive fuera del hero.
+- ⏳ T94: PR/merge/dispatch macOS/tag/release en curso.
+
+**Constantes pinned macOS (T91/T92):**
+- Node 24.14.0: darwin-arm64 `a1a54f46a750d2523d628d924aab61758a51c9dad3e0238beb14141be9615dd3`; darwin-x64 `f2879eb810e25993a0578e5d878930266fd2eafcffe9f2839b3d8db354d4879e` (nodejs.org SHASUMS256.txt; el workflow cruza contra SHASUMS256.txt).
+- ffmpeg/ffprobe 9.0.2 release macos de https://ffmpeg.martin-riedl.de (URLs versionadas inmutables; el `.sha256` oficial vive junto al zip):
+  - amd64 ffmpeg `/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip` → `7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4`
+  - amd64 ffprobe `/download/macos/amd64/1789931006_9.0.2/ffprobe.zip` → `2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd`
+  - arm64 ffmpeg `/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip` → `c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924`
+  - arm64 ffprobe `/download/macos/arm64/1789931890_9.0.2/ffprobe.zip` → `fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6`
+  - ya vienen firmados (y el pkg notarizado) por el proveedor; igual se re-firman ad-hoc dentro del bundle.
+- Decisiones: DMG con `Sala.app` + symlink `Aplicaciones` + `Instalar Sala.command` + `LEEME.txt`; estado `~/Library/Application Support/sala`; logs `~/Library/Logs/sala/server.log`; puerto 8080. Divergencia deliberada vs Windows: el LaunchAgent arranca con `--no-open` (sin abrir navegador en cada inicio de sesión); el doble clic normal sí abre el navegador. El publish de macOS sube `SHA256SUMS-macos.txt` (no pisa el `SHA256SUMS.txt` de Windows). UUID de AppId/apple no aplica: sin cuenta Apple Developer, sin notarización.
+- Smoke del CI: `Sala.app/Contents/MacOS/sala --no-open --no-agent` con `HOME=$RUNNER_TEMP/sala-home`, espera health, `pkill -f "Sala.app/Contents/Resources/sala"`. Verificación visual del DMG queda pendiente para el dueño (solo macOS real).
+
+**Notas de entorno de la sesión:** RDD global off; `gh` autenticado como `dmorales-alegra` (scopes repo, workflow); push por SSH a `daniel-morales-dev/tv-series-library`; rama `feat/macos-installer`; shellcheck disponible; actionlint no.

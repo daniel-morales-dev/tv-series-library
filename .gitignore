@@ -8,3 +8,7 @@ data/
 .codegraph/
 .atl/
 .claude/
+packaging/macos/payload/
+packaging/macos/output/
+packaging/macos/Sala.app/
+packaging/macos/stage/

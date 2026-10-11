@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Plantilla de Sala.app. build.sh reemplaza @VERSION@ y la copia a Contents/Info.plist.
+  LSUIElement: la app no muestra icono en el Dock ni ventana propia; el lanzador abre el navegador.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Sala</string>
+	<key>CFBundleDisplayName</key>
+	<string>Sala</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.sala.launcher</string>
+	<key>CFBundleVersion</key>
+	<string>@VERSION@</string>
+	<key>CFBundleShortVersionString</key>
+	<string>@VERSION@</string>
+	<key>CFBundleExecutable</key>
+	<string>sala</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+</dict>
+</plist>

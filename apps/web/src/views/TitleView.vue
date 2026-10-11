@@ -349,13 +349,15 @@ async function closeEpisode() {
 <style scoped>
 .skeleton { height: clamp(420px, 62vh, 680px); background: linear-gradient(100deg, var(--bg-raised) 30%, var(--bg-card) 50%, var(--bg-raised) 70%) 0 0 / 300% 100%; animation: shimmer 1.4s linear infinite; }
 @keyframes shimmer { to { background-position: -300% 0; } }
-.hero { position: relative; height: clamp(440px, 64vh, 700px); overflow: hidden; background: #000; color: #fff; }
+/* El hero crece con el contenido: .copy va en flujo (flex-end) y nunca pisa la barra fija de arriba. */
+.hero { position: relative; display: flex; flex-direction: column; justify-content: flex-end; min-height: clamp(440px, 64vh, 700px); overflow: hidden; background: #000; color: #fff; }
 .bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 20%; }
 .hero::before, .hero::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .hero::before { background: linear-gradient(90deg, rgba(6, 6, 10, 0.9) 0%, rgba(6, 6, 10, 0.55) 40%, transparent 72%); }
 .hero::after { background: linear-gradient(transparent 80%, var(--bg) 100%), linear-gradient(rgba(6, 6, 10, 0.55), transparent 22%); }
 .copy {
-  position: absolute; z-index: 2; left: var(--gutter); bottom: clamp(40px, 9vh, 90px);
+  position: relative; z-index: 2; margin: 0 var(--gutter);
+  padding-top: calc(var(--header-h) + 16px); padding-bottom: clamp(40px, 9vh, 90px);
   width: min(660px, calc(100% - 2 * var(--gutter))); display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
 }
 /* Dark scrim behind the text: the hero stays dark in both themes, so the copy never sits on the light page. */
@@ -438,9 +440,9 @@ a.rel-card:hover { background: var(--bg-card); }
 .c-role { font-size: 0.78rem; color: var(--text-dim); line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 @media (max-width: 720px) {
-  .hero { height: clamp(460px, 72vh, 620px); }
+  .hero { min-height: clamp(460px, 72vh, 620px); }
   .hero::before { background: linear-gradient(90deg, rgba(6, 6, 10, 0.7), rgba(6, 6, 10, 0.2)); }
-  .copy { bottom: 28px; gap: 10px; }
+  .copy { padding-bottom: 28px; gap: 10px; }
   .row { grid-template-columns: 116px 1fr; gap: 12px; }
   .seen-btn { grid-column: 2; justify-self: start; }
   .syn { -webkit-line-clamp: 3; font-size: 0.86rem; }
