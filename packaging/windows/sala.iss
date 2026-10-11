@@ -1,4 +1,4 @@
-; Sala para Windows 11: instalador Inno Setup 6.
+﻿; Sala para Windows 11: instalador Inno Setup 6.
 ; Compilar (el payload lo prepara .github/workflows/build-windows-installer.yml en packaging\windows\payload):
 ;   iscc /DAppVersion=1.0.0 packaging\windows\sala.iss
 ; Salida: packaging\windows\output\sala-setup-<version>.exe
