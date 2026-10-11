@@ -114,6 +114,8 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
     };
   });
   const diskAbsent = (reply: FastifyReply) => reply.code(503).header('Retry-After', '5').send({ error: 'disk_absent' });
+  // T69: the original is gone from a present root; the row keeps its progress but cannot be processed or played.
+  const missingFile = { error: 'missing', message: 'El archivo ya no está en la biblioteca. Vuelve a copiarlo a su carpeta para reproducirlo.' };
   // T9b: root 1 is the configured folder, already guarded by `disk.present()`; other roots check their own marker.
   const rootPresent = (rootId: number): boolean => (rootId === 1 ? disk.present() : rootStatus(db, rootId).present);
 
@@ -142,6 +144,7 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
     const file = get<{ status: string }>(db, 'SELECT status FROM media_files WHERE id = ?', req.params.id);
     if (!file) return reply.code(404).send({ error: 'not_found' });
     if (file.status === 'downloading') return reply.code(409).send({ error: 'downloading' });
+    if (file.status === 'missing') return reply.code(409).send(missingFile);
     const jobId = enqueue(db, req.params.id);
     worker?.kick();
     return reply.code(202).send({ jobId });
@@ -155,6 +158,7 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
     );
     if (!file) return reply.code(404).send({ error: 'not_found' });
     if (file.status === 'downloading') return reply.code(409).send({ error: 'downloading' });
+    if (file.status === 'missing') return reply.code(409).send(missingFile);
     const lazy = isLazy(file);
     if (lazy && !rootPresent(file.root_id)) return diskAbsent(reply); // building the package needs the original
     if (file.status === 'ready' && !lazy) {

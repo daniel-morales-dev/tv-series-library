@@ -109,6 +109,19 @@ describe('POST /api/media-files/:id/play', () => {
     expect(get(db, 'SELECT status FROM media_files WHERE id = ?', f)).toEqual({ status: 'downloading' });
   });
 
+  it('answers 409 for a file that vanished from the library and never queues it', async () => {
+    const { db, app } = env();
+    const f = addFile(db, addTitle(db, 'T'), { status: 'missing' });
+    for (const action of ['play', 'process']) {
+      const res = await app.inject({ method: 'POST', url: `/api/media-files/${f}/${action}` });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ error: 'missing' });
+      expect(res.json().message).toBeTruthy();
+    }
+    expect(get(db, 'SELECT COUNT(*) AS n FROM jobs')).toEqual({ n: 0 });
+    expect(get(db, 'SELECT status FROM media_files WHERE id = ?', f)).toEqual({ status: 'missing' });
+  });
+
   it('answers 404 for an unknown file', async () => {
     expect((await env().app.inject({ method: 'POST', url: '/api/media-files/99/play' })).statusCode).toBe(404);
   });
