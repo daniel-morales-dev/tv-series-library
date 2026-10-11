@@ -90,3 +90,8 @@ export function initial(name: string): string {
 }
 
 export const KIND_LABEL: Record<TitleSummary['kind'], string> = { movie: 'Película', series: 'Serie', anime: 'Anime' };
+
+/** T9e: a title/file the server marked as not playable because its location is disconnected. */
+export function unavailableNotice(available: boolean | undefined): { label: string; hint: string } | null {
+  return available === false ? { label: 'No disponible', hint: 'reconecta la ubicación' } : null;
+}

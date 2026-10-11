@@ -20,6 +20,8 @@ export interface TitleSummary {
   backdropPath: string | null;
   logoPath: string | null;
   comingSoon: boolean;
+  /** T9e: false when the server has no playable copy right now (its location is disconnected); omitted by older servers. */
+  available?: boolean;
 }
 
 export interface ContinueItem {
@@ -71,6 +73,8 @@ export interface MediaFile {
   episodeId: number | null;
   extraLabel: string | null;
   durationS: number | null;
+  /** T9e: false when this file's location is disconnected and it has no self-contained package. */
+  available?: boolean;
   audioTracks: AudioTrack[];
   subtitleTracks: SubtitleTrack[];
   /** T26: cached chapters; `chaptersChecked` false means the server never probed this file yet. */

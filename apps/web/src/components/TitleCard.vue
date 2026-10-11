@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { imageUrl } from '../api.ts';
 import type { FileStatus } from '../fileStatus.ts';
-import { KIND_LABEL } from '../library.ts';
+import { KIND_LABEL, unavailableNotice } from '../library.ts';
 import { playTitle } from '../play.ts';
 import { myList, toggleMyList } from '../session.ts';
 import type { TitleSummary } from '../types.ts';
@@ -13,6 +13,7 @@ const props = defineProps<{ title: TitleSummary; status?: FileStatus | null }>()
 const router = useRouter();
 const listed = computed(() => myList.value.some((t) => t.id === props.title.id));
 const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].filter(Boolean).join('  ·  '));
+const unavailable = computed(() => unavailableNotice(props.title.available));
 </script>
 
 <template>
@@ -21,13 +22,15 @@ const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].fil
       <img v-if="title.posterPath" :src="imageUrl(title.posterPath)" :alt="title.title" loading="lazy" draggable="false" />
       <span v-else class="fallback">{{ title.title }}</span>
       <span v-if="title.comingSoon" class="soon tag">Próximamente</span>
+      <span v-if="unavailable" class="off-tag" :title="unavailable.hint">{{ unavailable.label }}</span>
     </RouterLink>
     <span v-if="status" class="badge" :class="status.kind" :title="status.detail">{{ status.label }}</span>
     <div class="over">
       <p class="name">{{ title.title }}</p>
       <p class="meta">{{ meta }}</p>
+      <p v-if="unavailable" class="off-note">{{ unavailable.hint }}</p>
       <div class="acts" data-spatial-skip>
-        <button v-if="!title.comingSoon" class="round fill" aria-label="Reproducir" @click="playTitle(router, title.id)"><Icon name="play" /></button>
+        <button v-if="!title.comingSoon && !unavailable" class="round fill" aria-label="Reproducir" @click="playTitle(router, title.id)"><Icon name="play" /></button>
         <button
           class="round"
           :class="{ on: listed }"
@@ -51,6 +54,11 @@ const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].fil
 .cover { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; }
 .cover img { width: 100%; height: 100%; object-fit: cover; }
 .tag { position: absolute; left: 8px; top: 8px; }
+.off-tag {
+  position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; height: 1.7em; padding: 0 0.85em;
+  white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+  background: rgba(8, 8, 12, 0.85); color: #ff9b9b;
+}
 .badge {
   position: absolute; right: 8px; top: 8px; display: inline-flex; align-items: center; height: 1.7em; padding: 0 0.85em;
   white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
@@ -70,6 +78,7 @@ const meta = computed(() => [KIND_LABEL[props.title.kind], props.title.year].fil
 }
 .name { margin: 0; font-weight: 700; font-size: 0.95rem; line-height: 1.25; }
 .meta { margin: 2px 0 10px; font-size: 0.78rem; color: #c9c9d6; }
+.off-note { margin: 0 0 8px; font-size: 0.78rem; color: #ff9b9b; }
 .acts { display: flex; gap: 8px; pointer-events: auto; }
 .acts .round { width: 38px; height: 38px; }
 .card:hover, .card:focus-within { transform: scale(1.07); z-index: 4; box-shadow: var(--shadow); }

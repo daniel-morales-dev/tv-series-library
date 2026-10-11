@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue';
 import { imageUrl } from '../api.ts';
 import { popoverPosition } from '../popover.ts';
 import { isBackKey } from '../spatial.ts';
-import { episodeLabel, progressPct, remainingLabel } from '../library.ts';
+import { episodeLabel, progressPct, remainingLabel, unavailableNotice } from '../library.ts';
 import type { ContinueItem } from '../types.ts';
 import Icon from './Icon.vue';
 
@@ -55,20 +55,23 @@ const label = computed(() => episodeLabel(props.item.season, props.item.episode,
 const left = computed(() => remainingLabel(props.item.positionS, props.item.durationS));
 const pct = computed(() => progressPct(props.item.positionS, props.item.durationS));
 const image = computed(() => props.item.stillPath ?? props.item.title.backdropPath ?? props.item.title.posterPath);
+const unavailable = computed(() => unavailableNotice(props.item.title.available));
 </script>
 
 <template>
-  <article class="cc">
+  <article class="cc" :class="{ off: unavailable }">
     <RouterLink :to="to" class="thumb" draggable="false" :aria-label="`Continuar ${item.title.title}`">
       <img v-if="image" :src="imageUrl(image)" alt="" loading="lazy" draggable="false" />
+      <span v-if="unavailable" class="off-tag" :title="unavailable.hint">{{ unavailable.label }}</span>
       <span v-if="left" class="left">{{ left }}</span>
-      <span class="play"><Icon name="play" :size="30" /></span>
+      <span v-if="!unavailable" class="play"><Icon name="play" :size="30" /></span>
       <span class="bar"><i :style="{ width: `${pct}%` }" /></span>
     </RouterLink>
     <div class="info">
       <div class="text">
         <p class="series">{{ item.title.title }}</p>
         <p v-if="label" class="ep" :title="label">{{ label }}</p>
+        <p v-if="unavailable" class="off-note">{{ unavailable.hint }}</p>
       </div>
       <button
         ref="dotsBtn"
@@ -99,6 +102,13 @@ const image = computed(() => props.item.stillPath ?? props.item.title.backdropPa
   background: linear-gradient(160deg, var(--bg-hover), var(--bg-card)); transition: transform 0.2s;
 }
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.cc.off .thumb img { opacity: 0.45; }
+.off-tag {
+  position: absolute; left: 8px; top: 8px; display: inline-flex; align-items: center; height: 1.7em; padding: 0 0.85em;
+  white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+  background: rgba(8, 8, 12, 0.85); color: #ff9b9b;
+}
+.off-note { margin: 2px 0 0; font-size: 0.78rem; color: #ff9b9b; }
 .left {
   position: absolute; left: 8px; bottom: 14px; padding: 3px 9px; border-radius: 6px;
   background: rgba(8, 8, 12, 0.82); color: #fff; font-size: 0.78rem; font-weight: 600;

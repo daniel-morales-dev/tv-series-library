@@ -75,6 +75,19 @@ describe('409 downloading', () => {
   });
 });
 
+describe('503 disk absent', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it('api.play maps the disk_absent 503 body to its own error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'disk_absent' }), { status: 503 })));
+    await expect(api.play(1)).rejects.toThrow('disk_absent');
+  });
+  it('playErrorMessage gives the Spanish text', () => {
+    expect(playErrorMessage(new Error('disk_absent'))).toBe(
+      'La ubicación de este título no está disponible. Reconecta la ubicación e inténtalo de nuevo.',
+    );
+  });
+});
+
 describe('extras', () => {
   const extra = (status: MediaFile['status']) => ({ ...file(1, null, status), extraLabel: 'NCED 01' });
   it('shows no play icon while downloading, but does when playable', async () => {

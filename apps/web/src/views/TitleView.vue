@@ -9,7 +9,7 @@ import LangLine from '../components/LangLine.vue';
 import { franchiseEntries } from '../franchise.ts';
 import { fileStatus, movieStatus, needsPolling } from '../fileStatus.ts';
 import { fileLanguages, titleLanguages } from '../languages.ts';
-import { KIND_LABEL, initial, progressPct, remainingLabel } from '../library.ts';
+import { KIND_LABEL, initial, progressPct, remainingLabel, unavailableNotice } from '../library.ts';
 import { hasHero, inMyList, loadMyList, toggleMyList } from '../session.ts';
 import { airDateLabel, buildEpisodes, castOf, episodeAction, isPlayable, playPlan, runtimeLabel, seasonFinished, seenToggle, type EpisodeRow } from '../titlePage.ts';
 import type { Job, MediaFile, TitleDetail } from '../types.ts';
@@ -72,6 +72,7 @@ const season = computed(() => {
 const status = (f: MediaFile | null) => (f ? fileStatus(f, jobs.value) : null);
 // A film's single main file status, shown next to the play button: en cola / procesando N % / listo / error / sin archivo.
 const film = computed(() => (detail.value?.kind === 'movie' ? movieStatus(detail.value.files, jobs.value) : null));
+const unavailable = computed(() => (detail.value ? unavailableNotice(detail.value.available) : null));
 const extras = computed(() => detail.value?.files.filter((f) => f.extraLabel) ?? []);
 const cast = computed(() => (detail.value ? castOf(detail.value.credits) : []));
 const langs = computed(() => (detail.value ? titleLanguages(detail.value.files) : { audio: [], subs: [] }));
@@ -196,6 +197,7 @@ async function closeEpisode() {
             <Icon :name="listed ? 'check' : 'plus'" />
           </button>
           <span v-if="film" class="badge" :class="film.kind" :title="film.detail">{{ film.label }}</span>
+          <span v-if="unavailable" class="badge off">{{ unavailable.label }} · {{ unavailable.hint }}</span>
           <span v-if="detail.comingSoon && !film" class="muted">Se está descargando</span>
           <button class="pill glass" :disabled="busy" :aria-pressed="!!detail.finished" @click="toggleFinished">
             <Icon :name="detail.finished ? 'close' : 'check'" :size="20" /> {{ detail.finished ? 'No visto' : 'Marcar como visto' }}
@@ -391,6 +393,7 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .badge.ready { color: #4cc38a; }
 .badge.processing, .badge.downloading { color: #e8b84a; }
 .badge.error { color: var(--danger); }
+.badge.off { color: #ff9b9b; }
 
 .fr-name { margin-left: 8px; font-size: 0.95rem; font-weight: 500; }
 .related { margin: 0; padding: 0 0 6px; list-style: none; display: flex; gap: 16px; overflow-x: auto; scrollbar-width: thin; }

@@ -19,6 +19,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       if (body?.error === 'downloading') throw new Error('downloading');
       if (body?.error === 'processing_disabled') throw new Error('processing_disabled');
     }
+    // T9b: the player must tell a disconnected location (503) from a generic failure.
+    if (res.status === 503) {
+      const body = await res.json().catch(() => null);
+      if (body?.error === 'disk_absent') throw new Error('disk_absent');
+    }
     throw new Error(`${res.status}`);
   }
   return res.status === 204 ? (undefined as T) : res.json();
@@ -54,7 +59,19 @@ async function messageRequest<T>(path: string, init?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => null);
     throw new Error(typeof body?.message === 'string' ? body.message : `${res.status}`);
   }
-  return res.json();
+  return res.status === 204 ? (undefined as T) : res.json();
+}
+
+export interface LibraryRoot {
+  id: number;
+  label: string | null;
+  path: string | null;
+  lastKnownPath: string | null;
+  present: boolean;
+  sameLibrary: boolean;
+  files: number;
+  /** Candidate folder for an absent root whose marker was found at a new path. */
+  suggestion: string | null;
 }
 
 export const api = {
@@ -102,6 +119,13 @@ export const api = {
       headers: JSON_HEADERS,
       body: JSON.stringify({ confirm: true }),
     }),
+  // T9e: locations; failures answer with a Spanish `message` the panel shows as is.
+  roots: () => messageRequest<{ roots: LibraryRoot[] }>('/roots'),
+  addRoot: (path: string) =>
+    messageRequest<{ root: LibraryRoot }>('/roots', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ path }) }),
+  relocateRoot: (id: number, path: string) =>
+    messageRequest<{ root: LibraryRoot }>(`/roots/${id}/relocate`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ path }) }),
+  forgetRoot: (id: number) => messageRequest<void>(`/roots/${id}`, { method: 'DELETE' }),
   jobs: () => request<Job[]>('/jobs'),
   activity: () => request<Activity>('/activity'),
   pauseProcessing: () => request<{ paused: boolean }>('/processing/pause', { method: 'POST' }),
@@ -113,7 +137,9 @@ export const api = {
 
 export function playErrorMessage(e: unknown): string {
   if (!(e instanceof Error) || e.message === '404') return 'No se pudo cargar el video.';
-  return e.message === 'downloading' ? 'Este episodio aún se está descargando.' : `No se pudo preparar el video (${e.message}).`;
+  if (e.message === 'downloading') return 'Este episodio aún se está descargando.';
+  if (e.message === 'disk_absent') return 'La ubicación de este título no está disponible. Reconecta la ubicación e inténtalo de nuevo.';
+  return `No se pudo preparar el video (${e.message}).`;
 }
 
 export function saveProgress(profileId: number, mediaFileId: number, positionS: number, durationS: number): void {
