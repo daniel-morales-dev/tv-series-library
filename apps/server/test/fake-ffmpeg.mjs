@@ -7,6 +7,9 @@ const args = process.argv.slice(2);
 const progress = args[args.indexOf('-progress') + 1];
 const out = dirname(dirname(args.at(-1)));
 const gate = process.env.FAKE_FFMPEG_GATE;
+// FAKE_FFMPEG_PAUSE=<file>: while the file names this pid the fake stays alive but writes nothing (it must not
+// recreate progress.txt after a test deletes it); `<file>.paused` signals that the pause took effect.
+const pause = process.env.FAKE_FFMPEG_PAUSE;
 let t = 0;
 
 // FAKE_FFMPEG_BAD="<corrupt|short>:<n>": the first n runs that finish end badly (video playlist without segments,
@@ -20,6 +23,10 @@ function isBad() {
 }
 
 const timer = setInterval(() => {
+  if (pause && existsSync(pause) && readFileSync(pause, 'utf8').trim() === String(process.pid)) {
+    writeFileSync(`${pause}.paused`, '1');
+    return;
+  }
   appendFileSync(progress, `out_time_us=${(t += 1_000_000)}\nprogress=continue\n`);
   if (!existsSync(gate)) return;
   clearInterval(timer);

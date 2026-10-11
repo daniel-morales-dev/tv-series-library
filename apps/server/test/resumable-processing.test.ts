@@ -16,6 +16,7 @@ const pids: number[] = [];
 afterEach(() => {
   delete process.env.FAKE_FFMPEG_GATE;
   delete process.env.FAKE_FFMPEG_BAD;
+  delete process.env.FAKE_FFMPEG_PAUSE;
   for (const pid of pids.splice(0)) {
     try {
       process.kill(pid, 'SIGKILL');
@@ -44,6 +45,8 @@ function scene() {
   chmodSync(bin, 0o755);
   const gate = join(root, 'gate');
   process.env.FAKE_FFMPEG_GATE = gate;
+  const pauseFile = join(root, 'pause');
+  process.env.FAKE_FFMPEG_PAUSE = pauseFile;
 
   const { db } = setup();
   writeFileSync(join(contentDir, 'a.mkv'), 'x');
@@ -75,7 +78,7 @@ function scene() {
     await vi.waitFor(() => expect(alive(pid)).toBe(true));
     return { pid, progress: job().progress as number };
   }
-  return { db, dataDir, contentDir, bin, worker, job, file, fileId, tmpDir, open, mainRuns, crashMidJob };
+  return { db, dataDir, contentDir, bin, worker, job, file, fileId, tmpDir, open, mainRuns, crashMidJob, pauseFile };
 }
 
 describe('detached ffmpeg', () => {
@@ -197,6 +200,10 @@ describe('adoption after a server restart', () => {
   it('kills and restarts when progress.txt is missing', async () => {
     const s = scene();
     const { pid } = await s.crashMidJob();
+    // The fake appends to progress.txt every 40 ms, so deleting it while the fake runs is a race: pause the
+    // fake by pid and wait for its `.paused` ack (a new fake, the restart, gets a different pid and is unaffected).
+    writeFileSync(s.pauseFile, String(pid));
+    await vi.waitFor(() => expect(existsSync(`${s.pauseFile}.paused`)).toBe(true));
     rmSync(join(s.tmpDir, 'progress.txt'));
     s.open();
     const b = s.worker();
