@@ -203,6 +203,10 @@ jobs:
       run:
         shell: bash
     steps:
+      # gh resuelve el repositorio desde el remoto git: sin checkout, gh run/release fallan.
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
       - name: Download DMGs
         env:
           GH_TOKEN: ${{ github.token }}
@@ -238,3 +242,12 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           gh api "repos/${{ github.repository }}/issues/1/comments" \
             -f body="@daniel-morales-dev Instalador de macOS listo (v${VERSION}). Descarga directa desde Assets: ${RELEASE_URL} (sala-macos-arm64.dmg, sala-macos-x64.dmg + SHA256SUMS-macos.txt). Log del build: ${RUN_URL}"
+
+      - name: Notify owner (publish failure)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/1/comments" \
+            -f body="@daniel-morales-dev La publicacion de los DMG de macOS (v${GITHUB_REF_NAME#v}) fallo; la release quedo sin instalador de macOS. Detalles: ${RUN_URL}"
