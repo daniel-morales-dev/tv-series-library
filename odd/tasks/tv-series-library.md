@@ -380,7 +380,7 @@ Reporte del dueño: (1) en el detalle de título el bloque logo/texto/botones pi
 - [x] T91 (packaging) `packaging/macos`: launcher bash (paridad con `sala-launcher.vbs`: health → backup SQLite → server en segundo plano → health ≤30 s → abre navegador; flags `--no-open`/`--no-agent`; instala LaunchAgent `com.sala.launcher` solo si la app vive en `/Applications`), `Info.plist` (LSUIElement), `Instalar Sala.command` (copia a /Applications, quita cuarentena, abre), `build.sh` (ensambla Sala.app, firma ad-hoc, DMG con `hdiutil`), `LEEME.txt`, README. Ruta: delegada (writer). 8 pts.
 - [x] T92 (ci) `build-macos-installer.yml`: matrix arm64 (`macos-latest`) + x64 (`macos-15-intel`; macos-13 retirado 2025-12), staging idéntico a Windows (workspace aislado, guardas tamaño/symlinks), Node y ffmpeg pinned por sha256, smoke test real (arranca la app con `--no-open --no-agent` y HOME temporal, espera `/api/health`, mata el node), artefactos + publish a la release en tag + notify issue #1 (éxito/fallo). Ruta: delegada (writer). 5 pts.
 - [x] T93 (docs) README raíz + `packaging/macos/README.md` + ADR 0008 (DMG + .app sin notarizar: Gatekeeper → clic derecho → Abrir; firma ad-hoc obligatoria en Apple Silicon). Ruta: delegada (writer). 2 pts.
-- [ ] T94 (flujo) Verificación local (web build+suite, server suite+typecheck, shellcheck), commits por unidad, PR a main (asignado; sección T88–T93), checks verdes, merge, `workflow_dispatch` de macOS en main antes del tag, tag `v0.6.0`, ambos workflows publican assets (exe + dmg), notas de release completas, notificación bot. Ruta: padre. 3 pts.
+- [x] T94 (flujo) Verificación local (web build+suite, server suite+typecheck, shellcheck), commits por unidad, PR a main (asignado; sección T88–T93), checks verdes, merge, `workflow_dispatch` de macOS en main antes del tag, tag `v0.6.0`, ambos workflows publican assets (exe + dmg), notas de release completas, notificación bot. Ruta: padre. 3 pts.
 
 **Resultados (parcial, pre-PR):**
 - ✅ T88 → `acd0ea3` · ✅ T89 → `f8a4580` (web build vue-tsc+vite ok; sin runner E2E en el repo: los fixes CSS se validan visualmente en el navegador del dueño).
@@ -388,7 +388,14 @@ Reporte del dueño: (1) en el detalle de título el bloque logo/texto/botones pi
 - ✅ T91 → `f788c16` · ✅ T92 → `40e2bae` · ✅ T93 → `52beda5`.
 - ✅ Verificación local de ronda: web build ok · web 309/309 tests · server typecheck limpio · server 715/715 tests · `bash -n` ok y shellcheck limpio en los 3 scripts nuevos · Info.plist válido (plistlib) · YAML del workflow válido.
 - ✅ Spot check del padre: launcher leído completo, workflow leído completo, pins de actions idénticos a Windows, `grep` confirma que `.content` en TitleView vive fuera del hero.
-- ⏳ T94: PR/merge/dispatch macOS/tag/release en curso.
+- ✅ T94 (flujo completo):
+  - PR #13 `feat/macos-installer` → main, asignada a daniel-morales-dev, checks verdes (notify + GitGuardian), merge commit `cdfd4bc`.
+  - Validación previa del workflow en rama desechable `test/macos-ci` (2 runs reales: arm64 54 s, x64 108 s, health `{"ok":true}`, DMG 112/126 MB con sha) — borrada tras validar.
+  - Incidente 1 (tag run 1): el job `publish` de macOS no tenía `checkout` → sin repo git, `gh` falla en el primer paso y sin notificación (exe de Windows sí, dmgs no, cero comentarios). Fix `c06f20a`: checkout en publish + failure-notify.
+  - Incidente 2: recrear el tag convierte la release en **draft** (comportamiento de GitHub) → assets invisibles aunque presentes. Fix `283f98d`: republicación idempotente (`gh release edit --draft=false`). Tag movido 2 veces para re-disparar ambos workflows.
+  - Release **v0.6.0** publicada (2026-10-11 23:52:36Z) con 5 assets: `sala-setup-0.6.0.exe` (78.8 MB), `sala-macos-arm64.dmg` (111.5 MB), `sala-macos-x64.dmg` (126.6 MB), `SHA256SUMS.txt`, `SHA256SUMS-macos.txt` → https://github.com/daniel-morales-dev/tv-series-library/releases/tag/v0.6.0
+  - Notificaciones bot al dueño en issue #1: "Instalador de macOS listo (v0.6.0)" (23:52:37Z) y "Instalador de Windows listo (v0.6.0)" (23:53:32Z).
+  - Pendiente del dueño (solo Mac real): Gatekeeper (clic derecho → Abrir la primera vez), autostart al iniciar sesión, diálogos de error, apertura del navegador y procesamiento ffmpeg real.
 
 **Constantes pinned macOS (T91/T92):**
 - Node 24.14.0: darwin-arm64 `a1a54f46a750d2523d628d924aab61758a51c9dad3e0238beb14141be9615dd3`; darwin-x64 `f2879eb810e25993a0578e5d878930266fd2eafcffe9f2839b3d8db354d4879e` (nodejs.org SHASUMS256.txt; el workflow cruza contra SHASUMS256.txt).
@@ -401,4 +408,4 @@ Reporte del dueño: (1) en el detalle de título el bloque logo/texto/botones pi
 - Decisiones: DMG con `Sala.app` + symlink `Aplicaciones` + `Instalar Sala.command` + `LEEME.txt`; estado `~/Library/Application Support/sala`; logs `~/Library/Logs/sala/server.log`; puerto 8080. Divergencia deliberada vs Windows: el LaunchAgent arranca con `--no-open` (sin abrir navegador en cada inicio de sesión); el doble clic normal sí abre el navegador. El publish de macOS sube `SHA256SUMS-macos.txt` (no pisa el `SHA256SUMS.txt` de Windows). UUID de AppId/apple no aplica: sin cuenta Apple Developer, sin notarización.
 - Smoke del CI: `Sala.app/Contents/MacOS/sala --no-open --no-agent` con `HOME=$RUNNER_TEMP/sala-home`, espera health, `pkill -f "Sala.app/Contents/Resources/sala"`. Verificación visual del DMG queda pendiente para el dueño (solo macOS real).
 
-**Notas de entorno de la sesión:** RDD global off; `gh` autenticado como `dmorales-alegra` (scopes repo, workflow); push por SSH a `daniel-morales-dev/tv-series-library`; rama `feat/macos-installer`; shellcheck disponible; actionlint no.
+**Notas de entorno de la sesión:** RDD global off; `gh` autenticado como `dmorales-alegra` **sin acceso** a `daniel-morales-dev/tv-series-library` (API 404) → todo el flujo GitHub (PR/merge/release/lecturas) va por el MCP `github-daniel`; ese MCP **no tiene tools de Actions** (sin dispatch/run/logs) ni de edición de releases → la validación del workflow se hizo vía rama desechable + notificaciones del bot a issue #1. Push por SSH funciona. shellcheck disponible; actionlint no.
