@@ -61,6 +61,13 @@ describe('ffmpeg arguments', () => {
     expect(args.at(-1)).toBe('/out/%v/index.m3u8');
   });
 
+  it('uses forward slashes for HLS outputs so ffmpeg places init.mp4 next to the playlist on Windows', () => {
+    const args = mainArgs(PLAN, 'C:\\src.mkv', 'C:\\data\\hls\\7.tmp');
+    expect(args.at(-1)).toBe('C:/data/hls/7.tmp/%v/index.m3u8');
+    expect(args[args.indexOf('-hls_segment_filename') + 1]).toBe('C:/data/hls/7.tmp/%v/seg_%05d.m4s');
+    expect(args[args.indexOf('-progress') + 1]).toBe('C:/data/hls/7.tmp/progress.txt');
+  });
+
   it('writes a growing event playlist and limits x264 threads', () => {
     const args = mainArgs(PLAN, '/src.mkv', '/out', { threads: 2 });
     expect(args.join(' ')).toContain('-hls_playlist_type event');

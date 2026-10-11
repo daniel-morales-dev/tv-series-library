@@ -199,7 +199,7 @@ export async function processMedia(
       await rm(tmpDir, { recursive: true, force: true });
       for (const dir of ['v', ...plan.audio.map((a) => `a${a.n}`), 'subs', 'fonts']) await mkdir(join(tmpDir, dir), { recursive: true });
       // Subtitles and fonts first, so they exist as soon as playback can start.
-      if (plan.subtitles.some((s) => s.supported) || plan.fonts.length > 0) await deps.runFfmpeg(extractArgs(plan, src, tmpDir), { signal });
+      if (plan.subtitles.some((s) => s.supported) || plan.fonts.length > 0) await deps.runFfmpeg(extractArgs(plan, src, tmpDir), { signal, cwd: tmpDir });
       // Best effort: a store that cannot be written just leaves the fonts as plain files.
       if (plan.fonts.length > 0) await dedupeFontsDir(join(tmpDir, 'fonts'), join(resolve(deps.dataDir), 'fonts', '_store')).catch(() => {});
 
@@ -210,6 +210,7 @@ export async function processMedia(
       let naming: Promise<void> | undefined;
       await deps.runFfmpeg(args, {
         signal,
+        cwd: tmpDir,
         detached: { progressFile: join(tmpDir, PROGRESS_FILE), logFile: join(tmpDir, LOG_FILE) },
         onSpawn: (p) => opts.onSpawn?.({ ...p, planHash }),
         onProgress: (s) => {
