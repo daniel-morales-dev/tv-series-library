@@ -24,6 +24,39 @@ export function guardRedirect(status: ConfigState, path: string): string | null 
   return null;
 }
 
+/** Copy shown on the empty library screen; `action` is the prominent button, `link` the low-key one. */
+export interface EmptyLibraryHint {
+  title: string;
+  body: string;
+  action: { label: string; to: string } | null;
+  link: { label: string; to: string } | null;
+}
+
+/**
+ * T57: a fresh install lands on an empty library with no idea where files go.
+ * `ready` names the two subfolders the scanner reads; anything else (unset,
+ * missing, config unreachable) sends the user to the wizard, which shows its
+ * own error for `missing` and lets a re-linked folder be picked there.
+ */
+export function emptyLibraryHint(config: AppConfig | null): EmptyLibraryHint {
+  const title = 'Tu biblioteca está vacía';
+  if (config?.status === 'ready' && config.contentDir) {
+    const base = config.contentDir.replace(/[/\\]+$/, '');
+    return {
+      title,
+      body: `Pon tus series en ${base}/shows y tus películas en ${base}/films; aparecerán aquí solas en el próximo escaneo.`,
+      action: null,
+      link: { label: 'Cambiar carpeta', to: '/settings' },
+    };
+  }
+  return {
+    title,
+    body: 'Antes de nada, elige la carpeta donde vivirán tus archivos.',
+    action: { label: 'Configurar carpeta', to: '/setup' },
+    link: null,
+  };
+}
+
 export type SubmitError = { kind: 'confirm-create' } | { kind: 'error'; message: string };
 
 export function submitError(code: string): SubmitError {

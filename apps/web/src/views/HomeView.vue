@@ -7,6 +7,7 @@ import HeroBanner from '../components/HeroBanner.vue';
 import Icon from '../components/Icon.vue';
 import TitleCard from '../components/TitleCard.vue';
 import TitleRow from '../components/TitleRow.vue';
+import { emptyLibraryHint, type AppConfig } from '../config.ts';
 import { groupByGenre, pickHeroes } from '../library.ts';
 import { hasHero, loadMyList, myList } from '../session.ts';
 import { showToast } from '../toast.ts';
@@ -15,18 +16,28 @@ import type { ContinueItem, TitleSummary } from '../types.ts';
 const router = useRouter();
 const titles = ref<TitleSummary[]>([]);
 const cont = ref<ContinueItem[]>([]);
+const config = ref<AppConfig | null>(null);
 const loading = ref(true);
 const error = ref('');
 const picking = ref(false);
 
 const heroes = computed(() => pickHeroes(titles.value, cont.value));
 const genres = computed(() => groupByGenre(titles.value));
+const hint = computed(() => emptyLibraryHint(config.value));
+
+async function loadConfig() {
+  try {
+    config.value = await api.config();
+  } catch {
+    // Only the empty state needs it; the hint falls back to the configure step.
+  }
+}
 
 onMounted(async () => {
   const pid = getProfileId();
   if (!pid) return;
   try {
-    const [t, c] = await Promise.all([api.titles(), api.continueWatching(pid), loadMyList()]);
+    const [t, c] = await Promise.all([api.titles(), api.continueWatching(pid), loadMyList(), loadConfig()]);
     titles.value = t;
     cont.value = c;
     hasHero.value = heroes.value.length > 0;
@@ -71,8 +82,10 @@ async function removeContinue(titleId: number) {
     <p>{{ error }}</p>
   </main>
   <main v-else-if="!titles.length" class="page state">
-    <h2>Tu biblioteca está vacía</h2>
-    <p>Pon tus series y películas en la carpeta de contenido del servidor; aparecerán aquí al escanear.</p>
+    <h2>{{ hint.title }}</h2>
+    <p>{{ hint.body }}</p>
+    <RouterLink v-if="hint.action" class="pill primary" :to="hint.action.to">{{ hint.action.label }}</RouterLink>
+    <RouterLink v-if="hint.link" class="pill" :to="hint.link.to">{{ hint.link.label }}</RouterLink>
   </main>
   <template v-else>
     <HeroBanner v-if="heroes.length" :picks="heroes" />
