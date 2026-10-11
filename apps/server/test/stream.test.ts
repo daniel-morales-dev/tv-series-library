@@ -51,6 +51,12 @@ describe('GET /api/stream', () => {
     expect(res.headers['cache-control']).toBe('no-cache');
   });
 
+  // T87: a repair rewrites subtitles in place; a cached copy would keep showing the broken text.
+  it.each(['subs/0.vtt', 'subs/0.ass'])('serves %s uncached too', async (rel) => {
+    const res = await env().app.inject(`/api/stream/7/${rel}`);
+    expect(res.headers['cache-control']).toBe('no-cache');
+  });
+
   it.each([
     ['unknown file', '/api/stream/7/missing.m3u8'],
     ['unknown media file', '/api/stream/8/master.m3u8'],

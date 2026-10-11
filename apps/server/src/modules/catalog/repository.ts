@@ -1,4 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
 import { all, get, parseJsonArray } from '../../db/sql.ts';
 import { type AvailabilityFile, availableFrom, rootAvailability } from '../../library/roots.ts';
 import { getFranchise } from './franchise.ts';
@@ -92,7 +94,30 @@ export function listTitles(db: DatabaseSync, f: TitleFilters): TitleSummary[] {
   return rows.map((r) => toSummary(r, available.has(r.id)));
 }
 
-export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number) {
+// T87: the repair pass and a reprocess rewrite subtitle files in place, so their URL carries the file
+// mtime as a version: a fresh detail busts whatever the browser or the TV cached, no manual refresh.
+function withSubtitleVersions(tracks: unknown[], hlsDir: string | undefined, fileId: number): unknown[] {
+  if (!hlsDir) return tracks;
+  for (const t of tracks as Array<Record<string, unknown>>) {
+    for (const key of ['vtt', 'ass'] as const) {
+      const rel = typeof t[key] === 'string' ? (t[key] as string) : undefined;
+      if (!rel) continue;
+      const mtime = statMtime(join(hlsDir, String(fileId), rel));
+      if (mtime !== undefined) t[key] = `${rel}?v=${mtime}`;
+    }
+  }
+  return tracks;
+}
+
+function statMtime(path: string): number | undefined {
+  try {
+    return Math.floor(statSync(path).mtimeMs);
+  } catch {
+    return undefined;
+  }
+}
+
+export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number, hlsDir?: string) {
   const row = get<Record<string, any>>(db, `SELECT ${SUMMARY_COLUMNS}, t.collection_id, t.franchise_id FROM titles t WHERE t.id = ?`, id);
   if (!row) return undefined;
 
@@ -167,7 +192,7 @@ export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number)
     extraLabel: f.extra_label,
     durationS: f.duration_s,
     audioTracks: parseJsonArray(f.audio_tracks),
-    subtitleTracks: parseJsonArray(f.subtitle_tracks),
+    subtitleTracks: withSubtitleVersions(parseJsonArray(f.subtitle_tracks), hlsDir, f.id),
     chaptersChecked: f.chapters_checked === 1,
     chapters: loadChapters(db, f.id),
     available: availableFrom(roots, f),

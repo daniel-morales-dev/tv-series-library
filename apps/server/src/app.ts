@@ -52,6 +52,7 @@ export interface AppOptions {
 
 export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs, contentDir, probeChapters, dataMigration, tmdb, roots }: AppOptions) {
   const app = Fastify({ logger });
+  const hls = hlsDir ?? join(dataDir, 'hls');
 
   app.register(
     async (api) => {
@@ -61,14 +62,14 @@ export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk,
       rootsRoutes(api, db, roots);
       if (dataMigration) dataMigrationRoutes(api, dataMigration);
       profileRoutes(api, db);
-      catalogRoutes(api, db, contentDir && { contentDir, probe: probeChapters ?? realProbeChapters }, tmdb && { tmdb, dataDir });
+      catalogRoutes(api, db, contentDir && { contentDir, probe: probeChapters ?? realProbeChapters }, tmdb && { tmdb, dataDir }, hls);
       randomRoutes(api, db);
       searchRoutes(api, db);
       myListRoutes(api, db);
       progressRoutes(api, db);
       ingestRoutes(api, db, dataDir, ingestor);
-      processingRoutes(api, db, hlsDir ?? join(dataDir, 'hls'), worker, disk);
-      maintenanceRoutes(api, db, hlsDir ?? join(dataDir, 'hls'));
+      processingRoutes(api, db, hls, worker, disk);
+      maintenanceRoutes(api, db, hls);
     },
     { prefix: '/api' },
   );

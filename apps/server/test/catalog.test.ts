@@ -1,4 +1,8 @@
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { buildApp } from '../src/app.ts';
 import { indexEntry } from '../src/modules/search/repository.ts';
 import { run } from '../src/db/sql.ts';
 import { addEpisode, addFile, addProfile, addTitle, setup } from './helpers.ts';
@@ -51,6 +55,38 @@ describe('catalog API', () => {
   it('returns 404 for unknown title', async () => {
     const { app } = setup();
     expect((await app.inject('/api/titles/99')).statusCode).toBe(404);
+  });
+
+  // T87: repairing subtitles rewrites them in place; the version in the URL is what makes the player
+  // (and any browser cache) pick the fixed copy without a manual refresh.
+  it('versions subtitle URLs with the package mtime', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'tvlib-subs-'));
+    const { db } = setup();
+    const app = buildApp({ db, dataDir });
+    const titleId = addTitle(db, 'Show', { kind: 'series' });
+    const file = addEpisode(db, titleId, 1, 1);
+    run(
+      db,
+      'UPDATE media_files SET subtitle_tracks = ? WHERE id = ?',
+      JSON.stringify([{ index: 0, language: 'spa', vtt: 'subs/0.vtt', ass: 'subs/0.ass' }]),
+      file,
+    );
+    const subs = join(dataDir, 'hls', String(file), 'subs');
+    mkdirSync(subs, { recursive: true });
+    writeFileSync(join(subs, '0.vtt'), 'WEBVTT');
+    writeFileSync(join(subs, '0.ass'), '[Script Info]');
+
+    const vv = Math.floor(statSync(join(subs, '0.vtt')).mtimeMs);
+    const va = Math.floor(statSync(join(subs, '0.ass')).mtimeMs);
+    const detail = (await app.inject(`/api/titles/${titleId}`)).json();
+    expect(detail.files[0].subtitleTracks[0]).toMatchObject({ vtt: `subs/0.vtt?v=${vv}`, ass: `subs/0.ass?v=${va}` });
+
+    // A file whose package is not on disk keeps the plain path: nothing to version yet.
+    const other = addFile(db, titleId, {});
+    run(db, 'UPDATE media_files SET subtitle_tracks = ? WHERE id = ?', JSON.stringify([{ vtt: 'subs/0.vtt' }]), other);
+    const again = (await app.inject(`/api/titles/${titleId}`)).json();
+    expect(again.files[1].subtitleTracks[0].vtt).toBe('subs/0.vtt');
+    rmSync(dataDir, { recursive: true, force: true });
   });
 });
 

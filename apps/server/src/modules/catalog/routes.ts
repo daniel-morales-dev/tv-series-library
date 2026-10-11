@@ -20,7 +20,7 @@ export interface RefreshDeps {
   dataDir: string;
 }
 
-export function catalogRoutes(api: FastifyInstance, db: DatabaseSync, chapters?: ChaptersDeps, refresh?: RefreshDeps): void {
+export function catalogRoutes(api: FastifyInstance, db: DatabaseSync, chapters?: ChaptersDeps, refresh?: RefreshDeps, hlsDir?: string): void {
   api.get<{ Querystring: Partial<TitleFilters> }>(
     '/titles',
     {
@@ -50,7 +50,7 @@ export function catalogRoutes(api: FastifyInstance, db: DatabaseSync, chapters?:
       },
     },
     async (req, reply) =>
-      getTitleDetail(db, req.params.id, req.query.profileId) ?? reply.code(404).send({ error: 'not_found' }),
+      getTitleDetail(db, req.params.id, req.query.profileId, hlsDir) ?? reply.code(404).send({ error: 'not_found' }),
   );
 
   const idParams = { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } as const;

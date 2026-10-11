@@ -192,7 +192,11 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
         }
       }
       touchPlayed(db, req.params.mediaFileId);
-      return sendFile(reply, base, req.params['*'], STREAM_TYPES, (ext) => (ext === '.m3u8' ? 'no-cache' : 'public, max-age=3600'));
+      // Playlists change when a file is reprocessed, so only the media itself may be cached. Subtitles are
+      // re-written in place by the repair pass and their URLs keep no version, so they must revalidate too.
+      return sendFile(reply, base, req.params['*'], STREAM_TYPES, (ext) =>
+        ext === '.m3u8' || ext === '.vtt' || ext === '.ass' ? 'no-cache' : 'public, max-age=3600',
+      );
     },
   );
 
