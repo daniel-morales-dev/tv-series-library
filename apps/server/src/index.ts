@@ -1,11 +1,11 @@
 import { join, relative, resolve, isAbsolute } from 'node:path';
 import { buildApp } from './app.ts';
-import { autoScanAllowed, configStatus, libraryDiskPresent, resolveContentDir } from './config/config.ts';
+import { autoScanAllowed, configStatus, libraryDiskPresent, resolveContentDir, resolveTmdbToken } from './config/config.ts';
 import { resolveDataPaths } from './config/paths.ts';
 import { openDb } from './db/connection.ts';
 import { linkPrimaryRoot } from './library/roots.ts';
 import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
-import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
+import { createTmdbClient, unavailableTmdb, type TmdbClient } from './modules/ingest/tmdb.ts';
 import { networkRoutes } from './modules/network/routes.ts';
 import { createMigrationService } from './modules/data-migration/service.ts';
 import { budgetConfigFromEnv } from './modules/processing/budget.ts';
@@ -42,10 +42,21 @@ const diskPresent = () => libraryDiskPresent(workerContentDir);
 const rel = relative(workerContentDir, hlsDir);
 const hlsOnLibrary = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 
-// T52: the refresh endpoint uses this same client unmemoized, so an explicit refresh always re-queries TMDB
-// (the ingestor memoizes it internally for scans).
-const token = process.env.TMDB_READ_ACCESS_TOKEN;
-const tmdb = token ? createTmdbClient(token) : unavailableTmdb();
+// T52/T58: the refresh endpoint uses the resolved client unmemoized, so an explicit refresh always re-queries
+// TMDB (the ingestor memoizes it internally for scans). Resolution runs on every use — env wins over config.json —
+// so a token pasted in Settings works without a restart, and one client per token keeps its own memoized lookups.
+const tmdbClients = new Map<string, TmdbClient>();
+const tmdbFor = (): TmdbClient | undefined => {
+  const token = resolveTmdbToken();
+  if (!token) return undefined;
+  let client = tmdbClients.get(token);
+  if (!client) {
+    client = createTmdbClient(token);
+    tmdbClients.set(token, client);
+  }
+  return client;
+};
+const offlineTmdb = unavailableTmdb();
 let ingestor: Ingestor | undefined;
 if (process.env.INGEST !== 'off') {
   ingestor = createIngestor({
@@ -53,10 +64,10 @@ if (process.env.INGEST !== 'off') {
     dataDir,
     contentDir: () => resolveContentDir(),
     diskPresent,
-    tmdb,
+    tmdb: () => tmdbFor() ?? offlineTmdb,
     log: (level, message) => app.log[level](message),
   });
-  if (!token) console.warn('TMDB_READ_ACCESS_TOKEN is not set: ingesting offline');
+  if (!resolveTmdbToken()) console.warn('No TMDB token (TMDB_READ_ACCESS_TOKEN or config.json): ingesting offline');
 }
 
 // T47c: non-negative number from the environment, else the default.
@@ -83,7 +94,8 @@ const worker =
         dataDir,
         hlsDir,
         diskPresent,
-        contentDir: workerContentDir,
+        // T22: live resolver, so a PUT to a new folder re-targets the worker without a restart.
+        contentDir: () => resolveContentDir(),
         // T21: jobs x threads from CPU share, free RAM and volume type; PROCESS_CONCURRENCY/FFMPEG_THREADS fix them.
         budget: {
           hardware: createHardwareProbe([workerContentDir, hlsDir]),
@@ -116,16 +128,21 @@ const app = buildApp({
   ingestor,
   worker,
   dataMigration,
+  // T52/T58: a resolver, not a snapshot: a token saved in Settings starts working without a restart.
+  tmdb: tmdbFor,
   webDir: resolve(process.env.WEB_DIR ?? '../web/dist'),
   config: {
     currentContentDir: () => resolveContentDir(),
     // A successful PUT just chose the folder: start scanning there (start() stops the previous timers first).
-    // The worker's folder is fixed at boot, so it only starts if the chosen folder is the one it was built with.
+    // The worker reads the same live resolver, so it follows the new folder without a restart.
     onReady: (dir: string) => {
+      // T9a: the chosen folder is root 1 from now on; refresh its last known path so availability follows the disk.
+      const status = configStatus(dir);
+      if (status.status === 'ready') linkPrimaryRoot(db, { libraryId: status.libraryId, path: status.contentDir });
       ingestor?.start(scanIntervalMin);
-      if (dir === workerContentDir) startWorker();
-      else if (worker && !workerStarted) console.warn('Restart the service to process media from the newly chosen folder.');
     },
+    // T58: a fresh token can complete placeholder metadata right away; every scan starts with that retry pass.
+    onTmdbTokenSaved: () => void ingestor?.scan(),
   },
 });
 await app.register(async (api) => networkRoutes(api, { port }), { prefix: '/api' });

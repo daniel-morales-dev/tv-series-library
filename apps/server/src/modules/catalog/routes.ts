@@ -14,7 +14,8 @@ export interface ChaptersDeps {
 }
 
 export interface RefreshDeps {
-  tmdb: TmdbClient;
+  /** T58: a client, or a resolver re-evaluated on every refresh so a token saved in Settings applies without a restart. */
+  tmdb: TmdbClient | (() => TmdbClient | undefined);
   dataDir: string;
 }
 
@@ -97,8 +98,11 @@ export function catalogRoutes(api: FastifyInstance, db: DatabaseSync, chapters?:
   // T52: explicit on-demand TMDB re-query for one title; never recurring. Offline fails before anything is written.
   api.post<{ Params: { id: number } }>('/titles/:id/refresh-metadata', { schema: { params: idParams } }, async (req, reply) => {
     if (!refresh) return reply.code(503).send({ error: 'tmdb_unavailable', message: 'TMDB no está disponible.' });
+    // T58: resolve per request, so a token saved in Settings applies without a restart.
+    const client = typeof refresh.tmdb === 'function' ? refresh.tmdb() : refresh.tmdb;
+    if (!client) return reply.code(503).send({ error: 'tmdb_unavailable', message: 'TMDB no está disponible.' });
     try {
-      await refreshTitleMetadata({ db, ...refresh }, req.params.id);
+      await refreshTitleMetadata({ db, tmdb: client, dataDir: refresh.dataDir }, req.params.id);
       return { ok: true };
     } catch (err) {
       if (err instanceof MetadataError)

@@ -11,6 +11,27 @@ export interface AppConfig {
   contentDir: string | null;
   libraryId: string | null;
   suggestedDefault: string;
+  /** T58: whether a TMDB token is resolvable (env or config.json). Sent by GET /api/config; older payloads may omit it. */
+  tmdbConfigured?: boolean;
+}
+
+/** T58: derived UI state of the TMDB section in Settings; the token itself never round-trips through here. */
+export interface TmdbSectionState {
+  /** State line: a token is resolvable or not. */
+  state: string;
+  /** Guardar stays available (an empty token clears the saved one) and locks while a request is in flight. */
+  canSave: boolean;
+  /** Probar needs something to test: the typed token or an already saved one. */
+  canTest: boolean;
+}
+
+export function tmdbSectionState(config: AppConfig | null, input: string, busy: boolean): TmdbSectionState {
+  const configured = config?.tmdbConfigured === true;
+  return {
+    state: configured ? 'Configurado ✓' : 'Sin configurar',
+    canSave: !busy,
+    canTest: !busy && (input.trim() !== '' || configured),
+  };
 }
 
 /**
@@ -22,6 +43,39 @@ export function guardRedirect(status: ConfigState, path: string): string | null 
   if (status === 'ready') return path === '/setup' ? '/' : null;
   if (status === 'missing') return path === '/setup' ? null : '/setup';
   return null;
+}
+
+/** Copy shown on the empty library screen; `action` is the prominent button, `link` the low-key one. */
+export interface EmptyLibraryHint {
+  title: string;
+  body: string;
+  action: { label: string; to: string } | null;
+  link: { label: string; to: string } | null;
+}
+
+/**
+ * T57: a fresh install lands on an empty library with no idea where files go.
+ * `ready` names the two subfolders the scanner reads; anything else (unset,
+ * missing, config unreachable) sends the user to the wizard, which shows its
+ * own error for `missing` and lets a re-linked folder be picked there.
+ */
+export function emptyLibraryHint(config: AppConfig | null): EmptyLibraryHint {
+  const title = 'Tu biblioteca está vacía';
+  if (config?.status === 'ready' && config.contentDir) {
+    const base = config.contentDir.replace(/[/\\]+$/, '');
+    return {
+      title,
+      body: `Pon tus series en ${base}/shows y tus películas en ${base}/films; aparecerán aquí solas en el próximo escaneo.`,
+      action: null,
+      link: { label: 'Cambiar carpeta', to: '/settings' },
+    };
+  }
+  return {
+    title,
+    body: 'Antes de nada, elige la carpeta donde vivirán tus archivos.',
+    action: { label: 'Configurar carpeta', to: '/setup' },
+    link: null,
+  };
 }
 
 export type SubmitError = { kind: 'confirm-create' } | { kind: 'error'; message: string };

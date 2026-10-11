@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync, type Stat
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ROOTS } from '../modules/ingest/scanner.ts';
 
 /** Hidden marker written at the content-folder root so a relocated disk can be recognized (T9/T22). */
 export const MARKER_FILE = '.sala-library.json';
@@ -15,6 +16,8 @@ export interface UserConfig {
   hlsDir?: string;
   /** T47d: `stat.dev` of a content folder that is a mount point of its own; absent = plain folder. */
   contentDev?: number;
+  /** T58: TMDB Read Access Token saved from Settings; env `TMDB_READ_ACCESS_TOKEN` still wins over it. */
+  tmdbToken?: string;
 }
 
 export interface ConfigOptions {
@@ -55,13 +58,14 @@ export function readUserConfig(options: ConfigOptions = {}): UserConfig | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-      const { contentDir, libraryId, hlsDir, contentDev } = parsed as Record<string, unknown>;
+      const { contentDir, libraryId, hlsDir, contentDev, tmdbToken } = parsed as Record<string, unknown>;
       if (typeof contentDir === 'string' && isAbsolute(contentDir)) {
         return {
           contentDir,
           ...(typeof libraryId === 'string' && libraryId ? { libraryId } : {}),
           ...(typeof hlsDir === 'string' && isAbsolute(hlsDir) ? { hlsDir } : {}),
           ...(typeof contentDev === 'number' ? { contentDev } : {}),
+          ...(typeof tmdbToken === 'string' && tmdbToken.trim() ? { tmdbToken: tmdbToken.trim() } : {}),
         };
       }
     }
@@ -185,6 +189,8 @@ export function setContentDir(input: string, options: { create?: boolean } & Con
     mkdirSync(path, { recursive: true });
   }
   if (stats && !stats.isDirectory()) return { ok: false, error: 'not_directory' };
+  // The scanner only reads `shows/` and `films/`: create them now so the user finds where to drop media.
+  for (const sub of ROOTS) mkdirSync(join(path, sub), { recursive: true });
   const marker = readMarker(path, options.warn ?? console.warn);
   const previous = readUserConfig({ ...options, warn: () => {} });
   const same = previous?.contentDir === path;
@@ -192,10 +198,42 @@ export function setContentDir(input: string, options: { create?: boolean } & Con
   if (!marker) writeMarker(path, libraryId);
   const contentDev = mountDev(path);
   writeUserConfig(
-    { contentDir: path, libraryId, ...(contentDev !== undefined ? { contentDev } : {}), ...(same && previous.hlsDir ? { hlsDir: previous.hlsDir } : {}) },
+    {
+      contentDir: path,
+      libraryId,
+      ...(contentDev !== undefined ? { contentDev } : {}),
+      ...(same && previous.hlsDir ? { hlsDir: previous.hlsDir } : {}),
+      // T58: the TMDB token is app-level, not library-level: re-picking the folder never drops it.
+      ...(previous?.tmdbToken ? { tmdbToken: previous.tmdbToken } : {}),
+    },
     options.dir ?? configDir(),
   );
   return { ok: true, status: configStatus(path, options) };
+}
+
+export type SetTmdbTokenResult = { ok: false; error: 'no_config' } | { ok: true; tmdbConfigured: boolean };
+
+/**
+ * T58: stores (trimmed) or clears (empty string) the TMDB token in config.json, keeping the rest of the file.
+ * Without config.json there is no library yet — the wizard writes it first — so there is nothing to merge into.
+ */
+export function setTmdbToken(token: string, options: ConfigOptions = {}): SetTmdbTokenResult {
+  const dir = options.dir ?? configDir();
+  const config = readUserConfig({ ...options, dir });
+  if (!config) return { ok: false, error: 'no_config' };
+  const trimmed = token.trim();
+  const next: UserConfig = { ...config };
+  if (trimmed) next.tmdbToken = trimmed;
+  else delete next.tmdbToken;
+  writeUserConfig(next, dir);
+  return { ok: true, tmdbConfigured: trimmed !== '' };
+}
+
+/** T58: resolution order env `TMDB_READ_ACCESS_TOKEN` (wins) → config.json; null = ingesting offline. */
+export function resolveTmdbToken(env: NodeJS.ProcessEnv = process.env, options: ConfigOptions = {}): string | null {
+  const fromEnv = env.TMDB_READ_ACCESS_TOKEN?.trim();
+  if (fromEnv) return fromEnv;
+  return readUserConfig({ ...options, dir: options.dir ?? configDir(env) })?.tmdbToken ?? null;
 }
 
 export function expandHome(input: string): string {

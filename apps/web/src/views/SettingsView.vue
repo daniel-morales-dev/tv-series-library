@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { api, type LibraryRoot, type OrphanScan } from '../api.ts';
-import type { AppConfig } from '../config.ts';
+import { tmdbSectionState, type AppConfig } from '../config.ts';
 import { formatGb } from '../dataMigration.ts';
 import ConfigForm from '../components/ConfigForm.vue';
 import DataMigrationPanel from '../components/DataMigrationPanel.vue';
@@ -21,6 +21,38 @@ const rootsNotice = ref('');
 const rootsNoticeBad = ref(false);
 const rootsBusy = ref(false);
 const picking = ref(false);
+const tmdbToken = ref('');
+const tmdbBusy = ref(false);
+const tmdbFeedback = ref<{ bad: boolean; text: string } | null>(null);
+const tmdbState = computed(() => tmdbSectionState(config.value, tmdbToken.value, tmdbBusy.value));
+
+async function saveTmdbToken() {
+  if (tmdbBusy.value) return;
+  tmdbBusy.value = true;
+  try {
+    const result = await api.setTmdbToken(tmdbToken.value);
+    tmdbToken.value = ''; // the token is never kept in the form after saving
+    tmdbFeedback.value = { bad: false, text: result.message };
+    await load();
+  } catch (err) {
+    tmdbFeedback.value = { bad: true, text: err instanceof Error ? err.message : 'No se pudo guardar el token.' };
+  } finally {
+    tmdbBusy.value = false;
+  }
+}
+
+async function testTmdbToken() {
+  if (!tmdbState.value.canTest) return;
+  tmdbBusy.value = true;
+  try {
+    const result = await api.testTmdbToken(tmdbToken.value);
+    tmdbFeedback.value = { bad: false, text: result.message };
+  } catch (err) {
+    tmdbFeedback.value = { bad: true, text: err instanceof Error ? err.message : 'No se pudo probar el token.' };
+  } finally {
+    tmdbBusy.value = false;
+  }
+}
 
 async function load() {
   try {
@@ -139,6 +171,20 @@ onMounted(() => {
       </dl>
       <h2>Cambiar carpeta</h2>
       <ConfigForm :key="config.contentDir ?? ''" :suggested="config.suggestedDefault" :initial="config.contentDir ?? ''" @saved="saved" />
+      <section aria-labelledby="tmdb-title">
+        <h2 id="tmdb-title">TMDB</h2>
+        <p class="help">Token de acceso de lectura de TMDB. Con él la biblioteca busca portadas, sinopsis y episodios; sin token, la ingesta funciona sin conexión.</p>
+        <p class="tmdb-state">Estado: <b>{{ tmdbState.state }}</b></p>
+        <form class="tmdb-form" @submit.prevent="saveTmdbToken">
+          <label for="tmdb-token">Token de TMDB</label>
+          <input id="tmdb-token" v-model="tmdbToken" type="password" autocomplete="off" spellcheck="false" />
+          <div class="tmdb-actions">
+            <button type="submit" class="primary" :disabled="!tmdbState.canSave">Guardar</button>
+            <button type="button" :disabled="!tmdbState.canTest" @click="testTmdbToken">Probar</button>
+          </div>
+        </form>
+        <p v-if="tmdbFeedback" role="status" :class="{ bad: tmdbFeedback.bad }">{{ tmdbFeedback.text }}</p>
+      </section>
     </template>
     <section aria-labelledby="roots-title">
       <h2 id="roots-title">Ubicaciones</h2>
@@ -199,5 +245,10 @@ section p { margin: 8px 0 0; }
 .state.off { color: #ff9b9b; }
 .root-meta { color: var(--text-dim); font-size: 0.9rem; overflow-wrap: anywhere; }
 .root button { margin-top: 8px; }
+.tmdb-state { color: var(--text-dim); font-size: 0.9rem; }
+.tmdb-form { display: grid; gap: 6px; margin-top: 8px; }
+.tmdb-form label { color: var(--text-dim); font-size: 0.85rem; }
+.tmdb-actions { display: flex; gap: 8px; }
+.tmdb-actions .primary { margin-top: 0; }
 .bad { color: var(--danger); }
 </style>
