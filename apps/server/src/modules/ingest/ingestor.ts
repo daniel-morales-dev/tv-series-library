@@ -241,16 +241,9 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
       const row = rows.get(file.rel);
       if (!row || row.status === 'downloading') continue; // unknown: ingested later; downloading: promotion owns it
       if (row.status === 'missing') {
-        // T69/T75: the file is back. Same content: restore the row as it was, package included.
         const fp = await fingerprint(file.abs);
-        if (fp !== null && fp === row.fingerprint) {
-          if (row.hls_dir) {
-            run(db, "UPDATE media_files SET status = 'ready', error = NULL, size = ?, mtime_ms = ? WHERE id = ?", file.size, file.mtimeMs, row.id);
-          } else {
-            run(db, "UPDATE media_files SET status = 'pending', error = NULL, size = ?, mtime_ms = ? WHERE id = ?", file.size, file.mtimeMs, row.id);
-            enqueue(db, row.id);
-          }
-        } else replaceFile(row, file, fp, counts);
+        if (fp !== null && fp === row.fingerprint) restoreMissingRow(row, file);
+        else replaceFile(row, file, fp, counts);
         continue;
       }
       const touched = row.mtime_ms !== file.mtimeMs || row.size !== file.size;
@@ -306,6 +299,21 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     log('info', `replaced on disk (${fresh ? 'downloading' : 'pending'}): ${file.rel}`);
   }
 
+  // T69/T75: the file is back. Same content: restore the row as it was, package included. A row without a
+  // package goes back to pending and rejoins the queue; `file` refreshes the stored facts of a reappearance.
+  function restoreMissingRow(row: { id: number; hls_dir: string | null }, file?: { size: number; mtimeMs: number }): void {
+    const status = row.hls_dir ? 'ready' : 'pending';
+    run(
+      db,
+      'UPDATE media_files SET status = ?, error = NULL, size = COALESCE(?, size), mtime_ms = COALESCE(?, mtime_ms) WHERE id = ?',
+      status,
+      file?.size ?? null,
+      file?.mtimeMs ?? null,
+      row.id,
+    );
+    if (status === 'pending') enqueue(db, row.id);
+  }
+
   // A file that is not on disk any more and reappears elsewhere — another folder, or another present root —
   // is the same file: same id, progress and HLS. Content (fingerprint) decides; basename+size is the fallback
   // within one root, and an ambiguity is never resolved by guessing. Rows of absent roots are never touched:
@@ -345,15 +353,8 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
       } catch (err) {
         log('warn', `re-placement failed for ${file.rel}, keeping its old assignment: ${(err as Error).message}`);
       }
-      if (row.status === 'missing') {
-        // T75: the file came back while it was away; a ready package survives the absence.
-        if (row.hls_dir) {
-          run(db, "UPDATE media_files SET status = 'ready', error = NULL WHERE id = ?", row.id);
-        } else {
-          run(db, "UPDATE media_files SET status = 'pending', error = NULL WHERE id = ?", row.id);
-          enqueue(db, row.id);
-        }
-      }
+      // T75: the file came back while it was away; a ready package survives the absence.
+      if (row.status === 'missing') restoreMissingRow(row);
       claimed.add(index);
       relocated.add(row.id);
       known.get(file.rootId)?.add(file.rel);

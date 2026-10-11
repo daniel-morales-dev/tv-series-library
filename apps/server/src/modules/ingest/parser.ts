@@ -28,6 +28,8 @@ const fold = (word: string): string => word.normalize('NFD').replace(/\p{M}/gu, 
 // folder/group matcher and the season-name collision check.
 export const normalize = (s: string): string =>
   s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+// TMDB dates ("2009-07-03") to their year, or null when there is none.
+export const yearOf = (date?: string | null) => (date ? Number(date.slice(0, 4)) || null : null);
 // Season number spelled in a folder or as a show-name suffix: "Season 3", "Temporada 4",
 // "Cuarta Temporada", "4ª Temporada", "S5".
 const SEASON_PHRASE = /^(?:season|temporada|s)[\s._-]*(\d+)$|^(\d{1,2})\s*[ªa]?[\s._-]+temporada$|^([a-záéíóú]+)[\s._-]+temporada$/i;
@@ -59,6 +61,19 @@ function romanSeason(token: string): number | null {
     value += current < (ROMAN_VALUES[token[i + 1] ?? ''] ?? 0) ? -current : current;
   }
   return value >= 1 && value <= 20 ? value : null;
+}
+
+// Season/episode pair on adjacent tokens ("S5 - 01", "V - 02v2"): cleanName drops the dash, so the season
+// token and the episode number sit side by side. The season token's position is what names the show.
+function adjacentSeason(tokens: string[]): { index: number; season: number; number: number } | null {
+  for (const [i, t] of tokens.entries()) {
+    const next = tokens[i + 1];
+    if (!next || !EPISODE_NUMBER.test(next)) continue;
+    const m = SEASON_TOKEN.exec(t);
+    const season = m ? Number(m[1]) : romanSeason(t);
+    if (season !== null) return { index: i, season, number: Number(/\d+/.exec(next)![0]) };
+  }
+  return null;
 }
 
 // Drops [group]/(info) blocks and turns separators into spaces.
@@ -93,14 +108,8 @@ export function parseTitleTag(title: string): { season: number; number: number }
     const m = GLUED_MARKER.exec(t) ?? GLUED_CROSS.exec(t);
     if (m) return { season: Number(m[1]), number: Number(m[2]) };
   }
-  for (const [i, t] of tokens.entries()) {
-    const next = tokens[i + 1];
-    if (!next || !EPISODE_NUMBER.test(next)) continue;
-    const m = SEASON_TOKEN.exec(t);
-    const season = m ? Number(m[1]) : romanSeason(t);
-    if (season !== null) return { season, number: Number(/\d+/.exec(next)![0]) };
-  }
-  return null;
+  const adjacent = adjacentSeason(tokens);
+  return adjacent ? { season: adjacent.season, number: adjacent.number } : null;
 }
 
 function parseMovie(parts: string[]): Parsed {
@@ -141,15 +150,8 @@ function parseShow(parts: string[]): Parsed {
   }
   // "Show S5 - 01": cleanName drops the "-" later, so the season token and the episode
   // number sit adjacent. Roman seasons ("V - 02v2", "XII EP12") take the same path.
-  for (const [i, t] of tokens.entries()) {
-    const next = tokens[i + 1];
-    if (!next || !EPISODE_NUMBER.test(next)) continue;
-    const m = SEASON_TOKEN.exec(t);
-    const season = m ? Number(m[1]) : romanSeason(t);
-    if (season !== null) {
-      return withShow(show(i), { season, number: Number(/\d+/.exec(next)![0]) });
-    }
-  }
+  const adjacent = adjacentSeason(tokens);
+  if (adjacent) return withShow(show(adjacent.index), { season: adjacent.season, number: adjacent.number });
   const abs = tokens.findLastIndex((t) => EPISODE_NUMBER.test(t));
   if (abs < 0) return UNPARSED;
   // The file name may carry the season marker ("ReZero Cuarta Temporada - 17") even when the folder

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { get } from '../../db/sql.ts';
+import { sendApiError } from '../../http/api-error.ts';
 import { sourcePath } from '../../library/roots.ts';
 import { type ProbeChapters, loadChapters, saveChapters } from './chapters.ts';
 import type { DatabaseSync } from 'node:sqlite';
@@ -71,7 +72,7 @@ export function catalogRoutes(api: FastifyInstance, db: DatabaseSync, chapters?:
       try {
         return { franchiseId: linkFranchise(db, req.params.id, req.body.ofTitleId, req.body.relation) };
       } catch (err) {
-        if (err instanceof FranchiseError) return reply.code(err.status).send({ error: err.code });
+        if (err instanceof FranchiseError) return sendApiError(reply, err);
         throw err;
       }
     },

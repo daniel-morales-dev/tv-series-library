@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { sendFile } from '../../http/static-file.ts';
+import { sendApiError } from '../../http/api-error.ts';
 import type { Ingestor } from './ingestor.ts';
 import { type ConfirmBody, PendingError, ignorePending, listPending } from './pending.ts';
 import { ReanalyzeError } from './reanalyze.ts';
@@ -47,7 +48,7 @@ export function ingestRoutes(api: FastifyInstance, db: DatabaseSync, dataDir: st
       try {
         return await ingestor.confirm(req.params.id, req.body);
       } catch (err) {
-        if (err instanceof PendingError) return reply.code(err.status).send({ error: err.code });
+        if (err instanceof PendingError) return sendApiError(reply, err);
         req.log.error(err);
         return reply.code(502).send({ error: 'tmdb_unavailable' });
       }
@@ -64,7 +65,7 @@ export function ingestRoutes(api: FastifyInstance, db: DatabaseSync, dataDir: st
     try {
       return await ingestor.reanalyze(req.body?.titleId);
     } catch (err) {
-      if (err instanceof ReanalyzeError) return reply.code(err.status).send({ error: err.code });
+      if (err instanceof ReanalyzeError) return sendApiError(reply, err);
       req.log.error(err);
       return reply.code(500).send({ error: 'reanalyze_failed' });
     }

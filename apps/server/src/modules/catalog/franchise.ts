@@ -1,17 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run, transaction } from '../../db/sql.ts';
+import { ApiError } from '../../http/api-error.ts';
 
 export type FranchiseRelation = 'sequel' | 'prequel';
 
-export class FranchiseError extends Error {
-  status: number;
-  code: string;
-  constructor(status: number, code: string) {
-    super(code);
-    this.status = status;
-    this.code = code;
-  }
-}
+export class FranchiseError extends ApiError {}
 
 interface Row {
   id: number;

@@ -1,5 +1,5 @@
 import { all, get } from '../../db/sql.ts';
-import { normalize, splitSeasonMarker } from './parser.ts';
+import { normalize, splitSeasonMarker, yearOf } from './parser.ts';
 import {
   type IngestContext,
   findEpisodeId,
@@ -14,7 +14,7 @@ import {
   importTv,
   setSourceDir,
 } from './metadata.ts';
-import type { EpisodeGroupDetails, EpisodeGroupRef, EpisodeSubGroup, TvDetails } from './tmdb.ts';
+import type { EpisodeGroupDetails, EpisodeGroupRef, EpisodeSubGroup, MovieSearchResult, TvDetails, TvSearchResult } from './tmdb.ts';
 
 const MAX_CANDIDATES = 5;
 // TMDB episode group types: 1 = original air date, 3 = DVD; anything else comes after.
@@ -28,6 +28,12 @@ export interface Candidate {
   year: number | null;
   overview: string | null;
 }
+
+// A TMDB search result, either kind, flattened to the candidate the confirm UI shows.
+const toCandidate = (r: TvSearchResult | MovieSearchResult, tmdbType: 'tv' | 'movie'): Candidate => {
+  const [title, originalTitle, date] = 'name' in r ? [r.name, r.original_name, r.first_air_date] : [r.title, r.original_title, r.release_date];
+  return { tmdbType, tmdbId: r.id, title, originalTitle, year: yearOf(date), overview: r.overview || null };
+};
 
 export type Matched = { status: 'matched'; titleId: number; seasonNumber: number | null };
 export type Assignment = Matched | { status: 'no_match'; candidates: Candidate[] };
@@ -46,7 +52,6 @@ const NAME_ALIASES: Record<string, string> = { kuro: 'black', shiro: 'white' };
 const aliasNames = (s: string): string =>
   s.replace(/\b(?:kuro|shiro)\b/gi, (m) => NAME_ALIASES[m.toLowerCase()]!).replace(/\s+/g, ' ');
 
-const yearOf = (date?: string | null) => (date ? Number(date.slice(0, 4)) || null : null);
 const rank = (type: number) => {
   const i = GROUP_PREFERENCE.indexOf(type);
   return i < 0 ? GROUP_PREFERENCE.length : i;
@@ -93,16 +98,7 @@ export async function matchSeries(
     const names = [tv.name, tv.original_name, ...(tv.alternative_titles?.results ?? []).map((a) => a.title)];
     if (group || names.some(matches)) return { tv, group };
   }
-  return {
-    candidates: results.map((r) => ({
-      tmdbType: 'tv',
-      tmdbId: r.id,
-      title: r.name,
-      originalTitle: r.original_name,
-      year: yearOf(r.first_air_date),
-      overview: r.overview || null,
-    })),
-  };
+  return { candidates: results.map((r) => toCandidate(r, 'tv')) };
 }
 
 // Imports the series (and its group season) and records which folder it came from.
@@ -227,15 +223,5 @@ export async function assignMovie(
     const titleId = await importMovie(ctx, await ctx.tmdb.movie(hit.id), reuseTitleId);
     return { status: 'matched', titleId, seasonNumber: null };
   }
-  return {
-    status: 'no_match',
-    candidates: results.slice(0, MAX_CANDIDATES).map((r) => ({
-      tmdbType: 'movie',
-      tmdbId: r.id,
-      title: r.title,
-      originalTitle: r.original_title,
-      year: yearOf(r.release_date),
-      overview: r.overview || null,
-    })),
-  };
+  return { status: 'no_match', candidates: results.slice(0, MAX_CANDIDATES).map((r) => toCandidate(r, 'movie')) };
 }

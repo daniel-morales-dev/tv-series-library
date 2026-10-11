@@ -2,6 +2,7 @@ import { stat } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
+import { ApiError } from '../../http/api-error.ts';
 import { assignSeries, placeEpisode } from './assign.ts';
 import { type IngestContext, MetadataError, findSeasonsGroup, importSeasonsGroup, refreshTitleMetadata } from './metadata.ts';
 import { parsePath } from './parser.ts';
@@ -33,15 +34,7 @@ export const emptyReanalyzeSummary = (): ReanalyzeSummary => ({
   reseasoned: 0,
 });
 
-export class ReanalyzeError extends Error {
-  status: number;
-  code: string;
-  constructor(status: number, code: string) {
-    super(code);
-    this.status = status;
-    this.code = code;
-  }
-}
+export class ReanalyzeError extends ApiError {}
 
 export interface ReanalyzeDeps {
   db: DatabaseSync;
