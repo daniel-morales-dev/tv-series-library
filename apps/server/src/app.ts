@@ -18,6 +18,7 @@ import { configRoutes, type ConfigRoutesDeps } from './modules/config/routes.ts'
 import { fsRoutes, type FsRoutesDeps } from './modules/fs/routes.ts';
 import { dataMigrationRoutes } from './modules/data-migration/routes.ts';
 import type { MigrationService } from './modules/data-migration/service.ts';
+import { maintenanceRoutes } from './modules/maintenance/routes.ts';
 
 export interface AppOptions {
   db: DatabaseSync;
@@ -63,6 +64,7 @@ export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk,
       progressRoutes(api, db);
       ingestRoutes(api, db, dataDir, ingestor);
       processingRoutes(api, db, hlsDir ?? join(dataDir, 'hls'), worker, disk);
+      maintenanceRoutes(api, db, hlsDir ?? join(dataDir, 'hls'));
     },
     { prefix: '/api' },
   );
