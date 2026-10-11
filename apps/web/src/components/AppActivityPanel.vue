@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { itemContext, processingControl, type Activity } from '../activity.ts';
+import { budgetLine, itemContext, processingControl, type Activity } from '../activity.ts';
 import { useDismiss } from '../dismiss.ts';
 import Icon from './Icon.vue';
 
@@ -38,6 +38,7 @@ const more = computed(() => {
   return a ? Math.max(0, a.queuedTotal - a.queued.length) : 0;
 });
 const control = computed(() => (props.activity ? processingControl(props.activity.paused, props.disabled) : null));
+const budget = computed(() => budgetLine(props.activity?.budget ?? null));
 </script>
 
 <template>
@@ -64,6 +65,7 @@ const control = computed(() => (props.activity ? processingControl(props.activit
 
         <div class="body">
           <p v-if="error" class="note">No se pudo actualizar. Esto es lo último que se vio.</p>
+          <p v-if="budget" class="note">Procesando {{ budget }}</p>
 
           <template v-if="activity">
             <p v-if="!activity.running.length && !activity.queued.length && !activity.failed.length" class="note">

@@ -33,8 +33,8 @@ export interface Budget {
 }
 
 const MIN_THREADS = 4;
-// Provisional until the T21d benchmark: 1 job keeps today's 1xN sizing on every machine.
-export const DEFAULT_MAX_JOBS = 1;
+// T21d benchmark: 2x8 beat 1x8 by +30% throughput on the owner's 16-thread laptop.
+export const DEFAULT_MAX_JOBS = 2;
 
 const positiveInt = (raw: string | undefined): number | null => {
   const n = Number(raw);
@@ -59,8 +59,8 @@ export function computeBudget(hw: Hardware, cfg: BudgetConfig): Budget {
   const cores = Math.max(1, Math.floor(hw.cores));
   const cpuBudget = Math.max(1, Math.floor(cores * cfg.cpuShare));
   const ramJobs = Math.max(0, Math.floor((hw.memAvailableMb - cfg.ramReserveMb) / cfg.ramPerJobMb));
-  // A rotational or unknown volume takes one job; an unknown type only stops limiting when PROCESS_IO overrides it.
-  const jobsIo = cfg.io === 'hdd' || (cfg.io === 'auto' && hw.rotational.some((r) => r !== false)) ? 1 : Infinity;
+  // Only a known rotational volume takes one job; an unknown type (null, e.g. Windows) does not limit.
+  const jobsIo = cfg.io === 'hdd' || (cfg.io === 'auto' && hw.rotational.some((r) => r === true)) ? 1 : Infinity;
   const jobsCpu = Math.min(Math.max(Math.floor(cpuBudget / MIN_THREADS), 1), Math.max(1, cfg.maxJobs));
 
   if (cfg.concurrency !== null) {

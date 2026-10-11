@@ -30,9 +30,10 @@ describe('computeBudget', () => {
     }
   });
 
-  it('treats a volume of unknown type as rotational unless PROCESS_IO=ssd', () => {
+  it('only a known rotational volume limits to one job; an unknown type does not (Windows reports null)', () => {
     const unknown = hw(16, 8000, [false, null]);
-    expect(computeBudget(unknown, budgetConfigFromEnv({ PROCESS_MAX_JOBS: '4' })).jobs).toBe(1);
+    expect(computeBudget(unknown, budgetConfigFromEnv({ PROCESS_MAX_JOBS: '4' })).jobs).toBe(2);
+    expect(computeBudget(hw(16, 8000, [true, null]), budgetConfigFromEnv({ PROCESS_MAX_JOBS: '4' })).jobs).toBe(1);
     expect(computeBudget(unknown, budgetConfigFromEnv({ PROCESS_MAX_JOBS: '4', PROCESS_IO: 'ssd' })).jobs).toBe(2);
     expect(computeBudget(hw(16, 8000), budgetConfigFromEnv({ PROCESS_MAX_JOBS: '4', PROCESS_IO: 'hdd' })).jobs).toBe(1);
   });
@@ -42,8 +43,8 @@ describe('computeBudget', () => {
     expect(computeBudget(hw(16, 100), budgetConfigFromEnv({})).ramJobs).toBe(0);
   });
 
-  it('is provisional 1 job by default (design decision 2): the laptop keeps today\'s 1x8 until the benchmark says otherwise', () => {
-    expect(computeBudget(hw(16, 8000), budgetConfigFromEnv({}))).toMatchObject({ jobs: 1, threadsPerJob: 8 });
+  it('defaults to 2 jobs (T21d benchmark: 2x8 beat 1x8 by 30%), so the laptop runs 2x4 without any env', () => {
+    expect(computeBudget(hw(16, 8000), budgetConfigFromEnv({}))).toMatchObject({ jobs: 2, threadsPerJob: 4 });
   });
 
   describe('explicit overrides win', () => {
