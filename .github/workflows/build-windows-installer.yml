@@ -6,7 +6,7 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 env:
@@ -129,6 +129,24 @@ jobs:
             packaging/windows/output/SHA256SUMS.txt
           if-no-files-found: error
 
+      # Publishes the .exe as a release asset so it is downloadable straight from the
+      # tag page without logging into Actions (artifacts need auth and expire).
+      - name: Publish release with installer
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" packaging/windows/output/*.exe packaging/windows/output/SHA256SUMS.txt --clobber
+          else
+            gh release create "$TAG" \
+              --title "sala $TAG" \
+              --notes "Instalador de Windows adjunto (setup.exe + SHA256SUMS.txt). En Linux: guia del README (servicio systemd de usuario)." \
+              packaging/windows/output/*.exe packaging/windows/output/SHA256SUMS.txt
+          fi
+
       # A mention from the user's own token never notifies; this one is posted by
       # github-actions[bot], which does notify the owner by email and push.
       - name: Notify owner (success)
@@ -136,9 +154,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_URL: ${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ github.ref_name }}
         run: |
           gh api "repos/${{ github.repository }}/issues/1/comments" \
-            -f body="@daniel-morales-dev Instalador de Windows listo (v${APP_VERSION}). Descargalo aqui: ${RUN_URL} (artifact \"sala-windows-installer\", hay que estar logueado en GitHub)."
+            -f body="@daniel-morales-dev Instalador de Windows listo (v${APP_VERSION}). Descarga directa desde Assets: ${RELEASE_URL} (setup.exe + SHA256SUMS.txt). Log del build: ${RUN_URL}"
 
       - name: Notify owner (failure)
         if: failure()
