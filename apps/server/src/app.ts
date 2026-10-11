@@ -44,8 +44,8 @@ export interface AppOptions {
   probeChapters?: ProbeChapters;
   /** T47e: guided move of the HLS data to the library folder; absent = endpoints not registered. */
   dataMigration?: MigrationService;
-  /** T52: explicit on-demand TMDB refresh; absent = the refresh endpoint answers 503. */
-  tmdb?: TmdbClient;
+  /** T52/T58: explicit on-demand TMDB refresh; a client or a resolver re-evaluated per refresh. Absent = the refresh endpoint answers 503. */
+  tmdb?: TmdbClient | (() => TmdbClient | undefined);
   /** T9d: locations API; defaults read the real filesystem. */
   roots?: RootsRoutesDeps;
 }

@@ -11,6 +11,27 @@ export interface AppConfig {
   contentDir: string | null;
   libraryId: string | null;
   suggestedDefault: string;
+  /** T58: whether a TMDB token is resolvable (env or config.json). Sent by GET /api/config; older payloads may omit it. */
+  tmdbConfigured?: boolean;
+}
+
+/** T58: derived UI state of the TMDB section in Settings; the token itself never round-trips through here. */
+export interface TmdbSectionState {
+  /** State line: a token is resolvable or not. */
+  state: string;
+  /** Guardar stays available (an empty token clears the saved one) and locks while a request is in flight. */
+  canSave: boolean;
+  /** Probar needs something to test: the typed token or an already saved one. */
+  canTest: boolean;
+}
+
+export function tmdbSectionState(config: AppConfig | null, input: string, busy: boolean): TmdbSectionState {
+  const configured = config?.tmdbConfigured === true;
+  return {
+    state: configured ? 'Configurado ✓' : 'Sin configurar',
+    canSave: !busy,
+    canTest: !busy && (input.trim() !== '' || configured),
+  };
 }
 
 /**

@@ -26,7 +26,8 @@ export interface ScanSummary {
 
 export interface IngestorOptions {
   db: DatabaseSync;
-  tmdb: TmdbClient;
+  /** Fixed client, or a resolver re-evaluated per scan so a token saved in Settings applies without a restart. */
+  tmdb: TmdbClient | (() => TmdbClient);
   dataDir: string;
   /** Fixed folder, or a live resolver so T22 can switch folders while the server runs. */
   contentDir: string | (() => string);
@@ -75,6 +76,7 @@ interface ScanState {
 export function createIngestor(opts: IngestorOptions): Ingestor {
   const { db, dataDir } = opts;
   const contentDir = () => (typeof opts.contentDir === 'function' ? opts.contentDir() : opts.contentDir);
+  const tmdb = () => (typeof opts.tmdb === 'function' ? opts.tmdb() : opts.tmdb);
   const probe = opts.probe ?? ffprobe;
   const now = opts.now ?? Date.now;
   const log = opts.log ?? (() => {});
@@ -109,7 +111,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   }
 
   async function scanOnce(): Promise<ScanSummary> {
-    const state: ScanState = { ctx: { db, tmdb: memoize(opts.tmdb), dataDir }, onDisk: new Map(), offline: false, dirs: new Map() };
+    const state: ScanState = { ctx: { db, tmdb: memoize(tmdb()), dataDir }, onDisk: new Map(), offline: false, dirs: new Map() };
     const summary: ScanSummary = { ingested: 0, pending: 0, waiting: 0, failed: 0 };
     const present = scanRoots().filter((r) => rootPresent(r.id));
     if (armed) armWatchers(present); // picks up shows/ or films/ created after start; drops watchers of absent roots
@@ -515,7 +517,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   }
 
   const confirm = (id: number, body: ConfirmBody) =>
-    confirmPending({ ctx: { db, tmdb: memoize(opts.tmdb), dataDir }, probe, contentDir: (rootId) => rootPath(rootId) }, id, body);
+    confirmPending({ ctx: { db, tmdb: memoize(tmdb()), dataDir }, probe, contentDir: (rootId) => rootPath(rootId) }, id, body);
 
   return { scan, start, stop, confirm };
 }

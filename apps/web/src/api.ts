@@ -105,6 +105,19 @@ export const api = {
   network: () => request<NetworkInfo>('/network'),
   setContentDir: (path: string, create = false) =>
     request<AppConfig>('/config/content-dir', { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ path, create }) }),
+  // T58: the token travels in the body only and is never read back; failures answer with a Spanish `message`.
+  setTmdbToken: (token: string) =>
+    messageRequest<{ ok: boolean; tmdbConfigured: boolean; message: string }>('/config/tmdb-token', {
+      method: 'PUT',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ token }),
+    }),
+  testTmdbToken: (token: string) =>
+    messageRequest<{ ok: boolean; message: string }>('/config/tmdb-token/test', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ token }),
+    }),
   chapters: (mediaFileId: number) => request<{ chapters: Chapter[] }>(`/media-files/${mediaFileId}/chapters`),
   refreshMetadata: (titleId: number) => messageRequest<{ ok: true }>(`/titles/${titleId}/refresh-metadata`, { method: 'POST' }),
   dataPlan: () => migrationRequest<DataPlan>('/plan'),

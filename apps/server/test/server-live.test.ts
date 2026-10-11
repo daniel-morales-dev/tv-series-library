@@ -309,6 +309,79 @@ describe('refresh-metadata through the server entry', () => {
     check.close();
   }, 60_000);
 
+  it('picks up a token saved in Settings without a restart', async () => {
+    const root = tempRoot('tmdb-saved');
+    const data = join(root, 'data');
+    const content = join(root, 'content');
+    const cfg = join(root, 'cfg');
+    mkdirSync(content, { recursive: true });
+    writeMarker(content, 'lib-live');
+    writeUserConfig({ contentDir: content, libraryId: 'lib-live' }, cfg);
+    seedLinkedTitle(data);
+
+    const seen: { url: string; authorization: string | undefined }[] = [];
+    const tmdb = createServer((req, res) => {
+      seen.push({ url: req.url ?? '', authorization: req.headers.authorization });
+      if (req.url?.startsWith('/3/tv/46195')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            id: 46195,
+            name: 'Monogatari',
+            original_name: 'Monogatari',
+            overview: 'Una serie.',
+            first_air_date: '2009-07-03',
+            episode_run_time: [25],
+            vote_average: 8.1,
+            genres: [{ id: 16, name: 'Animación' }],
+            poster_path: null,
+            backdrop_path: null,
+            origin_country: ['JP'],
+            seasons: [],
+          }),
+        );
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' });
+      res.end('{}');
+    });
+    tmdbServers.add(tmdb);
+    await new Promise<void>((listening) => tmdb.listen(0, '127.0.0.1', listening));
+
+    const { base } = await startServer({
+      SALA_CONFIG_DIR: cfg,
+      DATA_DIR: data,
+      PORT: '0',
+      WATCHDOG_STALL_S: '0',
+      WEB_DIR: join(root, 'no-web'),
+      INGEST: 'off',
+      PROCESSING: 'off',
+      TMDB_API_BASE: `http://127.0.0.1:${(tmdb.address() as AddressInfo).port}/3`,
+    });
+
+    // No token anywhere: the endpoint answers 503 and TMDB is never called.
+    const before = await api<{ error: string }>(base, '/api/titles/1/refresh-metadata', { method: 'POST' });
+    expect(before.status).toBe(503);
+    expect(seen).toHaveLength(0);
+
+    const put = await api<{ ok: boolean; tmdbConfigured: boolean; message: string }>(base, '/api/config/tmdb-token', {
+      method: 'PUT',
+      body: { token: 'fresh-token' },
+    });
+    expect(put.status).toBe(200);
+    expect(put.body).toMatchObject({ ok: true, tmdbConfigured: true });
+    expect(put.body.message).toContain('metadatos');
+
+    // Same process, same port: the saved token applies on the spot, no restart.
+    const res = await api<{ ok: boolean }>(base, '/api/titles/1/refresh-metadata', { method: 'POST' });
+    expect(res.status).toBe(200);
+    expect(seen.at(-1)?.authorization).toBe('Bearer fresh-token');
+
+    const check = openDb(join(data, 'library.db'));
+    expect(get<{ title: string }>(check, 'SELECT title FROM titles WHERE id = 1')?.title).toBe('Monogatari');
+    check.close();
+  }, 60_000);
+
   it('keeps answering 503 without a token', async () => {
     const root = tempRoot('tmdb-off');
     const data = join(root, 'data');

@@ -1,4 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -11,7 +13,9 @@ import {
   REPO_ROOT,
   readUserConfig,
   resolveContentDir,
+  resolveTmdbToken,
   setContentDir,
+  setTmdbToken,
   writeMarker,
   writeUserConfig,
 } from '../src/config/config.ts';
@@ -228,12 +232,20 @@ describe('config API', () => {
   beforeEach(() => {
     cfg = join(tempRoot(), 'cfg');
     process.env.SALA_CONFIG_DIR = cfg;
+    // T58: GET /api/config reports tmdbConfigured from env → config.json; keep it deterministic for the exact-body assertions.
+    delete process.env.TMDB_READ_ACCESS_TOKEN;
   });
 
   it('GET /api/config reports unset with the suggested default from the resolved dir', async () => {
     const media = tempRoot();
     const app = buildApp({ db: openDb(':memory:'), config: { currentContentDir: () => media } });
-    expect((await app.inject('/api/config')).json()).toEqual({ status: 'unset', contentDir: null, libraryId: null, suggestedDefault: media });
+    expect((await app.inject('/api/config')).json()).toEqual({
+      status: 'unset',
+      contentDir: null,
+      libraryId: null,
+      suggestedDefault: media,
+      tmdbConfigured: false,
+    });
     expect(existsSync(cfg)).toBe(false);
   });
 
@@ -246,6 +258,7 @@ describe('config API', () => {
       contentDir: media,
       libraryId: 'lib-x',
       suggestedDefault: null,
+      tmdbConfigured: false,
     });
     expect(existsSync(media)).toBe(false);
   });
@@ -281,7 +294,7 @@ describe('config API', () => {
     expect(onReady).toHaveBeenCalledExactlyOnceWith(media);
     expect(readJson(join(media, '.sala-library.json'))).toEqual({ libraryId: body.libraryId });
     expect(readJson(join(cfg, 'config.json'))).toEqual({ contentDir: media, libraryId: body.libraryId });
-    expect((await app.inject('/api/config')).json()).toEqual(body);
+    expect((await app.inject('/api/config')).json()).toEqual({ ...body, tmdbConfigured: false });
   });
 
   it('PUT /api/config/content-dir adopts an existing marker on a second machine', async () => {
@@ -292,5 +305,176 @@ describe('config API', () => {
     expect(adopted.statusCode).toBe(200);
     expect(adopted.json()).toEqual({ status: 'ready', contentDir: media, libraryId: 'lib-from-disk', suggestedDefault: media });
     expect(readMarker(media)).toEqual({ libraryId: 'lib-from-disk' });
+  });
+});
+
+describe('setTmdbToken and resolveTmdbToken', () => {
+  it('trims the token, keeps the rest of the config and clears it with an empty string', () => {
+    const dir = join(tempRoot(), 'cfg');
+    // Without config.json there is no library to merge into: the wizard picks the folder first.
+    expect(setTmdbToken('abc', { dir })).toEqual({ ok: false, error: 'no_config' });
+
+    writeUserConfig({ contentDir: '/media/library', libraryId: 'lib-x' }, dir);
+    expect(setTmdbToken('  abc  ', { dir })).toEqual({ ok: true, tmdbConfigured: true });
+    expect(readUserConfig({ dir })).toEqual({ contentDir: '/media/library', libraryId: 'lib-x', tmdbToken: 'abc' });
+
+    expect(setTmdbToken('   ', { dir })).toEqual({ ok: true, tmdbConfigured: false });
+    expect(readUserConfig({ dir })).toEqual({ contentDir: '/media/library', libraryId: 'lib-x' });
+  });
+
+  it('resolves env over config.json and ignores an empty stored token', () => {
+    const dir = join(tempRoot(), 'cfg');
+    writeUserConfig({ contentDir: '/media/library', tmdbToken: 'from-file' }, dir);
+    expect(resolveTmdbToken({}, { dir })).toBe('from-file');
+    expect(resolveTmdbToken({ TMDB_READ_ACCESS_TOKEN: 'from-env' }, { dir })).toBe('from-env');
+    expect(resolveTmdbToken({ TMDB_READ_ACCESS_TOKEN: '   ' }, { dir })).toBe('from-file');
+    expect(resolveTmdbToken({}, { dir: join(tempRoot(), 'empty') })).toBeNull();
+
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ contentDir: '/media/library', tmdbToken: '   ' }));
+    expect(readUserConfig({ dir })?.tmdbToken).toBeUndefined();
+    expect(resolveTmdbToken({}, { dir })).toBeNull();
+  });
+});
+
+describe('TMDB token API', () => {
+  let cfg: string;
+  let servers: Server[] = [];
+  const savedBase = process.env.TMDB_API_BASE;
+  const savedToken = process.env.TMDB_READ_ACCESS_TOKEN;
+
+  beforeEach(() => {
+    cfg = join(tempRoot(), 'cfg');
+    process.env.SALA_CONFIG_DIR = cfg;
+    delete process.env.TMDB_READ_ACCESS_TOKEN;
+  });
+
+  afterEach(async () => {
+    for (const server of servers.splice(0)) {
+      server.closeAllConnections();
+      await new Promise((done) => server.close(() => done(null)));
+    }
+    if (savedBase === undefined) delete process.env.TMDB_API_BASE;
+    else process.env.TMDB_API_BASE = savedBase;
+    if (savedToken === undefined) delete process.env.TMDB_READ_ACCESS_TOKEN;
+    else process.env.TMDB_READ_ACCESS_TOKEN = savedToken;
+  });
+
+  type Seen = { url: string; authorization: string | undefined };
+
+  /** Fake TMDB on an ephemeral port; `null` from `respond` kills the socket (network failure). */
+  async function startFakeTmdb(respond: (seen: Seen) => { status: number; body?: unknown } | null): Promise<Seen[]> {
+    const seen: Seen[] = [];
+    const server = createServer((req, res) => {
+      const entry: Seen = { url: req.url ?? '', authorization: req.headers.authorization };
+      seen.push(entry);
+      const answer = respond(entry);
+      if (!answer) {
+        req.socket.destroy();
+        return;
+      }
+      res.writeHead(answer.status, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(answer.body ?? {}));
+    });
+    servers.push(server);
+    await new Promise<void>((listening) => server.listen(0, '127.0.0.1', listening));
+    process.env.TMDB_API_BASE = `http://127.0.0.1:${(server.address() as AddressInfo).port}/3`;
+    return seen;
+  }
+
+  function readyConfig(media: string): void {
+    writeUserConfig({ contentDir: media, libraryId: 'lib-x' }, cfg);
+    writeMarker(media, 'lib-x');
+  }
+
+  it('PUT stores the token and GET /api/config only reports the boolean', async () => {
+    const media = tempRoot();
+    readyConfig(media);
+    const app = buildApp({ db: openDb(':memory:'), config: { currentContentDir: () => media } });
+
+    const put = await app.inject({ method: 'PUT', url: '/api/config/tmdb-token', payload: { token: '  secret-token  ' } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toMatchObject({ ok: true, tmdbConfigured: true });
+    expect(readUserConfig({ dir: cfg })?.tmdbToken).toBe('secret-token');
+
+    const get = await app.inject('/api/config');
+    expect(get.json()).toEqual({ status: 'ready', contentDir: media, libraryId: 'lib-x', suggestedDefault: media, tmdbConfigured: true });
+    expect(JSON.stringify(get.json())).not.toContain('secret-token');
+  });
+
+  it('a saved token triggers the retry hook; an empty token clears it without triggering', async () => {
+    const media = tempRoot();
+    readyConfig(media);
+    const onTmdbTokenSaved = vi.fn();
+    const app = buildApp({ db: openDb(':memory:'), config: { currentContentDir: () => media, onTmdbTokenSaved } });
+
+    const saved = await app.inject({ method: 'PUT', url: '/api/config/tmdb-token', payload: { token: 'tok' } });
+    expect(saved.statusCode).toBe(200);
+    expect(onTmdbTokenSaved).toHaveBeenCalledTimes(1);
+
+    const cleared = await app.inject({ method: 'PUT', url: '/api/config/tmdb-token', payload: { token: '' } });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json()).toMatchObject({ ok: true, tmdbConfigured: false });
+    expect(onTmdbTokenSaved).toHaveBeenCalledTimes(1);
+    expect((await app.inject('/api/config')).json()).toMatchObject({ tmdbConfigured: false });
+    expect(readUserConfig({ dir: cfg })?.tmdbToken).toBeUndefined();
+  });
+
+  it('documents the next-scan fallback when no retry hook is wired', async () => {
+    const media = tempRoot();
+    readyConfig(media);
+    const app = buildApp({ db: openDb(':memory:'), config: { currentContentDir: () => media } });
+    const res = await app.inject({ method: 'PUT', url: '/api/config/tmdb-token', payload: { token: 'tok' } });
+    expect(res.json()).toMatchObject({ message: expect.stringContaining('hasta 5 minutos') });
+  });
+
+  it('answers 409 without config.json: the wizard must pick the folder first', async () => {
+    const app = buildApp({ db: openDb(':memory:') });
+    const res = await app.inject({ method: 'PUT', url: '/api/config/tmdb-token', payload: { token: 'tok' } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'no_config', message: 'Configura primero la carpeta de la biblioteca.' });
+    expect(existsSync(join(cfg, 'config.json'))).toBe(false);
+  });
+
+  it('POST /api/config/tmdb-token/test reports a valid token and sends it to TMDB', async () => {
+    const media = tempRoot();
+    readyConfig(media);
+    const seen = await startFakeTmdb(() => ({ status: 200, body: { results: [] } }));
+    const app = buildApp({ db: openDb(':memory:') });
+
+    const res = await app.inject({ method: 'POST', url: '/api/config/tmdb-token/test', payload: { token: 'good-token' } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true, message: 'Token válido. TMDB respondió correctamente.' });
+    expect(seen[0]?.url).toContain('/3/search/tv');
+    expect(seen[0]?.authorization).toBe('Bearer good-token');
+  });
+
+  it('POST /api/config/tmdb-token/test maps 401 to invalid-token and a dead connection to offline', async () => {
+    const app = buildApp({ db: openDb(':memory:') });
+
+    await startFakeTmdb(() => ({ status: 401, body: { status_message: 'Invalid API key' } }));
+    const invalid = await app.inject({ method: 'POST', url: '/api/config/tmdb-token/test', payload: { token: 'bad-token' } });
+    expect(invalid.statusCode).toBe(401);
+    expect(invalid.json()).toEqual({ ok: false, error: 'invalid_token', message: 'Token inválido. Verifica que sea el «Read Access Token» de tu cuenta de TMDB.' });
+
+    await startFakeTmdb(() => null);
+    const offline = await app.inject({ method: 'POST', url: '/api/config/tmdb-token/test', payload: { token: 'bad-token' } });
+    expect(offline.statusCode).toBe(502);
+    expect(offline.json()).toEqual({ ok: false, error: 'tmdb_unreachable', message: 'No se pudo conectar con TMDB. Revisa tu conexión e inténtalo de nuevo.' });
+  });
+
+  it('POST /api/config/tmdb-token/test falls back to the saved token and requires one to test', async () => {
+    const media = tempRoot();
+    readyConfig(media);
+    const seen = await startFakeTmdb(() => ({ status: 200, body: { results: [] } }));
+    const app = buildApp({ db: openDb(':memory:') });
+
+    const missing = await app.inject({ method: 'POST', url: '/api/config/tmdb-token/test', payload: { token: '' } });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json()).toEqual({ error: 'token_required', message: 'Escribe un token antes de probarlo.' });
+
+    await app.inject({ method: 'PUT', url: '/api/config/tmdb-token', payload: { token: 'saved-token' } });
+    const saved = await app.inject({ method: 'POST', url: '/api/config/tmdb-token/test', payload: { token: '' } });
+    expect(saved.statusCode).toBe(200);
+    expect(seen.at(-1)?.authorization).toBe('Bearer saved-token');
   });
 });
