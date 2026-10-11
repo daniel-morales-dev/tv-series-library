@@ -134,7 +134,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
 
   // Root 1 is the configured folder (its path may change at runtime); the rest use their last known path.
   function scanRoots(): ScanRoot[] {
-    const rows = all<{ id: number; last_known_path: string | null }>(db, 'SELECT id, last_known_path FROM library_roots ORDER BY position, id');
+    const rows = all<{ id: number; last_known_path: string | null }>(db, 'SELECT id, last_known_path FROM library_roots WHERE forgotten = 0 ORDER BY position, id');
     const out: ScanRoot[] = [];
     for (const r of rows) {
       const path = r.id === 1 ? contentDir() : r.last_known_path;
