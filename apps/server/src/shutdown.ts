@@ -1,6 +1,7 @@
 /**
- * T40d: a normal shutdown leaves the running ffmpeg alive (`stop({ killChildren: false })`); the next
- * server adopts it or terminates it as an orphan at start(), so there is never a second writer.
+ * T40d: on POSIX a normal shutdown leaves the running ffmpeg alive (`stop({ killChildren: false })`); the
+ * next server adopts it or terminates it as an orphan at start(), so there is never a second writer.
+ * Windows has no adoption (no /proc): there the children are killed, or they would be unmanageable.
  * T34: `node --watch` restarts and the dev launcher SIGTERM the server; without a handler the
  * process died instantly and left its ffmpeg children alive, still writing `data/hls/<id>.tmp`.
  * A restarted server requeued the same job and a second ffmpeg rewrote the same package
@@ -19,6 +20,8 @@ export interface ShutdownDeps {
   ingestor?: Stoppable;
   /** Bound for the whole cleanup; past it we force-exit so a hung child cannot block watch restarts. */
   timeoutMs?: number;
+  /** Injection point for tests; defaults to process.platform. */
+  platform?: NodeJS.Platform;
   /** Injection point for tests; defaults to process.exit. */
   exit?: (code: number) => void;
   log?: (message: string) => void;
@@ -36,6 +39,7 @@ export function createShutdown({
   worker,
   ingestor,
   timeoutMs = SHUTDOWN_TIMEOUT_MS,
+  platform = process.platform,
   exit = process.exit,
   log = () => {},
 }: ShutdownDeps): () => Promise<void> {
@@ -53,7 +57,7 @@ export function createShutdown({
       });
       try {
         // The array literal calls both stop()s synchronously, before app.close() starts.
-        const cleaned = Promise.all([worker?.stop({ killChildren: false }), ingestor?.stop(), app.close()]).then(() => 'done' as const);
+        const cleaned = Promise.all([worker?.stop({ killChildren: platform === 'win32' }), ingestor?.stop(), app.close()]).then(() => 'done' as const);
         if ((await Promise.race([cleaned, timeout])) === 'timeout') {
           log(`shutdown did not finish in ${timeoutMs}ms: forcing exit`);
           exit(1);

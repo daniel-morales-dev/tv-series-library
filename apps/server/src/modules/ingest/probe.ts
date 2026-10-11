@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { ffprobeBin } from '../processing/ffmpeg.ts';
 import { type Chapter, parseChapters } from '../catalog/chapters.ts';
 
 const execFileAsync = promisify(execFile);
@@ -34,7 +35,7 @@ interface FfprobeStream {
 
 export const ffprobe: Probe = async (absPath) => {
   const { stdout } = await execFileAsync(
-    'ffprobe',
+    ffprobeBin(),
     ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', '-show_chapters', absPath],
     { maxBuffer: 32 * 1024 * 1024, timeout: 60_000 },
   );

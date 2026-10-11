@@ -1,6 +1,7 @@
 import type { NetworkInterfaceInfo } from 'node:os';
 
-const VIRTUAL_PREFIXES = ['docker', 'br-', 'veth', 'virbr', 'tailscale'];
+// Windows adapter names are mixed-case ("vEthernet (WSL)"), so the prefix match is case-insensitive.
+const VIRTUAL_PREFIXES = ['docker', 'br-', 'veth', 'vethernet', 'virbr', 'tailscale'];
 
 function isPrivateIPv4(ip: string): boolean {
   const [a, b] = ip.split('.').map(Number);
@@ -13,7 +14,7 @@ const sortKey = (ip: string): string => ip.split('.').map((octet) => octet.padSt
 export function lanUrls(interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>, port: number): string[] {
   return Object.keys(interfaces)
     .sort()
-    .filter((name) => !VIRTUAL_PREFIXES.some((prefix) => name.startsWith(prefix)))
+    .filter((name) => !VIRTUAL_PREFIXES.some((prefix) => name.toLowerCase().startsWith(prefix)))
     .flatMap((name) =>
       (interfaces[name] ?? [])
         .filter((info) => info.family === 'IPv4' && !info.internal && isPrivateIPv4(info.address))

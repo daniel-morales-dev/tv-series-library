@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { DatabaseSync } from 'node:sqlite';
 import { all, run, transaction } from '../../db/sql.ts';
+import { ffprobeBin } from '../processing/ffmpeg.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,7 +30,7 @@ export function parseChapters(data: { chapters?: FfprobeChapter[] }): Chapter[] 
 }
 
 export const probeChapters: ProbeChapters = async (absPath) => {
-  const { stdout } = await execFileAsync('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_chapters', absPath], {
+  const { stdout } = await execFileAsync(ffprobeBin(), ['-v', 'error', '-print_format', 'json', '-show_chapters', absPath], {
     maxBuffer: 8 * 1024 * 1024,
     timeout: 60_000,
   });

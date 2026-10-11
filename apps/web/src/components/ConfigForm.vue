@@ -49,7 +49,7 @@ async function save(create = false) {
       </button>
     </div>
     <div class="row">
-      <button type="button" @click="path = suggested; confirmCreate = false">Usar carpeta sugerida</button>
+      <button v-if="suggested" type="button" @click="path = suggested; confirmCreate = false">Usar carpeta sugerida</button>
       <button type="submit" class="primary" :disabled="busy || !path.trim()">Guardar carpeta</button>
     </div>
     <p v-if="error" class="err" role="alert">{{ error }}</p>
