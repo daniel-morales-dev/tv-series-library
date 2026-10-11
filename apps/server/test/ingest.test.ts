@@ -25,6 +25,7 @@ function env({ offline = false, diskPresent = (): boolean => true } = {}) {
   const { db } = setup();
   const badFiles = new Set<string>();
   const probed: string[] = [];
+  const titleTags = new Map<string, string>();
   const probe: Probe = async (path) => {
     probed.push(path);
     if (badFiles.has(path)) throw new Error('moov atom not found');
@@ -32,6 +33,7 @@ function env({ offline = false, diskPresent = (): boolean => true } = {}) {
       durationS: 1440.5,
       audio: [{ index: 1, codec: 'flac', language: 'jpn', title: null, channels: 2 }],
       subtitles: [{ index: 2, codec: 'ass', language: 'eng', title: 'Full' }],
+      titleTag: titleTags.get(path) ?? null,
     };
   };
   const tmdb = makeFakeTmdb({ offline });
@@ -53,7 +55,7 @@ function env({ offline = false, diskPresent = (): boolean => true } = {}) {
     mkdirSync(dirname(join(contentDir, to)), { recursive: true });
     renameSync(join(contentDir, from), join(contentDir, to));
   };
-  return { db, tmdb, make, addFile, move, badFiles, probed, tick, ingestor: make() };
+  return { db, tmdb, make, addFile, move, badFiles, probed, titleTags, tick, ingestor: make() };
 }
 
 describe('scanner and registration', () => {
@@ -538,5 +540,31 @@ describe('download promotion cadence', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('container title tag fallback (T72)', () => {
+  const place = (e: ReturnType<typeof env>, path: string) =>
+    get<any>(
+      e.db,
+      'SELECT s.number AS s, e.number AS e FROM media_files m JOIN episodes e ON e.id = m.episode_id JOIN seasons s ON s.id = e.season_id WHERE m.path = ?',
+      path,
+    );
+
+  it('takes season and number from the tag when the name gives no season', async () => {
+    const e = env();
+    const rel = 'shows/Plain Show/Plain Show - 01.mkv';
+    e.titleTags.set(e.addFile(rel), 'S02E02-Orario: Distorted City');
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 1 });
+    expect(place(e, rel)).toEqual({ s: 2, e: 2 });
+    expect(get<any>(e.db, 'SELECT parsed_season, parsed_number FROM media_files')).toEqual({ parsed_season: 2, parsed_number: 2 });
+  });
+
+  it('keeps the name when it already parsed the season', async () => {
+    const e = env();
+    const rel = 'shows/Plain Show/Plain Show S01E01.mkv';
+    e.titleTags.set(e.addFile(rel), 'S02E02-Orario: Distorted City');
+    await e.ingestor.scan();
+    expect(place(e, rel)).toEqual({ s: 1, e: 1 });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePath } from './parser.ts';
+import { parsePath, parseTitleTag } from './parser.ts';
 
 const bake = (name: string) => `shows/bakemonogatari/[Coalgirls]_Bakemonogatari_${name}_(1920x1080_Blu-ray_FLAC)_[8924213A].mkv`;
 
@@ -171,6 +171,71 @@ describe('parsePath: shows', () => {
       ['shows/[SubsPlease] Sousou no Frieren S2 (01-10) (1080p) [Batch]/[SubsPlease] Sousou no Frieren - 01 (1080p) [X].mkv', 2, 1],
     ])('keeps the absolute/season-dir result for %s', (path, season, number) => {
       expect(parsePath(path)).toEqual({ kind: 'episode', show: 'Sousou no Frieren', season, number });
+    });
+  });
+
+  describe('Spanish season ordinals (T72)', () => {
+    it.each([
+      ['Primera Temporada', 1],
+      ['Segunda Temporada', 2],
+      ['Tercera Temporada', 3],
+      ['Cuarta Temporada', 4],
+      ['Quinta Temporada', 5],
+      ['Sexta Temporada', 6],
+      ['Séptima Temporada', 7],
+      ['Septima Temporada', 7],
+      ['Octava Temporada', 8],
+      ['Novena Temporada', 9],
+      ['Décima Temporada', 10],
+      ['Decima Temporada', 10],
+      ['Temporada 4', 4],
+      ['4ª Temporada', 4],
+      ['4a Temporada', 4],
+      ['1ª Temporada', 1],
+    ])('reads folder %s as season %s', (folder, season) => {
+      expect(parsePath(`shows/ReZero/${folder}/01.mkv`)).toEqual({ kind: 'episode', show: 'ReZero', season, number: 1 });
+    });
+
+    it.each([
+      ['shows/ReZero Cuarta Temporada/ReZero - 05.mkv', 4],
+      ['shows/ReZero Temporada 4/ReZero - 05.mkv', 4],
+      ['shows/ReZero 4ª Temporada/ReZero - 05.mkv', 4],
+    ])('reads the series-name suffix in %s as season %s', (path, season) => {
+      expect(parsePath(path)).toEqual({ kind: 'episode', show: 'ReZero', season, number: 5 });
+    });
+
+    it('reads the real ReZero Cuarta Temporada file as season 4 episode 17', () => {
+      expect(parsePath('shows/ReZero/ReZero Cuarta Temporada - 17 - GOOD LOSER - Furuki Fansub.mkv')).toEqual({
+        kind: 'episode',
+        show: 'ReZero',
+        season: 4,
+        number: 17,
+      });
+    });
+
+    it.each([
+      ['shows/ReZero/s04 E17.mkv', 'ReZero', 4, 17],
+      ['shows/Mushoku Tensei/Mushoku Tensei S3 - 12 - The Broken Blade - SubsPlease.mkv', 'Mushoku Tensei', 3, 12],
+    ])('keeps reading %s as season %s episode %s', (path, show, season, number) => {
+      expect(parsePath(path)).toEqual({ kind: 'episode', show, season, number });
+    });
+  });
+
+  describe('container title tag (T72)', () => {
+    it('reads the pair from the real EMBER tag', () => {
+      expect(parseTitleTag('S05E06-Orario: Distorted City')).toEqual({ season: 5, number: 6 });
+    });
+
+    it.each([
+      ['S3 - 12', 3, 12],
+      ['5x01', 5, 1],
+      ['S2E10 Episode title', 2, 10],
+    ])('reads %s as season %s episode %s', (tag, season, number) => {
+      expect(parseTitleTag(tag)).toEqual({ season, number });
+    });
+
+    it.each(['Orario: Distorted City', 'Episode 12', ''])('returns null for %j', (tag) => {
+      expect(parseTitleTag(tag)).toBeNull();
     });
   });
 });

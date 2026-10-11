@@ -7,7 +7,7 @@ import { fingerprint } from '../../library/fingerprint.ts';
 import { rootStatus } from '../../library/roots.ts';
 import { type Assignment, adoptSeries, assignMovie, assignSeries, matchSeries, placeEpisode } from './assign.ts';
 import { type IngestContext, createLocalTitle, findSeasonsGroup, fixPersonNames, importSeasonsGroup, markOfficialSeasons, setSourceDir } from './metadata.ts';
-import { type Parsed, parsePath } from './parser.ts';
+import { type Parsed, parsePath, parseTitleTag } from './parser.ts';
 import { type Probe, ffprobe } from './probe.ts';
 import { type ConfirmBody, confirmPending } from './pending.ts';
 import { type Placement, addPending, promoteDownload, registerDownloading, registerFile, relinkFiles } from './register.ts';
@@ -395,7 +395,13 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
 
   async function ingestFile(state: ScanState, file: RootVideo, fp: string | null): Promise<'ingested' | 'pending' | 'waiting'> {
     const info = now() - file.mtimeMs > MIN_AGE_MS ? await probe(file.abs).catch(() => null) : null;
-    const parsed = parsePath(file.rel);
+    let parsed = parsePath(file.rel);
+    // T72: some releases only carry the season/episode pair in the container title tag ("S05E06-Orario: ...").
+    // It supplies the pair only when the name gave no season; a name-parsed season is never overridden.
+    if (parsed.kind === 'episode' && parsed.season === null && info?.titleTag) {
+      const tag = parseTitleTag(info.titleTag);
+      if (tag) parsed = { ...parsed, season: tag.season, number: tag.number };
+    }
     const toPending = (reason: 'unparsed' | 'no_match' | 'unmapped_episode', candidates: Parameters<typeof addPending>[5] = []) => {
       if (!info) return 'waiting' as const; // unplaceable and unfinished: nothing is stored until it can be probed
       addPending(db, file.rel, file.size, parsed, reason, candidates, file.rootId);
