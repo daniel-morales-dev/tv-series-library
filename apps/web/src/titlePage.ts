@@ -21,14 +21,14 @@ interface PlayableFile {
 }
 
 /**
- * The single play order: seasons by number, episodes by number, newest non-extra file per episode
- * (`null` when the episode has none). `buildEpisodes` and `firstFileId` both build on it.
+ * The single play order: seasons by air date (undated last), then number, episodes by number, newest
+ * non-extra file per episode (`null` when the episode has none). `buildEpisodes` and `firstFileId` both build on it.
  */
-export function orderedSeasons<S extends { number: number; episodes: { id: number; number: number }[] }, F extends PlayableFile>(
+export function orderedSeasons<S extends { number: number; airDate?: string | null; episodes: { id: number; number: number }[] }, F extends PlayableFile>(
   d: { seasons: S[]; files: F[] },
 ): { season: S; rows: { episode: S['episodes'][number]; file: F | null }[] }[] {
   return [...d.seasons]
-    .sort((a, b) => a.number - b.number)
+    .sort((a, b) => (a.airDate ?? '9999').localeCompare(b.airDate ?? '9999') || a.number - b.number)
     .map((season) => ({
       season,
       rows: [...season.episodes]

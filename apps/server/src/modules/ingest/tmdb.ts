@@ -16,6 +16,7 @@ export interface SeasonSummary {
   overview: string;
   poster_path: string | null;
   episode_count: number;
+  air_date?: string | null;
 }
 export interface SeasonDetails extends SeasonSummary {
   episodes: TmdbEpisode[];

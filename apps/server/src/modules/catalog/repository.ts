@@ -102,12 +102,18 @@ export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number)
      WHERE s.title_id = ? ORDER BY s.number, e.number`,
     id,
   );
-  const seasons = all<Record<string, any>>(db, 'SELECT * FROM seasons WHERE title_id = ? ORDER BY number', id).map((s) => ({
+  const seasons = all<Record<string, any>>(
+    db,
+    // T86: chronological presentation: undated seasons last, then by earliest air date, then internal number.
+    'SELECT * FROM seasons WHERE title_id = ? ORDER BY air_date IS NULL, air_date, number',
+    id,
+  ).map((s) => ({
     id: s.id,
     number: s.number,
     name: s.name,
     overview: s.overview,
     posterPath: s.poster_path,
+    airDate: s.air_date,
     episodes: episodes
       .filter((e) => e.season_id === s.id)
       .map((e) => ({

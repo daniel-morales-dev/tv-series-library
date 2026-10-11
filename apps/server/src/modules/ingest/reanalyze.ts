@@ -4,7 +4,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
 import { ApiError } from '../../http/api-error.ts';
 import { assignSeries, placeEpisode } from './assign.ts';
-import { type IngestContext, MetadataError, findSeasonsGroup, importSeasonsGroup, refreshTitleMetadata } from './metadata.ts';
+import { type IngestContext, MetadataError, findSeasonsGroup, importSeasonsGroup, refreshSeasonAirDates, refreshTitleMetadata } from './metadata.ts';
 import { parsePath } from './parser.ts';
 import { showDirKey } from './scanner.ts';
 
@@ -179,6 +179,12 @@ export async function reanalyzeTitle(deps: ReanalyzeDeps, summary: ReanalyzeSumm
   } catch (err) {
     const reason = err instanceof MetadataError ? err.code : (err as Error).message;
     deps.log('warn', `reanalyze: metadata not refreshed for title ${titleId}: ${reason}`);
+  }
+  // T86: the button also backfills season air dates on its own, so a failed metadata refresh does not lose them.
+  try {
+    await refreshSeasonAirDates(deps.ctx, titleId);
+  } catch (err) {
+    deps.log('warn', `reanalyze: season air dates not refreshed for title ${titleId}: ${(err as Error).message}`);
   }
   summary.scanned = await countFilesOnDisk(deps, titleId);
   await reparseFolders(deps, summary, titleId);

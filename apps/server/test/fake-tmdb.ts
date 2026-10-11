@@ -16,6 +16,8 @@ const ep = (n: number, name = `Episodio ${n}`): TmdbEpisode => ({
   air_date: '2009-07-03',
 });
 const eps = (count: number) => Array.from({ length: count }, (_, i) => ep(i + 1));
+// T86: a season's air date is the earliest of its episodes; the fake needs per-episode dates.
+const epOn = (n: number, airDate: string): TmdbEpisode => ({ ...ep(n), air_date: airDate });
 const season = (number: number, count: number) => ({
   season_number: number,
   name: `Temporada ${number}`,
@@ -40,7 +42,7 @@ const monogatari: TvDetails = {
   poster_path: '/mono.jpg',
   backdrop_path: '/mono-bd.jpg',
   origin_country: ['JP'],
-  seasons: [season(0, 6), season(1, 15)],
+  seasons: [{ ...season(0, 6), air_date: '2009-07-03' }, { ...season(1, 15), air_date: '2009-07-03' }],
   credits,
   alternative_titles: { results: [{ title: 'Monogatari Series' }] },
   episode_groups: {
@@ -108,6 +110,16 @@ const groups: Record<string, EpisodeGroupDetails> = {
     type: 3,
     groups: [{ id: 'd1', name: 'Bakemonogatari', order: 1, episodes: eps(12) }],
   },
+  g_mono2: {
+    id: 'g_mono2',
+    name: 'Seasons',
+    type: 6,
+    groups: [
+      { id: 'n3', name: 'Monogatari Series: Second Season', order: 3, episodes: [epOn(1, '2013-07-07'), epOn(2, '2013-07-14')] },
+      { id: 'n4', name: 'Nekomonogatari (Black)', order: 4, episodes: [epOn(1, '2012-12-31'), epOn(2, '2013-01-01')] },
+      { id: 'n5', name: 'Especiales', order: 5, episodes: [epOn(1, '2014-01-01')] },
+    ],
+  },
 };
 
 // Official TMDB has a single 38-episode season; the type 6 group splits it 28 + 10 (like Frieren).
@@ -135,7 +147,20 @@ const sameCount: TvDetails = {
   seasons: [season(1, 3), season(2, 3)],
   episode_groups: { results: [{ id: 'g_c_seasons', name: 'Seasons', type: 6, episode_count: 5 }] },
 };
-const tvById: Record<number, TvDetails> = { 46195: monogatari, 200: seasoned, 201: sameCount };
+// T86: internal numbers collide with chronology (Nekomonogatari Black aired before Second Season), so the
+// seasons table keeps numbers 3 and 4 while air dates must order them 4, 3.
+const mono2: TvDetails = {
+  ...monogatari,
+  id: 300,
+  name: 'Monogatari Second Season',
+  original_name: 'Monogatari Second Season',
+  seasons: [
+    { ...season(3, 2), air_date: '2013-07-07' },
+    { ...season(4, 2), air_date: '2012-12-31' },
+  ],
+  episode_groups: { results: [{ id: 'g_mono2', name: 'Seasons', type: 6, episode_count: 4 }] },
+};
+const tvById: Record<number, TvDetails> = { 46195: monogatari, 200: seasoned, 201: sameCount, 300: mono2 };
 
 const plain: TvDetails = {
   id: 100,

@@ -295,22 +295,73 @@ export async function refreshTitleMetadata(ctx: IngestContext, titleId: number):
   if (!row) throw new MetadataError(404, 'not_found');
   if (!row.tmdb_type || row.tmdb_id === null) throw new MetadataError(409, 'not_linked');
   if (row.tmdb_type === 'movie') await importMovie(ctx, await ctx.tmdb.movie(row.tmdb_id), titleId);
-  else await importTv(ctx, await ctx.tmdb.tv(row.tmdb_id), titleId);
+  else {
+    await importTv(ctx, await ctx.tmdb.tv(row.tmdb_id), titleId);
+    await refreshSeasonAirDates(ctx, titleId);
+  }
 }
 
-function upsertSeason(db: DatabaseSync, titleId: number, number: number, name: string | null, overview: string | null, poster: string | null): number {
+// T86: backfills seasons.air_date for titles whose seasons were built before the column existed (or before
+// TMDB had the dates). Official seasons are matched by number; a group's seasons by normalized name, with
+// the group order as fallback. Nothing is re-adopted: only the dates are written.
+export async function refreshSeasonAirDates(ctx: IngestContext, titleId: number): Promise<void> {
+  const row = get<{ tmdb_type: string | null; tmdb_id: number | null; episode_group_id: string | null; seasons_group_id: string | null }>(
+    ctx.db,
+    'SELECT tmdb_type, tmdb_id, episode_group_id, seasons_group_id FROM titles WHERE id = ?',
+    titleId,
+  );
+  if (!row || row.tmdb_type !== 'tv' || row.tmdb_id === null) return;
+  const tv = await ctx.tmdb.tv(row.tmdb_id);
+  for (const s of tv.seasons) {
+    if (s.air_date) run(ctx.db, 'UPDATE seasons SET air_date = ? WHERE title_id = ? AND number = ?', s.air_date, titleId, s.season_number);
+  }
+  // '' means official seasons (no group); only real group ids are fetched.
+  const groupIds = [...new Set([row.episode_group_id, row.seasons_group_id].filter((g): g is string => !!g))];
+  for (const groupId of groupIds) {
+    const detail = await ctx.tmdb.episodeGroup(groupId);
+    const seasons = all<{ id: number; number: number; name: string | null }>(
+      ctx.db,
+      'SELECT id, number, name FROM seasons WHERE title_id = ?',
+      titleId,
+    );
+    for (const g of detail.groups) {
+      const airDate = minAirDate(g.episodes);
+      if (!airDate) continue;
+      const season = seasons.find((s) => normalize(s.name ?? '') === normalize(g.name)) ?? seasons.find((s) => s.number === g.order);
+      if (season) run(ctx.db, 'UPDATE seasons SET air_date = ? WHERE id = ?', airDate, season.id);
+    }
+  }
+}
+
+function upsertSeason(
+  db: DatabaseSync,
+  titleId: number,
+  number: number,
+  name: string | null,
+  overview: string | null,
+  poster: string | null,
+  airDate: string | null = null,
+): number {
   run(
     db,
-    `INSERT INTO seasons (title_id, number, name, overview, poster_path) VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO seasons (title_id, number, name, overview, poster_path, air_date) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(title_id, number) DO UPDATE SET name = excluded.name,
-       overview = COALESCE(excluded.overview, overview), poster_path = COALESCE(excluded.poster_path, poster_path)`,
+       overview = COALESCE(excluded.overview, overview), poster_path = COALESCE(excluded.poster_path, poster_path),
+       air_date = COALESCE(excluded.air_date, air_date)`,
     titleId,
     number,
     name,
     overview,
     poster,
+    airDate,
   );
   return get<{ id: number }>(db, 'SELECT id FROM seasons WHERE title_id = ? AND number = ?', titleId, number)!.id;
+}
+
+// The season's air date is the earliest date among its episodes; ISO strings compare chronologically.
+function minAirDate(episodes: { air_date?: string | null }[]): string | null {
+  const dates = episodes.map((e) => e.air_date).filter((d): d is string => !!d);
+  return dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null;
 }
 
 function upsertEpisode(db: DatabaseSync, seasonId: number, number: number, e: TmdbEpisode, still: string | null): void {
@@ -341,7 +392,7 @@ export async function importGroupSeason(
   const saved = await saveImages(ctx.tmdb, ctx.dataDir, group.episodes.map((e): ImageWant => [STILL, e.still_path]));
   return transaction(ctx.db, () => {
     const number = seasonNumberFor(ctx.db, titleId, seasonNumber, group.name);
-    const seasonId = upsertSeason(ctx.db, titleId, number, group.name, null, null);
+    const seasonId = upsertSeason(ctx.db, titleId, number, group.name, null, null, minAirDate(group.episodes));
     group.episodes.forEach((e, i) => upsertEpisode(ctx.db, seasonId, i + 1, e, saved(STILL, e.still_path)));
     run(ctx.db, 'UPDATE titles SET episode_group_id = ? WHERE id = ?', episodeGroupId, titleId);
     return number;
@@ -406,7 +457,7 @@ export async function importTmdbSeason(ctx: IngestContext, titleId: number, seas
     ...season.episodes.map((e): ImageWant => [STILL, e.still_path]),
   ]);
   transaction(ctx.db, () => {
-    const seasonId = upsertSeason(ctx.db, titleId, season.season_number, season.name, season.overview || null, saved(POSTER, season.poster_path));
+    const seasonId = upsertSeason(ctx.db, titleId, season.season_number, season.name, season.overview || null, saved(POSTER, season.poster_path), season.air_date ?? null);
     for (const e of season.episodes) upsertEpisode(ctx.db, seasonId, e.episode_number!, e, saved(STILL, e.still_path));
   });
 }
