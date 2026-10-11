@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
-import { sourcePath } from '../../library/roots.ts';
+import { type RootDir, sourcePath } from '../../library/roots.ts';
 import { FranchiseError, type FranchiseRelation, assertTitleExists, linkFranchise } from '../catalog/franchise.ts';
 import { type GroupMatch, adoptSeries, normalize, placeEpisode } from './assign.ts';
 import { type IngestContext, importMovie } from './metadata.ts';
@@ -61,7 +61,7 @@ export interface ConfirmBody {
 export interface ConfirmDeps {
   ctx: IngestContext;
   probe: Probe;
-  contentDir: string;
+  contentDir: RootDir;
 }
 
 interface Placement {
@@ -111,7 +111,7 @@ async function place(
 async function registerPending(deps: ConfirmDeps, row: PendingRow, titleId: number, placement: Placement): Promise<void> {
   const probe = await deps.probe(sourcePath(deps.contentDir, row.root_id, row.path)).catch(() => null);
   if (!probe) throw new PendingError(409, 'file_unreadable');
-  registerFile(deps.ctx.db, { rel: row.path, size: row.size ?? 0, probe }, { titleId, ...placement });
+  registerFile(deps.ctx.db, { rel: row.path, size: row.size ?? 0, probe }, { titleId, ...placement }, row.root_id);
   run(deps.ctx.db, 'DELETE FROM pending_files WHERE id = ?', row.id);
 }
 
@@ -153,12 +153,12 @@ export async function confirmPending(deps: ConfirmDeps, id: number, body: Confir
   const folder = parsed.kind === 'episode' || parsed.kind === 'extra' ? parsed.show : dirRel.split('/').at(-1)!;
   const tv = await ctx.tmdb.tv(body.tmdbId);
   const group = body.episodeGroupId ? pickGroup(await ctx.tmdb.episodeGroup(body.episodeGroupId), folder, body.season) : null;
-  const known = get<{ title_id: number; season_number: number | null }>(ctx.db, 'SELECT title_id, season_number FROM source_dirs WHERE path = ?', dirRel);
+  const known = get<{ title_id: number; season_number: number | null }>(ctx.db, 'SELECT title_id, season_number FROM source_dirs WHERE root_id = ? AND path = ?', row.root_id, dirRel);
   const sameTitle = known && get(ctx.db, 'SELECT 1 FROM titles WHERE id = ? AND tmdb_type = ? AND tmdb_id = ?', known.title_id, 'tv', body.tmdbId);
   const target =
     sameTitle && !group
       ? { titleId: known.title_id, seasonNumber: known.season_number }
-      : await adoptSeries(ctx, dirRel, tv, group);
+      : await adoptSeries(ctx, dirRel, tv, group, undefined, row.root_id);
 
   const placement = await place(ctx, target.titleId, target.seasonNumber, parsed, {
     season: group ? undefined : body.season,

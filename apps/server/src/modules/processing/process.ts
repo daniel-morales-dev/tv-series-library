@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { sourcePath } from '../../library/roots.ts';
+import { type RootDir, sourcePath } from '../../library/roots.ts';
 import { LOG_FILE, PROGRESS_FILE, type ProbeStreams, type RunFfmpeg, type SpawnInfo, extractArgs, keepsChildren, mainArgs, nameRenditions } from './ffmpeg.ts';
 import { isOurFfmpeg, readProgress, terminate, waitForExit, watchProgress } from './proc.ts';
 import { ESTIMATE_RATIO, dirBytes } from './cache.ts';
@@ -28,9 +28,9 @@ export interface ProcessDeps {
   dataDir: string;
   /** HLS root; defaults to `<dataDir>/hls`. */
   hlsDir?: string;
-  /** Throws DiskAbsentError when the library disk is gone; checked before the package folder is created. */
-  assertDisk?: () => void;
-  contentDir: string;
+  /** Throws DiskAbsentError when the file's root is gone; checked before the package folder is created. */
+  assertDisk?: (rootId: number) => void;
+  contentDir: RootDir;
   runFfmpeg: RunFfmpeg;
   probeStreams: ProbeStreams;
   threads?: number;
@@ -194,7 +194,7 @@ export async function processMedia(
     }
     if (!finished) {
       await deps.ensureSpace?.(Math.ceil(srcStat.size * ESTIMATE_RATIO[mode]), file.id);
-      deps.assertDisk?.();
+      deps.assertDisk?.(file.rootId ?? 1);
       await rm(tmpDir, { recursive: true, force: true });
       for (const dir of ['v', ...plan.audio.map((a) => `a${a.n}`), 'subs', 'fonts']) await mkdir(join(tmpDir, dir), { recursive: true });
       // Subtitles and fonts first, so they exist as soon as playback can start.

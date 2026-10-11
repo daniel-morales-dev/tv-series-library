@@ -43,7 +43,7 @@ describe('process bookkeeping in the queue', () => {
     expect(runningWithProcess(db)).toEqual([]);
     setSpawned(db, job.id, { pid: 4242, pidStart: 99, planHash: 'abc' });
     expect(runningWithProcess(db)).toEqual([
-      { id: job.id, mediaFileId: f, path: job.path, durationS: job.durationS, pid: 4242, pidStart: 99, planHash: 'abc' },
+      { id: job.id, mediaFileId: f, path: job.path, rootId: 1, durationS: job.durationS, pid: 4242, pidStart: 99, planHash: 'abc' },
     ]);
   });
 

@@ -93,6 +93,7 @@ export async function adoptSeries(
   tv: TvDetails,
   group: GroupMatch | null,
   reuseTitleId?: number,
+  rootId = 1,
 ): Promise<Matched> {
   const titleId = await importTv(ctx, tv, reuseTitleId);
   if (group) {
@@ -103,21 +104,22 @@ export async function adoptSeries(
     if (seasons) await importSeasonsGroup(ctx, titleId, seasons);
     else markOfficialSeasons(ctx.db, titleId);
   }
-  setSourceDir(ctx.db, dirRel, titleId, group?.seasonNumber ?? null);
+  setSourceDir(ctx.db, dirRel, titleId, group?.seasonNumber ?? null, rootId);
   return { status: 'matched', titleId, seasonNumber: group?.seasonNumber ?? null };
 }
 
 // Throws when TMDB cannot be reached; the caller decides how to degrade.
-export async function assignSeries(ctx: IngestContext, dirRel: string, folder: string): Promise<Assignment> {
+export async function assignSeries(ctx: IngestContext, dirRel: string, folder: string, rootId = 1): Promise<Assignment> {
   const known = get<{ title_id: number; season_number: number | null }>(
     ctx.db,
-    'SELECT title_id, season_number FROM source_dirs WHERE path = ?',
+    'SELECT title_id, season_number FROM source_dirs WHERE root_id = ? AND path = ?',
+    rootId,
     dirRel,
   );
   if (known) return { status: 'matched', titleId: known.title_id, seasonNumber: known.season_number };
   const found = await matchSeries(ctx, folder);
   if ('candidates' in found) return { status: 'no_match', candidates: found.candidates };
-  return adoptSeries(ctx, dirRel, found.tv, found.group);
+  return adoptSeries(ctx, dirRel, found.tv, found.group, undefined, rootId);
 }
 
 function locateAbsolute(

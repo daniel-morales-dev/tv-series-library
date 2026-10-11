@@ -5,6 +5,8 @@ export interface ClaimedJob {
   id: number;
   mediaFileId: number;
   path: string;
+  /** Library root the file lives in (T9b): presence is checked per root. */
+  rootId: number;
   durationS: number | null;
   /** Imported/queued without a play request and without a package: a copy-mode file may stay unpackaged (T47c). */
   lazyEligible?: boolean;
@@ -120,13 +122,17 @@ export function requeueErrors(db: DatabaseSync): void {
 }
 
 // Requested-to-play first, then episodes and movies before extras, then oldest first.
-export function claimNext(db: DatabaseSync): ClaimedJob | undefined {
+// T9b: `rootIds` limits the claim to those roots (an absent root's jobs stay queued); omitted = no limit.
+export function claimNext(db: DatabaseSync, rootIds?: readonly number[]): ClaimedJob | undefined {
+  if (rootIds !== undefined && rootIds.length === 0) return undefined;
+  const filter = rootIds ? ` AND m.root_id IN (${rootIds.map(() => '?').join(',')})` : '';
   return transaction(db, () => {
-    const row = get<{ id: number; media_file_id: number; path: string; duration_s: number | null; priority: number; hls_dir: string | null }>(
+    const row = get<{ id: number; media_file_id: number; path: string; duration_s: number | null; priority: number; hls_dir: string | null; root_id: number }>(
       db,
-      `SELECT j.id, j.media_file_id, m.path, m.duration_s, j.priority, m.hls_dir FROM jobs j JOIN media_files m ON m.id = j.media_file_id
-       WHERE j.type = 'process' AND j.status = 'queued'
+      `SELECT j.id, j.media_file_id, m.path, m.duration_s, j.priority, m.hls_dir, m.root_id FROM jobs j JOIN media_files m ON m.id = j.media_file_id
+       WHERE j.type = 'process' AND j.status = 'queued'${filter}
        ORDER BY j.priority DESC, (m.extra_label IS NOT NULL), j.id LIMIT 1`,
+      ...(rootIds ?? []),
     );
     if (!row) return undefined;
     run(db, `UPDATE jobs SET status = 'running', progress = 0, error = NULL, ${CLEAR_PROCESS}, updated_at = ${NOW} WHERE id = ?`, row.id);
@@ -135,6 +141,7 @@ export function claimNext(db: DatabaseSync): ClaimedJob | undefined {
       id: row.id,
       mediaFileId: row.media_file_id,
       path: row.path,
+      rootId: row.root_id,
       durationS: row.duration_s,
       lazyEligible: row.priority === 0 && row.hls_dir === null,
     };
@@ -153,12 +160,13 @@ export function setSpawned(db: DatabaseSync, jobId: number, p: SpawnedProcess): 
 export function runningWithProcess(db: DatabaseSync): RunningProcessJob[] {
   return all<Record<string, unknown>>(
     db,
-    `SELECT j.id, j.media_file_id, m.path, m.duration_s, j.pid, j.pid_start, j.plan_hash FROM jobs j JOIN media_files m ON m.id = j.media_file_id
+    `SELECT j.id, j.media_file_id, m.path, m.duration_s, m.root_id, j.pid, j.pid_start, j.plan_hash FROM jobs j JOIN media_files m ON m.id = j.media_file_id
      WHERE j.type = 'process' AND j.status = 'running' AND j.pid IS NOT NULL AND j.pid_start IS NOT NULL ORDER BY j.id`,
   ).map((r) => ({
     id: r.id as number,
     mediaFileId: r.media_file_id as number,
     path: r.path as string,
+    rootId: r.root_id as number,
     durationS: r.duration_s as number | null,
     pid: r.pid as number,
     pidStart: r.pid_start as number,
