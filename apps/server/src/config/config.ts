@@ -36,10 +36,11 @@ export type SetContentDirResult =
   | { ok: false; error: 'invalid_path' | 'not_directory' | 'not_found' }
   | { ok: true; status: ConfigStatus };
 
-/** ~/.config/sala on Linux (or XDG_CONFIG_HOME), %LOCALAPPDATA%\sala on Windows. */
+/** ~/.config/sala on Linux (or XDG_CONFIG_HOME), %LOCALAPPDATA%\sala on Windows, ~/Library/Application Support/sala on macOS. */
 export function configDir(env: NodeJS.ProcessEnv = process.env): string {
   if (env.SALA_CONFIG_DIR) return env.SALA_CONFIG_DIR;
   if (process.platform === 'win32') return join(env.LOCALAPPDATA ?? homedir(), 'sala');
+  if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support', 'sala');
   return join(env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'sala');
 }
 
@@ -238,7 +239,9 @@ export function resolveTmdbToken(env: NodeJS.ProcessEnv = process.env, options: 
 
 /** T60: where a brand-new library is proposed when no folder exists yet (installed app, no repo `content/`). */
 export function defaultLibraryDir({ platform = process.platform, home = homedir() }: { platform?: NodeJS.Platform; home?: string } = {}): string {
-  return (platform === 'win32' ? win32 : posix).join(home, 'Videos', 'Sala');
+  // macOS has no ~/Videos: the user-facing video folder there is ~/Movies.
+  const folder = platform === 'darwin' ? 'Movies' : 'Videos';
+  return (platform === 'win32' ? win32 : posix).join(home, folder, 'Sala');
 }
 
 export function expandHome(input: string): string {

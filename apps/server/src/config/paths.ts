@@ -25,9 +25,10 @@ export interface PathsOptions {
   configDir?: string;
 }
 
-/** `$XDG_DATA_HOME/sala` (default `~/.local/share/sala`) on Linux, `%LOCALAPPDATA%\sala\data` on Windows. */
+/** `~/.local/share/sala` on Linux (or XDG_DATA_HOME), `%LOCALAPPDATA%\sala\data` on Windows, `~/Library/Application Support/sala/data` on macOS. */
 export function userStateDir(env: NodeJS.ProcessEnv = process.env, { platform = process.platform, home = homedir() }: PathsOptions = {}): string {
   if (platform === 'win32') return win32.join(env.LOCALAPPDATA ?? home, 'sala', 'data');
+  if (platform === 'darwin') return join(home, 'Library', 'Application Support', 'sala', 'data');
   const base = env.XDG_DATA_HOME && isAbsolute(env.XDG_DATA_HOME) ? env.XDG_DATA_HOME : join(home, '.local', 'share');
   return join(base, 'sala');
 }
