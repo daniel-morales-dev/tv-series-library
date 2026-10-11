@@ -12,21 +12,44 @@ export interface SeasonRows {
   rows: EpisodeRow[];
 }
 
-export function buildEpisodes(d: TitleDetail): SeasonRows[] {
+/** The file fields the play order reads; a full `MediaFile` also fits. */
+interface PlayableFile {
+  id: number;
+  status: string;
+  episodeId: number | null;
+  extraLabel: string | null;
+}
+
+/**
+ * The single play order: seasons by air date (undated last), then number, episodes by number, newest
+ * non-extra file per episode (`null` when the episode has none). `buildEpisodes` and `firstFileId` both build on it.
+ */
+export function orderedSeasons<S extends { number: number; airDate?: string | null; episodes: { id: number; number: number }[] }, F extends PlayableFile>(
+  d: { seasons: S[]; files: F[] },
+): { season: S; rows: { episode: S['episodes'][number]; file: F | null }[] }[] {
   return [...d.seasons]
-    .sort((a, b) => a.number - b.number)
-    .map((s) => ({
-      id: s.id,
-      number: s.number,
-      name: s.name,
-      rows: [...s.episodes]
+    .sort((a, b) => (a.airDate ?? '9999').localeCompare(b.airDate ?? '9999') || a.number - b.number)
+    .map((season) => ({
+      season,
+      rows: [...season.episodes]
         .sort((a, b) => a.number - b.number)
-        .map((e) => {
-          // Newest playable row wins: a stale re-ingest must not shadow the current file.
-          const file = pickFile(d.files.filter((f) => f.episodeId === e.id && !f.extraLabel));
-          return { ...e, season: s.number, file, progress: (file && d.progress?.find((p) => p.mediaFileId === file.id)) || null };
-        }),
+        // Newest playable row wins: a stale re-ingest must not shadow the current file.
+        .map((episode) => ({ episode, file: pickFile(d.files.filter((f) => f.episodeId === episode.id && !f.extraLabel)) })),
     }));
+}
+
+export function buildEpisodes(d: TitleDetail): SeasonRows[] {
+  return orderedSeasons(d).map(({ season, rows }) => ({
+    id: season.id,
+    number: season.number,
+    name: season.name,
+    rows: rows.map(({ episode, file }) => ({
+      ...episode,
+      season: season.number,
+      file,
+      progress: (file && d.progress?.find((p) => p.mediaFileId === file.id)) || null,
+    })),
+  }));
 }
 
 /** Every episode of the season that has a file is completed (episodes without a file cannot be marked). */

@@ -51,6 +51,12 @@ describe('GET /api/stream', () => {
     expect(res.headers['cache-control']).toBe('no-cache');
   });
 
+  // T87: a repair rewrites subtitles in place; a cached copy would keep showing the broken text.
+  it.each(['subs/0.vtt', 'subs/0.ass'])('serves %s uncached too', async (rel) => {
+    const res = await env().app.inject(`/api/stream/7/${rel}`);
+    expect(res.headers['cache-control']).toBe('no-cache');
+  });
+
   it.each([
     ['unknown file', '/api/stream/7/missing.m3u8'],
     ['unknown media file', '/api/stream/8/master.m3u8'],
@@ -61,6 +67,28 @@ describe('GET /api/stream', () => {
     ['directory', '/api/stream/7/subs'],
   ])('answers 404 for %s', async (_name, url) => {
     expect((await env().app.inject(url)).statusCode).toBe(404);
+  });
+});
+
+describe('GET /api/stream/:id/fonts', () => {
+  it('lists only the package fonts, sorted', async () => {
+    const { app, dataDir } = env();
+    writeFileSync(join(dataDir, 'hls', '7', 'fonts', 'Zapf.otf'), 'font');
+    writeFileSync(join(dataDir, 'hls', '7', 'fonts', 'README.txt'), 'nope');
+    const res = await app.inject('/api/stream/7/fonts');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ fonts: ['Arial.TTF', 'Zapf.otf'] });
+  });
+
+  it('reads the fonts of a package still being processed', async () => {
+    const { app, dataDir } = env();
+    mkdirSync(join(dataDir, 'hls', '9.tmp', 'fonts'), { recursive: true });
+    writeFileSync(join(dataDir, 'hls', '9.tmp', 'fonts', 'X.ttf'), 'font');
+    expect((await app.inject('/api/stream/9/fonts')).json()).toEqual({ fonts: ['X.ttf'] });
+  });
+
+  it('answers an empty list when there is no package', async () => {
+    expect((await env().app.inject('/api/stream/8/fonts')).json()).toEqual({ fonts: [] });
   });
 });
 
@@ -107,6 +135,19 @@ describe('POST /api/media-files/:id/play', () => {
     }
     expect(get(db, 'SELECT COUNT(*) AS n FROM jobs')).toEqual({ n: 0 });
     expect(get(db, 'SELECT status FROM media_files WHERE id = ?', f)).toEqual({ status: 'downloading' });
+  });
+
+  it('answers 409 for a file that vanished from the library and never queues it', async () => {
+    const { db, app } = env();
+    const f = addFile(db, addTitle(db, 'T'), { status: 'missing' });
+    for (const action of ['play', 'process']) {
+      const res = await app.inject({ method: 'POST', url: `/api/media-files/${f}/${action}` });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toMatchObject({ error: 'missing' });
+      expect(res.json().message).toBeTruthy();
+    }
+    expect(get(db, 'SELECT COUNT(*) AS n FROM jobs')).toEqual({ n: 0 });
+    expect(get(db, 'SELECT status FROM media_files WHERE id = ?', f)).toEqual({ status: 'missing' });
   });
 
   it('answers 404 for an unknown file', async () => {

@@ -1,5 +1,6 @@
+import { streamUrl } from './api.ts';
 import { languageName } from './languages.ts';
-import { pickFile } from './titlePage.ts';
+import { buildEpisodes } from './titlePage.ts';
 import type { SubtitleTrack, TitleDetail, WatchProgress } from './types.ts';
 
 /** Seconds to start from: the saved spot unless finished or barely started. */
@@ -21,6 +22,46 @@ export function subtitleLabel(t: SubtitleTrack, i: number): string {
   return t.title && !plain.includes(t.title.toLowerCase()) ? `${lang} · ${t.title}` : lang;
 }
 
+/** T80: one selectable subtitle row; `ass` renders with libass (JASSUB), `vtt` with the native track element. */
+export interface SubtitleChoice {
+  /** Index into the track list handed to `subtitleChoices`. */
+  track: number;
+  mode: 'ass' | 'vtt';
+}
+
+/** Menu rows per track: the ASS original when the package carries one, plus the simple copy when both exist. */
+export function subtitleChoices(tracks: SubtitleTrack[], assOk = true): SubtitleChoice[] {
+  return tracks.flatMap((t, track) => [
+    ...(assOk && t.ass ? [{ track, mode: 'ass' as const }] : []),
+    ...(t.vtt ? [{ track, mode: 'vtt' as const }] : []),
+  ]);
+}
+
+/** Index in `choices` of the default track (first Spanish), its ASS row when that track has one. */
+export function defaultSubtitleChoice(choices: SubtitleChoice[], tracks: SubtitleTrack[]): number {
+  const track = defaultSubtitle(tracks);
+  return track < 0 ? -1 : choices.findIndex((c) => c.track === track);
+}
+
+/** "Español · Original (ASS)" / "Español · Simple" when the track offers both; the plain label otherwise. */
+export function subtitleChoiceLabel(choice: SubtitleChoice, tracks: SubtitleTrack[]): string {
+  const track = tracks[choice.track];
+  if (!track) return '';
+  const label = subtitleLabel(track, choice.track);
+  if (!track.ass || !track.vtt) return label;
+  return `${label} · ${choice.mode === 'ass' ? 'Original (ASS)' : 'Simple'}`;
+}
+
+/** T80: font names a package really serves — a plain file name with a font extension, nothing path-like. */
+export function parseFontList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((n): n is string => typeof n === 'string' && /^[\w.-]+\.(ttf|otf|ttc|woff2?)$/i.test(n)) : [];
+}
+
+/** T80: the URLs JASSUB fetches the package fonts from. */
+export function fontUrls(mediaFileId: number, names: string[]): string[] {
+  return names.map((name) => streamUrl(mediaFileId, `fonts/${name}`));
+}
+
 interface EpisodeFile {
   episodeId: number;
   fileId: number;
@@ -29,13 +70,9 @@ interface EpisodeFile {
 
 /** Playable rows in season → episode order; the newest live file per episode wins, extras don't count. */
 function orderedFiles(detail: TitleDetail): EpisodeFile[] {
-  return [...detail.seasons]
-    .sort((a, b) => a.number - b.number)
-    .flatMap((s) => [...s.episodes].sort((a, b) => a.number - b.number))
-    .flatMap((e) => {
-      const f = pickFile(detail.files.filter((x) => x.episodeId === e.id && !x.extraLabel));
-      return f ? [{ episodeId: e.id, fileId: f.id, name: e.name || `Episodio ${e.number}` }] : [];
-    });
+  return buildEpisodes(detail)
+    .flatMap((s) => s.rows)
+    .flatMap((r) => (r.file ? [{ episodeId: r.id, fileId: r.file.id, name: r.name || `Episodio ${r.number}` }] : []));
 }
 
 /** Index of the playing row in `ordered`; a stale duplicate must not hide its episode, so match the episode too. */
@@ -44,21 +81,19 @@ function playingIndex(detail: TitleDetail, ordered: EpisodeFile[], fileId: numbe
   return ordered.findIndex((x) => x.fileId === fileId || x.episodeId === current?.episodeId);
 }
 
-/** Next episode with a file, in season → episode order. */
-export function nextFile(detail: TitleDetail, fileId: number): { fileId: number; name: string } | null {
+/** The episode `delta` rows away in season → episode order: 1 is next, -1 is previous. */
+export function neighborFile(detail: TitleDetail, fileId: number, delta: 1 | -1): { fileId: number; name: string } | null {
   const ordered = orderedFiles(detail);
   const i = playingIndex(detail, ordered, fileId);
-  const next = i >= 0 ? ordered[i + 1] : undefined;
-  return next ? { fileId: next.fileId, name: next.name } : null;
+  const row = i >= 0 ? ordered[i + delta] : undefined;
+  return row ? { fileId: row.fileId, name: row.name } : null;
 }
 
-/** Previous episode with a file, in season → episode order. Mirrors `nextFile`. */
-export function prevFile(detail: TitleDetail, fileId: number): { fileId: number; name: string } | null {
-  const ordered = orderedFiles(detail);
-  const i = playingIndex(detail, ordered, fileId);
-  const prev = i > 0 ? ordered[i - 1] : undefined;
-  return prev ? { fileId: prev.fileId, name: prev.name } : null;
-}
+/** Next episode with a file, in season → episode order. */
+export const nextFile = (detail: TitleDetail, fileId: number): { fileId: number; name: string } | null => neighborFile(detail, fileId, 1);
+
+/** Previous episode with a file, in season → episode order. */
+export const prevFile = (detail: TitleDetail, fileId: number): { fileId: number; name: string } | null => neighborFile(detail, fileId, -1);
 
 /** One row of the player's audio menu; `id` is the hls.js track index used by `pickAudio`. */
 export function audioMenu(tracks: readonly { lang?: string | null; name?: string | null }[]): { id: number; name: string }[] {
@@ -87,4 +122,9 @@ export function seekRange(current: number, duration: number): { max: number; val
   if (!Number.isFinite(duration) || duration <= 0) return null;
   const value = Number.isFinite(current) ? Math.min(Math.max(current, 0), duration) : 0;
   return { max: duration, value };
+}
+
+/** Whether the idle timer may hide the chrome: focus inside it blocks the fade only for a keyboard/remote user. */
+export function idleAllowed(modality: 'pointer' | 'keyboard', chromeFocused: boolean): boolean {
+  return !chromeFocused || modality === 'pointer';
 }

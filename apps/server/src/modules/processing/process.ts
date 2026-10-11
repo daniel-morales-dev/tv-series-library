@@ -9,6 +9,7 @@ import { ESTIMATE_RATIO, dirBytes } from './cache.ts';
 import { dedupeFontsDir } from './fonts.ts';
 import { type Plan, buildPlan } from './plan.ts';
 import type { ProcessResult, ProcessTracks } from './queue.ts';
+import { sanitizeVttFile } from './vtt.ts';
 
 const HAS_VARIANT = /^#EXT-X-STREAM-INF:/m;
 const ENDS_WITH_PLAYLIST = /\.m3u8\n*$/;
@@ -200,6 +201,8 @@ export async function processMedia(
       for (const dir of ['v', ...plan.audio.map((a) => `a${a.n}`), 'subs', 'fonts']) await mkdir(join(tmpDir, dir), { recursive: true });
       // Subtitles and fonts first, so they exist as soon as playback can start.
       if (plan.subtitles.some((s) => s.supported) || plan.fonts.length > 0) await deps.runFfmpeg(extractArgs(plan, src, tmpDir), { signal, cwd: tmpDir });
+      // ffmpeg's webvtt conversion leaves ASS override payloads (`{=1}`, `{OP}`, `\p1` drawing geometry) as visible text.
+      for (const s of plan.subtitles) if (s.vtt) await sanitizeVttFile(join(tmpDir, s.vtt));
       // Best effort: a store that cannot be written just leaves the fonts as plain files.
       if (plan.fonts.length > 0) await dedupeFontsDir(join(tmpDir, 'fonts'), join(resolve(deps.dataDir), 'fonts', '_store')).catch(() => {});
 

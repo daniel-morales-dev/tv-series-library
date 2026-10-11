@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { api, getProfileId, imageUrl } from '../api.ts';
+import { api, errorText, getProfileId, imageUrl } from '../api.ts';
 import EpisodePanel from '../components/EpisodePanel.vue';
 import ExtraCard from '../components/ExtraCard.vue';
 import Icon from '../components/Icon.vue';
@@ -10,6 +10,7 @@ import { franchiseEntries } from '../franchise.ts';
 import { fileStatus, movieStatus, needsPolling } from '../fileStatus.ts';
 import { fileLanguages, titleLanguages } from '../languages.ts';
 import { KIND_LABEL, initial, progressPct, remainingLabel, unavailableNotice } from '../library.ts';
+import { reanalyzeSummary } from '../maintenance.ts';
 import { hasHero, inMyList, loadMyList, toggleMyList } from '../session.ts';
 import { airDateLabel, buildEpisodes, castOf, episodeAction, isPlayable, playPlan, runtimeLabel, seasonFinished, seenToggle, type EpisodeRow } from '../titlePage.ts';
 import type { Job, MediaFile, TitleDetail } from '../types.ts';
@@ -110,7 +111,22 @@ async function toggleFinished() {
 
 // T52: explicit on-demand TMDB refresh; the only action that re-queries TMDB for an existing title.
 const refreshing = ref(false);
+// T81: full reanalysis of this title (folder + episodes + TMDB); slower than the TMDB-only refresh.
+const reanalyzing = ref(false);
 const refreshMsg = ref<{ ok: boolean; text: string } | null>(null);
+async function reanalyzeTitle() {
+  if (!detail.value || reanalyzing.value) return;
+  reanalyzing.value = true;
+  refreshMsg.value = null;
+  try {
+    refreshMsg.value = { ok: true, text: reanalyzeSummary(await api.reanalyze(detail.value.id)) };
+    await load();
+  } catch (err) {
+    refreshMsg.value = { ok: false, text: errorText(err, 'No se pudo re-analizar el título.') };
+  } finally {
+    reanalyzing.value = false;
+  }
+}
 async function refreshMetadata() {
   if (!detail.value || refreshing.value) return;
   refreshing.value = true;
@@ -202,9 +218,11 @@ async function closeEpisode() {
           <button class="pill glass" :disabled="busy" :aria-pressed="!!detail.finished" @click="toggleFinished">
             <Icon :name="detail.finished ? 'close' : 'check'" :size="20" /> {{ detail.finished ? 'No visto' : 'Marcar como visto' }}
           </button>
-          <button class="pill glass" :disabled="refreshing" @click="refreshMetadata">
-            {{ refreshing ? 'Refrescando…' : 'Refrescar metadata' }}
+          <button class="pill glass" :disabled="reanalyzing" @click="reanalyzeTitle">
+            {{ reanalyzing ? 'Re-analizando…' : 'Re-analizar título' }}
           </button>
+          <span class="reanalyze-help">Vuelve a leer la carpeta, reasigna episodios y actualiza la información de TMDB.</span>
+          <button class="pill glass" :disabled="refreshing" @click="refreshMetadata">Solo TMDB (refrescar metadata)</button>
           <span v-if="refreshMsg" class="refresh-msg" :class="{ bad: !refreshMsg.ok }" role="status">{{ refreshMsg.text }}</span>
         </div>
       </div>
@@ -355,6 +373,7 @@ async function closeEpisode() {
 .pill:disabled { opacity: 0.6; cursor: default; }
 .refresh-msg { font-size: 0.85rem; color: var(--text-dim); }
 .refresh-msg.bad { color: var(--danger); }
+.reanalyze-help { font-size: 0.85rem; color: var(--text-dim); max-width: 58ch; }
 
 .content { position: relative; z-index: 2; padding: 0 var(--gutter) 80px; max-width: 1500px; margin: 0 auto; }
 section { margin-top: 26px; }

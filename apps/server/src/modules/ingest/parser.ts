@@ -10,13 +10,44 @@ export type Parsed =
 const UNPARSED: Parsed = { kind: 'unparsed' };
 const NOISE = /^(?:\d{3,4}p|x26[45]|h26[45]|hevc|bluray|brrip|bdrip|web-?dl|webrip|hdtv|dvdrip|remux)$/i;
 const EXTRA = /^(?:(?:OP|ED|PV|SP)\d+[a-z]?|NCOP\d*[a-z]?|NCED\d*[a-z]?|SP|PREVIEW|MENU|COMMENTARY)$/i;
-const SEASON_DIR = /^(?:season|temporada|s)[\s._-]*(\d+)$/i;
+// Spanish ordinal words for a season name ("Cuarta Temporada"): primera=1 .. décima=10, accent-insensitive.
+const ORDINAL_WORD = new Map([
+  ['primera', 1],
+  ['segunda', 2],
+  ['tercera', 3],
+  ['cuarta', 4],
+  ['quinta', 5],
+  ['sexta', 6],
+  ['septima', 7],
+  ['octava', 8],
+  ['novena', 9],
+  ['decima', 10],
+]);
+const fold = (word: string): string => word.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+// Folds a full name for identity comparison: accents, punctuation and case removed. Shared by the
+// folder/group matcher and the season-name collision check.
+export const normalize = (s: string): string =>
+  s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+// TMDB dates ("2009-07-03") to their year, or null when there is none.
+export const yearOf = (date?: string | null) => (date ? Number(date.slice(0, 4)) || null : null);
+// Season number spelled in a folder or as a show-name suffix: "Season 3", "Temporada 4",
+// "Cuarta Temporada", "4ª Temporada", "S5".
+const SEASON_PHRASE = /^(?:season|temporada|s)[\s._-]*(\d+)$|^(\d{1,2})\s*[ªa]?[\s._-]+temporada$|^([a-záéíóú]+)[\s._-]+temporada$/i;
+function seasonNumber(text: string): number | null {
+  const m = SEASON_PHRASE.exec(text);
+  if (!m) return null;
+  if (m[1]) return Number(m[1]);
+  if (m[2]) return Number(m[2]);
+  const word = m[3] ? ORDINAL_WORD.get(fold(m[3])) : undefined;
+  return word ?? null;
+}
 // Episode-number token, e.g. "01", "E12", "09v2"; also the value after a season pair ("Show S5 - 01").
 const EPISODE_NUMBER = /^(?:E|EP|EPISODE)?\d{1,4}(?:v\d)?$/i;
 // Glued single-token pairs. Marker form "S5E1"/"S05-E01v2"/"T5-EP01": the marker makes the
 // "-" optional. Dash form "S5-01"/"S05-01v2"/"T5-01": "-" required, so "S501" stays unmatched.
 const GLUED_MARKER = /^[ST](\d{1,2})-?(?:EPISODE|EP|E)(\d{1,4})(?:v\d)?$/i;
 const GLUED_DASH = /^[ST](\d{1,2})-(\d{1,4})(?:v\d)?$/i;
+const GLUED_CROSS = /^(\d{1,2})x(\d{1,3})$/i;
 // Adjacent-token season: "S5"/"T5" or an uppercase roman numeral ("V", "XII"), value 1-20.
 const SEASON_TOKEN = /^[ST](\d{1,2})$/i;
 const ROMAN_TOKEN = /^[IVXLCDM]{1,5}$/;
@@ -32,6 +63,19 @@ function romanSeason(token: string): number | null {
   return value >= 1 && value <= 20 ? value : null;
 }
 
+// Season/episode pair on adjacent tokens ("S5 - 01", "V - 02v2"): cleanName drops the dash, so the season
+// token and the episode number sit side by side. The season token's position is what names the show.
+function adjacentSeason(tokens: string[]): { index: number; season: number; number: number } | null {
+  for (const [i, t] of tokens.entries()) {
+    const next = tokens[i + 1];
+    if (!next || !EPISODE_NUMBER.test(next)) continue;
+    const m = SEASON_TOKEN.exec(t);
+    const season = m ? Number(m[1]) : romanSeason(t);
+    if (season !== null) return { index: i, season, number: Number(/\d+/.exec(next)![0]) };
+  }
+  return null;
+}
+
 // Drops [group]/(info) blocks and turns separators into spaces.
 export function cleanName(raw: string): string {
   return raw
@@ -44,12 +88,28 @@ export function cleanName(raw: string): string {
 
 const stem = (file: string) => basename(file, extname(file));
 
-// Trailing season marker on a show name: "Show S2", "Show Season 3", "Show 2nd Season".
-const SEASON_MARKER = /\s+(?:S(\d{1,2})|Season\s+(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)\s+Season)$/i;
-function splitSeasonMarker(name: string): { show: string; season: number | null } {
+// Trailing season marker on a show name: "Show S2", "Show Season 3", "Show 2nd Season",
+// "Show Cuarta Temporada", "Show Temporada 4", "Show 4ª Temporada".
+const SEASON_MARKER = /\s+(?:S(\d{1,2})|Season\s+(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)\s+Season|Temporada\s+(\d{1,2})|(\d{1,2})\s*[ªa]?\s+Temporada|([a-záéíóú]+)\s+Temporada)$/i;
+export function splitSeasonMarker(name: string): { show: string; season: number | null } {
   const m = SEASON_MARKER.exec(name);
   if (!m) return { show: name, season: null };
-  return { show: name.slice(0, m.index), season: Number(m[1] ?? m[2] ?? m[3]) };
+  const ordinal = m[6] !== undefined ? ORDINAL_WORD.get(fold(m[6])) : undefined;
+  // A word before "Temporada" that is not an ordinal is part of the show name, not a marker.
+  if (m[6] !== undefined && ordinal === undefined) return { show: name, season: null };
+  return { show: name.slice(0, m.index), season: ordinal ?? Number(m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5]) };
+}
+
+// T72: season/episode pair inside a container title tag ("S05E06-Orario: Distorted City"), using the
+// same token vocabulary as the file-name parser: glued "S05E06"/"5x01", adjacent "S3 - 12".
+export function parseTitleTag(title: string): { season: number; number: number } | null {
+  const tokens = cleanName(title).split(/[\s-]+/).filter(Boolean);
+  for (const t of tokens) {
+    const m = GLUED_MARKER.exec(t) ?? GLUED_CROSS.exec(t);
+    if (m) return { season: Number(m[1]), number: Number(m[2]) };
+  }
+  const adjacent = adjacentSeason(tokens);
+  return adjacent ? { season: adjacent.season, number: adjacent.number } : null;
 }
 
 function parseMovie(parts: string[]): Parsed {
@@ -73,13 +133,10 @@ function parseShow(parts: string[]): Parsed {
     .filter((t) => t !== '-');
   const folder = parts.length >= 3 ? cleanName(parts[1]!) : null;
   const show = (marker: number) => folder ?? tokens.slice(0, marker).join(' ');
-  const seasonDir = parts
-    .slice(2, -1)
-    .map((p) => SEASON_DIR.exec(p))
-    .find(Boolean);
+  const dirSeason = parts.slice(2, -1).map(seasonNumber).find((n) => n !== null) ?? null;
 
   for (const [i, t] of tokens.entries()) {
-    const m = GLUED_MARKER.exec(t) ?? GLUED_DASH.exec(t) ?? /^(\d{1,2})x(\d{1,3})$/i.exec(t);
+    const m = GLUED_MARKER.exec(t) ?? GLUED_DASH.exec(t) ?? GLUED_CROSS.exec(t);
     if (m) return withShow(show(i), { season: Number(m[1]), number: Number(m[2]) });
   }
   const extra = tokens.findIndex((t) => EXTRA.test(t));
@@ -93,19 +150,15 @@ function parseShow(parts: string[]): Parsed {
   }
   // "Show S5 - 01": cleanName drops the "-" later, so the season token and the episode
   // number sit adjacent. Roman seasons ("V - 02v2", "XII EP12") take the same path.
-  for (const [i, t] of tokens.entries()) {
-    const next = tokens[i + 1];
-    if (!next || !EPISODE_NUMBER.test(next)) continue;
-    const m = SEASON_TOKEN.exec(t);
-    const season = m ? Number(m[1]) : romanSeason(t);
-    if (season !== null) {
-      return withShow(show(i), { season, number: Number(/\d+/.exec(next)![0]) });
-    }
-  }
-  const season = seasonDir ? Number(seasonDir[1]) : null;
+  const adjacent = adjacentSeason(tokens);
+  if (adjacent) return withShow(show(adjacent.index), { season: adjacent.season, number: adjacent.number });
   const abs = tokens.findLastIndex((t) => EPISODE_NUMBER.test(t));
   if (abs < 0) return UNPARSED;
-  return withShow(show(abs), { season, number: Number(/\d+/.exec(tokens[abs]!)![0]) });
+  // The file name may carry the season marker ("ReZero Cuarta Temporada - 17") even when the folder
+  // does not; the folder still names the show. File marker beats the folder one, the folder still wins
+  // as the show name.
+  const named = splitSeasonMarker(tokens.slice(0, abs).join(' '));
+  return withShow(folder ?? named.show, { season: dirSeason ?? named.season, number: Number(/\d+/.exec(tokens[abs]!)![0]) });
 }
 
 // The file's own season wins; the show's trailing marker only fills a missing one.

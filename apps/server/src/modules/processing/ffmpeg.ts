@@ -129,39 +129,56 @@ function tail(file: string): string {
 
 export const runFfmpeg: RunFfmpeg = createRunFfmpeg();
 
-interface FfprobeStream {
+// A stream as ffprobe reports it; the ingest probe and the planner read the same fields.
+export interface FfprobeStream {
   index: number;
   codec_type?: string;
   codec_name?: string;
-  profile?: string;
-  pix_fmt?: string;
   channels?: number;
-  disposition?: { attached_pic?: number };
   tags?: Record<string, string>;
 }
 
-export const probeStreams: ProbeStreams = async (absPath) => {
+interface FfprobeVideoStream extends FfprobeStream {
+  profile?: string;
+  pix_fmt?: string;
+  disposition?: { attached_pic?: number };
+}
+
+export interface FfprobeTrack {
+  index: number;
+  codec: string | null;
+  language: string | null;
+  title: string | null;
+}
+
+export const ffprobeTrack = (s: FfprobeStream): FfprobeTrack => ({
+  index: s.index,
+  codec: s.codec_name ?? null,
+  language: s.tags?.language ?? null,
+  title: s.tags?.title ?? null,
+});
+
+// One ffprobe run for every consumer, same args and limits; `extraArgs` adds probe flags (-show_chapters).
+export async function runFfprobeJson<T>(absPath: string, extraArgs: string[] = []): Promise<T> {
   const { stdout } = await execFileAsync(
     ffprobeBin(),
-    ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', absPath],
+    ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', ...extraArgs, absPath],
     { maxBuffer: 32 * 1024 * 1024, timeout: 60_000 },
   );
-  const data = JSON.parse(stdout) as { format?: { duration?: string }; streams?: FfprobeStream[] };
+  return JSON.parse(stdout) as T;
+}
+
+export const probeStreams: ProbeStreams = async (absPath) => {
+  const data = await runFfprobeJson<{ format?: { duration?: string }; streams?: FfprobeVideoStream[] }>(absPath);
   const streams = data.streams ?? [];
   const of = (type: string) => streams.filter((s) => s.codec_type === type);
-  const track = (s: FfprobeStream) => ({
-    index: s.index,
-    codec: s.codec_name ?? null,
-    language: s.tags?.language ?? null,
-    title: s.tags?.title ?? null,
-  });
   // Cover art is reported as a video stream; the real one is the first that is not an attached picture.
   const video = of('video').find((s) => !s.disposition?.attached_pic);
   return {
     durationS: Number(data.format?.duration),
     video: video ? { index: video.index, codec: video.codec_name ?? null, profile: video.profile ?? null, pixFmt: video.pix_fmt ?? null } : null,
-    audio: of('audio').map((s) => ({ ...track(s), channels: s.channels })),
-    subtitles: of('subtitle').map(track),
+    audio: of('audio').map((s) => ({ ...ffprobeTrack(s), channels: s.channels })),
+    subtitles: of('subtitle').map(ffprobeTrack),
     attachments: of('attachment').map(
       (s): AttachmentInfo => ({ index: s.index, filename: s.tags?.filename ?? null, mimetype: s.tags?.mimetype ?? null }),
     ),

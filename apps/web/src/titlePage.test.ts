@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { airDateLabel, buildEpisodes, castOf, episodeAction, episodeSeen, playPlan, runtimeLabel, seasonFinished, seenToggle } from './titlePage.ts';
-import type { Credit, Episode, MediaFile, TitleDetail } from './types.ts';
+import type { Credit, Episode, MediaFile, Season, TitleDetail } from './types.ts';
 
 const ep = (id: number, number: number): Episode => ({ id, number, name: `E${number}`, overview: null, runtimeMin: 24, stillPath: null, airDate: null });
 const file = (id: number, episodeId: number | null, extra: Partial<MediaFile> = {}): MediaFile => ({
@@ -47,6 +47,18 @@ describe('buildEpisodes', () => {
   it('still ignores extras attached to the episode', () => {
     const [s] = buildEpisodes(detail({ files: [file(20, 1, { extraLabel: 'OP' }), file(11, 1)] }));
     expect(s!.rows[0]).toMatchObject({ file: { id: 11 } });
+  });
+});
+
+describe('season order', () => {
+  const season = (number: number, airDate: string | null): Season => ({ id: number, number, name: null, airDate, episodes: [ep(number * 10, 1)] });
+  it('orders by air date, undated seasons last, then number', () => {
+    const d = detail({ seasons: [season(3, '2013-07-07'), season(4, '2012-12-31'), season(5, null)], files: [] });
+    expect(buildEpisodes(d).map((s) => s.number)).toEqual([4, 3, 5]);
+  });
+  it('starts playback at the earliest season', () => {
+    const d = detail({ seasons: [season(3, '2013-07-07'), season(4, '2012-12-31')], files: [file(41, 40), file(31, 30)] });
+    expect(playPlan(d)).toMatchObject({ fileId: 41, label: 'Reproducir' });
   });
 });
 

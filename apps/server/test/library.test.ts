@@ -81,6 +81,19 @@ describe('continue watching', () => {
     expect(item).toMatchObject({ mediaFileId: s2e1, positionS: 0, season: 2, episode: 1 });
   });
 
+  it('follows the title detail season order when the internal number is not chronological', async () => {
+    const { app, db } = setup();
+    const p = addProfile(db);
+    const t = addTitle(db, 'Monogatari', { kind: 'anime' });
+    const neko = addEpisode(db, t, 4, 1); // aired first, numbered later
+    const second = addEpisode(db, t, 3, 1);
+    run(db, 'UPDATE seasons SET air_date = ? WHERE title_id = ? AND number = ?', '2012-12-31', t, 4);
+    run(db, 'UPDATE seasons SET air_date = ? WHERE title_id = ? AND number = ?', '2013-07-07', t, 3);
+    progress(db, p, neko, 990, 1000, '2026-01-01T00:00:00Z');
+    const [item] = await list(app, p);
+    expect(item).toMatchObject({ mediaFileId: second, positionS: 0, season: 3, episode: 1 });
+  });
+
   it('exposes the target episode id and its still', async () => {
     const { app, db } = setup();
     const p = addProfile(db);

@@ -51,7 +51,7 @@ const COPY_AUDIO = new Set(['aac', 'mp3']);
 const TEXT_SUBS = new Set(['ass', 'ssa', 'subrip', 'mov_text', 'webvtt']);
 const ASS_SUBS = new Set(['ass', 'ssa']);
 const COPY_PROFILES = /^(Constrained )?Baseline$|^Main$|^High$/;
-const FONT_FILE = /\.(ttf|otf|ttc|woff2?)$/i;
+export const FONT_FILE = /\.(ttf|otf|ttc|woff2?)$/i;
 
 function videoMode(v: NonNullable<StreamInfo['video']>): 'copy' | 'x264' {
   const eightBit = v.pixFmt === 'yuv420p' || v.pixFmt === 'yuvj420p';

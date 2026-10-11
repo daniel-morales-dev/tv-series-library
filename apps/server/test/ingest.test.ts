@@ -1,12 +1,13 @@
-import { mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { all, get, run } from '../src/db/sql.ts';
 import { getTitleDetail, listTitles } from '../src/modules/catalog/repository.ts';
-import { createIngestor } from '../src/modules/ingest/ingestor.ts';
+import { RECENT_RESCAN_MS, createIngestor } from '../src/modules/ingest/ingestor.ts';
 import type { Probe } from '../src/modules/ingest/probe.ts';
 import { relinkFiles } from '../src/modules/ingest/register.ts';
+import { requeueErrors } from '../src/modules/processing/queue.ts';
 import { makeFakeTmdb } from './fake-tmdb.ts';
 import { addProfile, setup } from './helpers.ts';
 
@@ -16,7 +17,7 @@ afterEach(() => roots.splice(0).forEach((d) => rmSync(d, { recursive: true, forc
 const NOW = Date.parse('2026-01-01T12:00:00Z');
 const bake = (tag: string) => `shows/bakemonogatari/[Coalgirls]_Bakemonogatari_${tag}_(1920x1080_Blu-ray_FLAC)_[ABCD1234].mkv`;
 
-function env({ offline = false } = {}) {
+function env({ offline = false, diskPresent = (): boolean => true } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'tvlib-ingest-'));
   roots.push(root);
   const contentDir = join(root, 'content');
@@ -24,6 +25,7 @@ function env({ offline = false } = {}) {
   const { db } = setup();
   const badFiles = new Set<string>();
   const probed: string[] = [];
+  const titleTags = new Map<string, string>();
   const probe: Probe = async (path) => {
     probed.push(path);
     if (badFiles.has(path)) throw new Error('moov atom not found');
@@ -31,14 +33,20 @@ function env({ offline = false } = {}) {
       durationS: 1440.5,
       audio: [{ index: 1, codec: 'flac', language: 'jpn', title: null, channels: 2 }],
       subtitles: [{ index: 2, codec: 'ass', language: 'eng', title: 'Full' }],
+      titleTag: titleTags.get(path) ?? null,
     };
   };
   const tmdb = makeFakeTmdb({ offline });
-  const make = (client = tmdb) => createIngestor({ db, tmdb: client, dataDir, contentDir, probe, now: () => NOW });
-  const addFile = (rel: string, ageS = 3600) => {
+  let clock = NOW;
+  const tick = (ms: number) => {
+    clock += ms;
+  };
+  const make = (client = tmdb, present = diskPresent) =>
+    createIngestor({ db, tmdb: client, dataDir, contentDir, probe, now: () => clock, diskPresent: present });
+  const addFile = (rel: string, ageS = 3600, content = 'x') => {
     const abs = join(contentDir, rel);
     mkdirSync(dirname(abs), { recursive: true });
-    writeFileSync(abs, 'x');
+    writeFileSync(abs, content);
     const t = (NOW - ageS * 1000) / 1000;
     utimesSync(abs, t, t);
     return abs;
@@ -47,7 +55,7 @@ function env({ offline = false } = {}) {
     mkdirSync(dirname(join(contentDir, to)), { recursive: true });
     renameSync(join(contentDir, from), join(contentDir, to));
   };
-  return { db, tmdb, make, addFile, move, badFiles, probed, ingestor: make() };
+  return { db, tmdb, make, addFile, move, badFiles, probed, titleTags, tick, ingestor: make() };
 }
 
 describe('scanner and registration', () => {
@@ -284,6 +292,7 @@ describe('moved or renamed files', () => {
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.path.startsWith('shows/baka/'))).toBe(true);
     expect(rows.find((r) => r.id === file.id)).toMatchObject({ status: 'ready', hls_dir: 'hls/1' });
+    expect(get<any>(e.db, 'SELECT s.number AS s, e.number AS e FROM media_files m JOIN episodes e ON e.id = m.episode_id JOIN seasons s ON s.id = e.season_id WHERE m.id = ?', file.id)).toEqual({ s: 1, e: 1 });
     expect(all(e.db, 'SELECT id FROM titles')).toHaveLength(1);
     expect(get<any>(e.db, 'SELECT COUNT(*) AS n FROM watch_progress WHERE media_file_id = ?', file.id)?.n).toBe(1);
     expect(e.tmdb.calls).toEqual([]);
@@ -310,6 +319,76 @@ describe('moved or renamed files', () => {
     await e.ingestor.scan();
     expect(get<any>(e.db, 'SELECT id, status FROM media_files')).toMatchObject({ id, status: 'downloading' });
     expect(all(e.db, 'SELECT id FROM titles')).toHaveLength(1);
+  });
+
+  it('re-places a renamed file on its own row when the episode number changes', async () => {
+    const e = env();
+    e.addFile(bake('01'));
+    e.addFile(bake('02'));
+    await e.ingestor.scan();
+    const before = get<any>(e.db, 'SELECT id FROM media_files WHERE path = ?', bake('01'))!;
+    e.move(bake('01'), bake('03'));
+
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, pending: 0, waiting: 0, failed: 0 });
+    const after = get<any>(
+      e.db,
+      'SELECT m.id, m.path, m.parsed_number, e.number FROM media_files m LEFT JOIN episodes e ON e.id = m.episode_id WHERE m.id = ?',
+      before.id,
+    );
+    expect(after).toMatchObject({ id: before.id, path: bake('03'), parsed_number: 3, number: 3 });
+    expect(all(e.db, 'SELECT id FROM media_files')).toHaveLength(2);
+  });
+
+  it('keeps the old placement when the new name does not parse', async () => {
+    const e = env();
+    e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const before = get<any>(e.db, 'SELECT id, episode_id, parsed_number FROM media_files')!;
+    e.move(bake('01'), 'shows/bakemonogatari/behind the scenes.mkv');
+
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT id, path, episode_id, parsed_number FROM media_files WHERE id = ?', before.id)).toMatchObject({
+      id: before.id,
+      path: 'shows/bakemonogatari/behind the scenes.mkv',
+      episode_id: before.episode_id,
+      parsed_number: before.parsed_number,
+    });
+  });
+
+  it('restores a missing file that comes back renamed, keeping its package', async () => {
+    const e = env();
+    const abs = e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id FROM media_files')!;
+    run(e.db, "UPDATE media_files SET status = 'ready', hls_dir = 'hls/3' WHERE id = ?", row.id);
+    rmSync(abs);
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT status FROM media_files WHERE id = ?', row.id)?.status).toBe('missing');
+
+    e.addFile(bake('03')); // same bytes, new name
+    await e.ingestor.scan();
+    const after = get<any>(
+      e.db,
+      'SELECT m.id, m.path, m.status, m.hls_dir, e.number FROM media_files m LEFT JOIN episodes e ON e.id = m.episode_id WHERE m.id = ?',
+      row.id,
+    );
+    expect(after).toMatchObject({ id: row.id, path: bake('03'), status: 'ready', hls_dir: 'hls/3', number: 3 });
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(0);
+  });
+
+  it('restores a missing file that reappears in place with its package', async () => {
+    const e = env();
+    const abs = e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id FROM media_files')!;
+    run(e.db, "UPDATE media_files SET status = 'ready', hls_dir = 'hls/8' WHERE id = ?", row.id);
+    rmSync(abs);
+    await e.ingestor.scan();
+
+    e.addFile(bake('01')); // same bytes back
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT status, hls_dir FROM media_files WHERE id = ?', row.id)).toMatchObject({ status: 'ready', hls_dir: 'hls/8' });
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(0);
   });
 
   it('does not merge when several missing rows share basename and size', async () => {
@@ -372,5 +451,191 @@ describe('seasons group upgrade', () => {
     expect(get<any>(e.db, 'SELECT seasons_group_id AS g FROM titles')?.g).toBe('');
     expect(all(e.db, 'SELECT id FROM seasons')).toHaveLength(1);
     expect(get<any>(e.db, 'SELECT COUNT(*) AS n FROM media_files WHERE episode_id IS NOT NULL')?.n).toBe(1);
+  });
+});
+
+describe('missing files', () => {
+  it('marks a vanished file missing, keeping the row, its progress and its package', async () => {
+    const e = env();
+    const abs = e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id, title_id FROM media_files')!;
+    const profile = addProfile(e.db);
+    run(e.db, "UPDATE media_files SET status = 'ready', hls_dir = 'hls/7' WHERE id = ?", row.id);
+    run(e.db, "INSERT INTO watch_progress (profile_id, media_file_id, position_s, duration_s, updated_at) VALUES (?, ?, 120, 1440, '2026-01-01T00:00:00Z')", profile, row.id);
+
+    rmSync(abs);
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, failed: 0 });
+
+    expect(get<any>(e.db, 'SELECT id, status, hls_dir FROM media_files WHERE id = ?', row.id)).toMatchObject({ id: row.id, status: 'missing', hls_dir: 'hls/7' });
+    expect(get<any>(e.db, 'SELECT position_s FROM watch_progress WHERE media_file_id = ?', row.id)?.position_s).toBe(120);
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(0); // the queued job of the vanished file is dropped
+    requeueErrors(e.db); // and error requeues never claim it
+    expect(get<any>(e.db, 'SELECT status FROM media_files WHERE id = ?', row.id)?.status).toBe('missing');
+    expect(getTitleDetail(e.db, row.title_id)?.files[0]).toMatchObject({ status: 'missing' });
+  });
+
+  it('marks a downloading row missing too, and re-registers it when the file comes back', async () => {
+    const e = env();
+    const abs = e.addFile(bake('01'), 10);
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id FROM media_files')!;
+    expect(get<any>(e.db, 'SELECT status FROM media_files WHERE id = ?', row.id)?.status).toBe('downloading');
+
+    rmSync(abs);
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT status FROM media_files WHERE id = ?', row.id)?.status).toBe('missing');
+
+    e.addFile(bake('01')); // same bytes, now old enough
+    await e.ingestor.scan();
+    const back = get<any>(e.db, 'SELECT id, status, mtime_ms FROM media_files WHERE id = ?', row.id)!;
+    expect(back).toMatchObject({ id: row.id, status: 'pending' });
+    expect(back.mtime_ms).toBe(statSync(abs).mtimeMs);
+    expect(all(e.db, 'SELECT media_file_id, status FROM jobs')).toEqual([{ media_file_id: row.id, status: 'queued' }]);
+  });
+
+  it('never marks the rows of an absent root', async () => {
+    const state = { present: true };
+    const e = env({ diskPresent: () => state.present });
+    const abs = e.addFile(bake('01'));
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT status FROM media_files')?.status).toBe('pending');
+
+    state.present = false;
+    rmSync(abs);
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT status FROM media_files')?.status).toBe('pending');
+  });
+});
+
+describe('replacement in the same path', () => {
+  it('reprocesses a file replaced in place: same row, stale tracks and chapters reset, package kept', async () => {
+    const e = env();
+    e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id FROM media_files')!;
+    const profile = addProfile(e.db);
+    run(e.db, "UPDATE media_files SET status = 'ready', hls_dir = 'hls/9', pkg_mode = 'copy' WHERE id = ?", row.id);
+    run(e.db, 'UPDATE media_files SET chapters_checked = 1 WHERE id = ?', row.id);
+    run(e.db, "INSERT INTO media_chapters (media_file_id, idx, start_s, end_s, title) VALUES (?, 0, 0, 10, 'op')", row.id);
+    run(e.db, "INSERT INTO watch_progress (profile_id, media_file_id, position_s, duration_s, updated_at) VALUES (?, ?, 300, 1440, '2026-01-01T00:00:00Z')", profile, row.id);
+
+    e.addFile(bake('01'), 1800, 'y'); // same path and size, new bytes, old enough to process
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, waiting: 0 });
+
+    const after = get<any>(e.db, 'SELECT id, status, hls_dir, audio_tracks, subtitle_tracks, chapters_checked FROM media_files WHERE id = ?', row.id)!;
+    expect(after).toMatchObject({ id: row.id, status: 'pending', hls_dir: 'hls/9', audio_tracks: '[]', subtitle_tracks: '[]', chapters_checked: 0 });
+    expect(all(e.db, 'SELECT * FROM media_chapters')).toHaveLength(0);
+    expect(all(e.db, 'SELECT media_file_id, status FROM jobs')).toEqual([{ media_file_id: row.id, status: 'queued' }]);
+    expect(get<any>(e.db, 'SELECT position_s FROM watch_progress WHERE media_file_id = ?', row.id)?.position_s).toBe(300);
+  });
+
+  it('ignores a touch: the same fingerprint only refreshes mtime_ms', async () => {
+    const e = env();
+    const abs = e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id, status FROM media_files')!;
+    const t = (NOW - 300_000) / 1000;
+    utimesSync(abs, t, t);
+    e.probed.length = 0;
+
+    await e.ingestor.scan();
+
+    const after = get<any>(e.db, 'SELECT status, fingerprint, mtime_ms FROM media_files WHERE id = ?', row.id)!;
+    expect(after.status).toBe(row.status);
+    expect(after.mtime_ms).toBe(statSync(abs).mtimeMs);
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(1); // the original job only, nothing re-queued
+    expect(e.probed).toEqual([]);
+  });
+
+  it('sends a file replaced while it is still copying back to downloading, then promotes it', async () => {
+    const e = env();
+    e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id FROM media_files')!;
+    expect(get<any>(e.db, 'SELECT status FROM media_files WHERE id = ?', row.id)?.status).toBe('pending');
+
+    e.addFile(bake('01'), 10, 'y'); // a fresh copy is landing on the same path
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT status FROM media_files WHERE id = ?', row.id)?.status).toBe('downloading');
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(0); // the stale job is gone; promotion will re-queue
+
+    e.addFile(bake('01'), 3600, 'y'); // the copy finished
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT id, status FROM media_files WHERE id = ?', row.id)).toMatchObject({ id: row.id, status: 'pending' });
+    expect(all(e.db, 'SELECT media_file_id, status FROM jobs')).toEqual([{ media_file_id: row.id, status: 'queued' }]);
+  });
+
+  it('leaves a file being processed alone: the scan after the job re-queues it', async () => {
+    const e = env();
+    e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id FROM media_files')!;
+    run(e.db, "UPDATE media_files SET status = 'processing' WHERE id = ?", row.id);
+    run(e.db, "UPDATE jobs SET status = 'running' WHERE media_file_id = ?", row.id);
+
+    e.addFile(bake('01'), 1800, 'y');
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT status FROM media_files WHERE id = ?', row.id)?.status).toBe('processing');
+
+    run(e.db, "UPDATE media_files SET status = 'ready', hls_dir = 'hls/1' WHERE id = ?", row.id);
+    run(e.db, "UPDATE jobs SET status = 'done' WHERE media_file_id = ?", row.id);
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT id, status FROM media_files WHERE id = ?', row.id)).toMatchObject({ id: row.id, status: 'pending' });
+    expect(all(e.db, "SELECT media_file_id, status FROM jobs WHERE status = 'queued'")).toEqual([{ media_file_id: row.id, status: 'queued' }]);
+  });
+});
+
+describe('download promotion cadence', () => {
+  it('re-scans waiting files on the short cadence instead of a full minute', async () => {
+    expect(RECENT_RESCAN_MS).toBeLessThanOrEqual(15_000);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const e = env();
+      const base = vi.getTimerCount();
+      e.addFile(bake('01'), 10); // registered as downloading, too recent to probe
+      expect(await e.ingestor.scan()).toMatchObject({ waiting: 1 });
+      expect(e.probed).toEqual([]);
+      expect(vi.getTimerCount()).toBe(base + 1); // the rescan is armed
+
+      vi.advanceTimersByTime(RECENT_RESCAN_MS - 1_000);
+      expect(vi.getTimerCount()).toBe(base + 1); // not due yet
+      e.tick(65_000); // the file is now old enough to probe
+      vi.advanceTimersByTime(1_000);
+      expect(vi.getTimerCount()).toBe(base); // it fired and the new scan has not armed anything yet
+
+      await e.ingestor.scan(); // joins the scan the timer started
+      expect(e.probed).toHaveLength(1);
+      expect(get<any>(e.db, 'SELECT status FROM media_files')?.status).toBe('pending');
+      expect(all(e.db, 'SELECT media_file_id, status FROM jobs')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('container title tag fallback (T72)', () => {
+  const place = (e: ReturnType<typeof env>, path: string) =>
+    get<any>(
+      e.db,
+      'SELECT s.number AS s, e.number AS e FROM media_files m JOIN episodes e ON e.id = m.episode_id JOIN seasons s ON s.id = e.season_id WHERE m.path = ?',
+      path,
+    );
+
+  it('takes season and number from the tag when the name gives no season', async () => {
+    const e = env();
+    const rel = 'shows/Plain Show/Plain Show - 01.mkv';
+    e.titleTags.set(e.addFile(rel), 'S02E02-Orario: Distorted City');
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 1 });
+    expect(place(e, rel)).toEqual({ s: 2, e: 2 });
+    expect(get<any>(e.db, 'SELECT parsed_season, parsed_number FROM media_files')).toEqual({ parsed_season: 2, parsed_number: 2 });
+  });
+
+  it('keeps the name when it already parsed the season', async () => {
+    const e = env();
+    const rel = 'shows/Plain Show/Plain Show S01E01.mkv';
+    e.titleTags.set(e.addFile(rel), 'S02E02-Orario: Distorted City');
+    await e.ingestor.scan();
+    expect(place(e, rel)).toEqual({ s: 1, e: 1 });
   });
 });

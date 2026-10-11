@@ -1,7 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run, transaction } from '../../db/sql.ts';
+import { ApiError } from '../../http/api-error.ts';
 import { indexEntry } from '../search/repository.ts';
 import { type ImageWant, saveImages } from './images.ts';
+import { normalize, yearOf } from './parser.ts';
 import type { Credits, EpisodeGroupDetails, EpisodeSubGroup, MovieDetails, PersonNames, SeasonDetails, TmdbClient, TmdbEpisode, TvDetails } from './tmdb.ts';
 
 export interface IngestContext {
@@ -17,8 +19,6 @@ const PROFILE = 'w185';
 const STILL = 'original';
 const ANIMATION_GENRE = 16;
 const MAX_CAST = 15;
-
-const yearOf = (date?: string | null) => (date ? Number(date.slice(0, 4)) || null : null);
 
 function pickLogo(logos: { file_path: string; iso_639_1: string | null }[] = []): string | null {
   return (logos.find((l) => l.iso_639_1 === 'es') ?? logos.find((l) => l.iso_639_1 === 'en') ?? logos[0])?.file_path ?? null;
@@ -172,56 +172,94 @@ function mergeTitles(db: DatabaseSync, from: number, to: number): void {
   run(db, "DELETE FROM search_index WHERE ref_type = 'title' AND ref_id = ?", from);
 }
 
-export async function importTv(ctx: IngestContext, tv: TvDetails, reuseId?: number): Promise<number> {
-  const logo = pickLogo(tv.images?.logos);
-  const credits = creditPeople(tv.credits);
-  const names = await resolveNames(ctx, [...credits.cast, ...credits.directors]);
+interface TitleSource {
+  logos?: { file_path: string; iso_639_1: string | null }[];
+  credits?: Credits;
+  poster: string | null;
+  backdrop: string | null;
+  /** Images placed after the logo, once they are known: a movie's collection art. */
+  extraImages?: ImageWant[];
+}
+
+interface TitleAssets {
+  logo: string | null;
+  credits: ReturnType<typeof creditPeople>;
+  names: Map<number, string>;
+  saved: Saved;
+}
+
+// Everything both imports do before writing: pick the logo, resolve non-Latin names and download every
+// image in one pass, so the title row and its credits land together.
+async function prepareTitleAssets(ctx: IngestContext, source: TitleSource): Promise<TitleAssets> {
+  const logo = pickLogo(source.logos);
+  const people = creditPeople(source.credits);
+  const names = await resolveNames(ctx, [...people.cast, ...people.directors]);
   const saved = await saveImages(ctx.tmdb, ctx.dataDir, [
-    [POSTER, tv.poster_path],
-    [BACKDROP, tv.backdrop_path],
+    [POSTER, source.poster],
+    [BACKDROP, source.backdrop],
     [POSTER, logo],
-    ...[...credits.cast, ...credits.directors].map((p): ImageWant => [PROFILE, p.profile_path]),
+    ...(source.extraImages ?? []),
+    ...[...people.cast, ...people.directors].map((p): ImageWant => [PROFILE, p.profile_path]),
   ]);
+  return { logo, credits: people, names, saved };
+}
+
+function tvTitleFields(tv: TvDetails, logo: string | null, saved: Saved): TitleFields {
+  const anime = tv.genres.some((g) => g.id === ANIMATION_GENRE) && tv.origin_country.includes('JP');
+  return {
+    kind: anime ? 'anime' : 'series',
+    title: tv.name,
+    originalTitle: tv.original_name,
+    overview: tv.overview || null,
+    year: yearOf(tv.first_air_date),
+    runtimeMin: tv.episode_run_time?.[0] ?? null,
+    rating: tv.vote_average,
+    genres: tv.genres.map((g) => g.name),
+    poster: saved(POSTER, tv.poster_path),
+    backdrop: saved(BACKDROP, tv.backdrop_path),
+    logo: saved(POSTER, logo),
+    collectionId: null,
+  };
+}
+
+function movieTitleFields(movie: MovieDetails, logo: string | null, collectionId: number | null, saved: Saved): TitleFields {
+  return {
+    kind: 'movie',
+    title: movie.title,
+    originalTitle: movie.original_title,
+    overview: movie.overview || null,
+    year: yearOf(movie.release_date),
+    runtimeMin: movie.runtime,
+    rating: movie.vote_average,
+    genres: movie.genres.map((g) => g.name),
+    poster: saved(POSTER, movie.poster_path),
+    backdrop: saved(BACKDROP, movie.backdrop_path),
+    logo: saved(POSTER, logo),
+    collectionId,
+  };
+}
+
+export async function importTv(ctx: IngestContext, tv: TvDetails, reuseId?: number): Promise<number> {
+  const assets = await prepareTitleAssets(ctx, { logos: tv.images?.logos, credits: tv.credits, poster: tv.poster_path, backdrop: tv.backdrop_path });
   return transaction(ctx.db, () => {
-    const anime = tv.genres.some((g) => g.id === ANIMATION_GENRE) && tv.origin_country.includes('JP');
-    const id = writeTitle(
-      ctx.db,
-      'tv',
-      tv.id,
-      {
-        kind: anime ? 'anime' : 'series',
-        title: tv.name,
-        originalTitle: tv.original_name,
-        overview: tv.overview || null,
-        year: yearOf(tv.first_air_date),
-        runtimeMin: tv.episode_run_time?.[0] ?? null,
-        rating: tv.vote_average,
-        genres: tv.genres.map((g) => g.name),
-        poster: saved(POSTER, tv.poster_path),
-        backdrop: saved(BACKDROP, tv.backdrop_path),
-        logo: saved(POSTER, logo),
-        collectionId: null,
-      },
-      reuseId,
-    );
-    writeCredits(ctx.db, id, credits, saved, names);
+    const id = writeTitle(ctx.db, 'tv', tv.id, tvTitleFields(tv, assets.logo, assets.saved), reuseId);
+    writeCredits(ctx.db, id, assets.credits, assets.saved, assets.names);
     return id;
   });
 }
 
 export async function importMovie(ctx: IngestContext, movie: MovieDetails, reuseId?: number): Promise<number> {
-  const logo = pickLogo(movie.images?.logos);
-  const credits = creditPeople(movie.credits);
-  const names = await resolveNames(ctx, [...credits.cast, ...credits.directors]);
   const collection = movie.belongs_to_collection ? await ctx.tmdb.collection(movie.belongs_to_collection.id) : null;
-  const saved = await saveImages(ctx.tmdb, ctx.dataDir, [
-    [POSTER, movie.poster_path],
-    [BACKDROP, movie.backdrop_path],
-    [POSTER, logo],
-    [POSTER, collection?.poster_path],
-    [BACKDROP, collection?.backdrop_path],
-    ...[...credits.cast, ...credits.directors].map((p): ImageWant => [PROFILE, p.profile_path]),
-  ]);
+  const assets = await prepareTitleAssets(ctx, {
+    logos: movie.images?.logos,
+    credits: movie.credits,
+    poster: movie.poster_path,
+    backdrop: movie.backdrop_path,
+    extraImages: [
+      [POSTER, collection?.poster_path],
+      [BACKDROP, collection?.backdrop_path],
+    ],
+  });
   return transaction(ctx.db, () => {
     let collectionId: number | null = null;
     if (collection) {
@@ -233,45 +271,18 @@ export async function importMovie(ctx: IngestContext, movie: MovieDetails, reuse
         collection.id,
         collection.name,
         collection.overview || null,
-        saved(POSTER, collection.poster_path),
-        saved(BACKDROP, collection.backdrop_path),
+        assets.saved(POSTER, collection.poster_path),
+        assets.saved(BACKDROP, collection.backdrop_path),
       );
       collectionId = get<{ id: number }>(ctx.db, 'SELECT id FROM collections WHERE tmdb_id = ?', collection.id)!.id;
     }
-    const id = writeTitle(
-      ctx.db,
-      'movie',
-      movie.id,
-      {
-        kind: 'movie',
-        title: movie.title,
-        originalTitle: movie.original_title,
-        overview: movie.overview || null,
-        year: yearOf(movie.release_date),
-        runtimeMin: movie.runtime,
-        rating: movie.vote_average,
-        genres: movie.genres.map((g) => g.name),
-        poster: saved(POSTER, movie.poster_path),
-        backdrop: saved(BACKDROP, movie.backdrop_path),
-        logo: saved(POSTER, logo),
-        collectionId,
-      },
-      reuseId,
-    );
-    writeCredits(ctx.db, id, credits, saved, names);
+    const id = writeTitle(ctx.db, 'movie', movie.id, movieTitleFields(movie, assets.logo, collectionId, assets.saved), reuseId);
+    writeCredits(ctx.db, id, assets.credits, assets.saved, assets.names);
     return id;
   });
 }
 
-export class MetadataError extends Error {
-  status: number;
-  code: string;
-  constructor(status: number, code: string) {
-    super(code);
-    this.status = status;
-    this.code = code;
-  }
-}
+export class MetadataError extends ApiError {}
 
 // T52: explicit on-demand refresh of one title's metadata and images; never recurring. TMDB answers before
 // anything is written, so an offline failure leaves the row untouched.
@@ -284,22 +295,73 @@ export async function refreshTitleMetadata(ctx: IngestContext, titleId: number):
   if (!row) throw new MetadataError(404, 'not_found');
   if (!row.tmdb_type || row.tmdb_id === null) throw new MetadataError(409, 'not_linked');
   if (row.tmdb_type === 'movie') await importMovie(ctx, await ctx.tmdb.movie(row.tmdb_id), titleId);
-  else await importTv(ctx, await ctx.tmdb.tv(row.tmdb_id), titleId);
+  else {
+    await importTv(ctx, await ctx.tmdb.tv(row.tmdb_id), titleId);
+    await refreshSeasonAirDates(ctx, titleId);
+  }
 }
 
-function upsertSeason(db: DatabaseSync, titleId: number, number: number, name: string | null, overview: string | null, poster: string | null): number {
+// T86: backfills seasons.air_date for titles whose seasons were built before the column existed (or before
+// TMDB had the dates). Official seasons are matched by number; a group's seasons by normalized name, with
+// the group order as fallback. Nothing is re-adopted: only the dates are written.
+export async function refreshSeasonAirDates(ctx: IngestContext, titleId: number): Promise<void> {
+  const row = get<{ tmdb_type: string | null; tmdb_id: number | null; episode_group_id: string | null; seasons_group_id: string | null }>(
+    ctx.db,
+    'SELECT tmdb_type, tmdb_id, episode_group_id, seasons_group_id FROM titles WHERE id = ?',
+    titleId,
+  );
+  if (!row || row.tmdb_type !== 'tv' || row.tmdb_id === null) return;
+  const tv = await ctx.tmdb.tv(row.tmdb_id);
+  for (const s of tv.seasons) {
+    if (s.air_date) run(ctx.db, 'UPDATE seasons SET air_date = ? WHERE title_id = ? AND number = ?', s.air_date, titleId, s.season_number);
+  }
+  // '' means official seasons (no group); only real group ids are fetched.
+  const groupIds = [...new Set([row.episode_group_id, row.seasons_group_id].filter((g): g is string => !!g))];
+  for (const groupId of groupIds) {
+    const detail = await ctx.tmdb.episodeGroup(groupId);
+    const seasons = all<{ id: number; number: number; name: string | null }>(
+      ctx.db,
+      'SELECT id, number, name FROM seasons WHERE title_id = ?',
+      titleId,
+    );
+    for (const g of detail.groups) {
+      const airDate = minAirDate(g.episodes);
+      if (!airDate) continue;
+      const season = seasons.find((s) => normalize(s.name ?? '') === normalize(g.name)) ?? seasons.find((s) => s.number === g.order);
+      if (season) run(ctx.db, 'UPDATE seasons SET air_date = ? WHERE id = ?', airDate, season.id);
+    }
+  }
+}
+
+function upsertSeason(
+  db: DatabaseSync,
+  titleId: number,
+  number: number,
+  name: string | null,
+  overview: string | null,
+  poster: string | null,
+  airDate: string | null = null,
+): number {
   run(
     db,
-    `INSERT INTO seasons (title_id, number, name, overview, poster_path) VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO seasons (title_id, number, name, overview, poster_path, air_date) VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(title_id, number) DO UPDATE SET name = excluded.name,
-       overview = COALESCE(excluded.overview, overview), poster_path = COALESCE(excluded.poster_path, poster_path)`,
+       overview = COALESCE(excluded.overview, overview), poster_path = COALESCE(excluded.poster_path, poster_path),
+       air_date = COALESCE(excluded.air_date, air_date)`,
     titleId,
     number,
     name,
     overview,
     poster,
+    airDate,
   );
   return get<{ id: number }>(db, 'SELECT id FROM seasons WHERE title_id = ? AND number = ?', titleId, number)!.id;
+}
+
+// The season's air date is the earliest date among its episodes; ISO strings compare chronologically.
+function minAirDate(episodes: { air_date?: string | null }[]): string | null {
+  const dates = episodes.map((e) => e.air_date).filter((d): d is string => !!d);
+  return dates.length ? dates.reduce((a, b) => (a < b ? a : b)) : null;
 }
 
 function upsertEpisode(db: DatabaseSync, seasonId: number, number: number, e: TmdbEpisode, still: string | null): void {
@@ -319,33 +381,61 @@ function upsertEpisode(db: DatabaseSync, seasonId: number, number: number, e: Tm
 }
 
 // An alternative ordering becomes one season: its group order is the season number and
-// the N-th episode of the group is episode N.
+// the N-th episode of the group is episode N. The number actually used comes back.
 export async function importGroupSeason(
   ctx: IngestContext,
   titleId: number,
   episodeGroupId: string,
   seasonNumber: number,
   group: EpisodeSubGroup,
-): Promise<void> {
+): Promise<number> {
   const saved = await saveImages(ctx.tmdb, ctx.dataDir, group.episodes.map((e): ImageWant => [STILL, e.still_path]));
-  transaction(ctx.db, () => {
-    const seasonId = upsertSeason(ctx.db, titleId, seasonNumber, group.name, null, null);
+  return transaction(ctx.db, () => {
+    const number = seasonNumberFor(ctx.db, titleId, seasonNumber, group.name);
+    const seasonId = upsertSeason(ctx.db, titleId, number, group.name, null, null, minAirDate(group.episodes));
     group.episodes.forEach((e, i) => upsertEpisode(ctx.db, seasonId, i + 1, e, saved(STILL, e.still_path)));
     run(ctx.db, 'UPDATE titles SET episode_group_id = ? WHERE id = ?', episodeGroupId, titleId);
+    return number;
   });
 }
 
-// TMDB type 6 = "Seasons". It replaces the official seasons only when it splits the series into more of them
-// (e.g. a 38-episode season 1 that is really 28 + 10).
-const SEASONS_GROUP_TYPE = 6;
+// A group's order may collide with a season already there under a different name (Monogatari's
+// "Nekomonogatari (Black)" and "Monogatari Series: Second Season" are both order 3): the group takes the
+// next free number instead of overwriting or renaming that season. A re-import of the same group reuses it.
+function seasonNumberFor(db: DatabaseSync, titleId: number, wanted: number, name: string): number {
+  const at = get<{ name: string | null }>(db, 'SELECT name FROM seasons WHERE title_id = ? AND number = ?', titleId, wanted);
+  if (!at || normalize(at.name ?? '') === normalize(name)) return wanted;
+  const same = all<{ number: number; name: string | null }>(db, 'SELECT number, name FROM seasons WHERE title_id = ?', titleId).find(
+    (s) => normalize(s.name ?? '') === normalize(name),
+  );
+  if (same) return same.number;
+  return (get<{ n: number | null }>(db, 'SELECT MAX(number) AS n FROM seasons WHERE title_id = ?', titleId)?.n ?? 0) + 1;
+}
+
+// TMDB "Seasons" groups: type 6 splits official seasons, type 7 reorders them into production seasons.
+// A set is adopted only when it covers at least the official seasons and episodes: Mushoku Tensei's type 6
+// "Cours" set lists an empty third season (50 of 61 episodes), so counting seasons alone adopted it by error.
+const SEASONS_GROUP_TYPES = [6, 7];
 
 export async function findSeasonsGroup(ctx: IngestContext, tv: TvDetails): Promise<EpisodeGroupDetails | null> {
-  const official = tv.seasons.filter((s) => s.season_number > 0).length;
-  for (const ref of (tv.episode_groups?.results ?? []).filter((r) => r.type === SEASONS_GROUP_TYPE)) {
+  const official = tv.seasons.filter((s) => s.season_number > 0);
+  const officialEpisodes = official.reduce((n, s) => n + s.episode_count, 0);
+  let best: EpisodeGroupDetails | null = null;
+  let bestEpisodes = -1;
+  let bestSeasons = -1;
+  for (const ref of tv.episode_groups?.results ?? []) {
+    if (!SEASONS_GROUP_TYPES.includes(ref.type)) continue;
     const detail = await ctx.tmdb.episodeGroup(ref.id);
-    if (detail.groups.filter((g) => g.order > 0).length > official) return detail;
+    const groups = detail.groups.filter((g) => g.order > 0);
+    const episodes = groups.reduce((n, g) => n + g.episodes.length, 0);
+    if (groups.length < official.length || episodes < officialEpisodes) continue;
+    if (episodes > bestEpisodes || (episodes === bestEpisodes && groups.length > bestSeasons)) {
+      best = detail;
+      bestEpisodes = episodes;
+      bestSeasons = groups.length;
+    }
   }
-  return null;
+  return best;
 }
 
 export async function importSeasonsGroup(ctx: IngestContext, titleId: number, detail: EpisodeGroupDetails): Promise<void> {
@@ -367,7 +457,7 @@ export async function importTmdbSeason(ctx: IngestContext, titleId: number, seas
     ...season.episodes.map((e): ImageWant => [STILL, e.still_path]),
   ]);
   transaction(ctx.db, () => {
-    const seasonId = upsertSeason(ctx.db, titleId, season.season_number, season.name, season.overview || null, saved(POSTER, season.poster_path));
+    const seasonId = upsertSeason(ctx.db, titleId, season.season_number, season.name, season.overview || null, saved(POSTER, season.poster_path), season.air_date ?? null);
     for (const e of season.episodes) upsertEpisode(ctx.db, seasonId, e.episode_number!, e, saved(STILL, e.still_path));
   });
 }

@@ -1,4 +1,4 @@
-import { stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
@@ -6,6 +6,7 @@ import { sendFile } from '../../http/static-file.ts';
 import { all, get } from '../../db/sql.ts';
 import { rootStatus } from '../../library/roots.ts';
 import { touchPlayed } from './cache.ts';
+import { FONT_FILE } from './plan.ts';
 import { enqueue, listJobs } from './queue.ts';
 import type { Worker } from './worker.ts';
 
@@ -114,6 +115,8 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
     };
   });
   const diskAbsent = (reply: FastifyReply) => reply.code(503).header('Retry-After', '5').send({ error: 'disk_absent' });
+  // T69: the original is gone from a present root; the row keeps its progress but cannot be processed or played.
+  const missingFile = { error: 'missing', message: 'El archivo ya no está en la biblioteca. Vuelve a copiarlo a su carpeta para reproducirlo.' };
   // T9b: root 1 is the configured folder, already guarded by `disk.present()`; other roots check their own marker.
   const rootPresent = (rootId: number): boolean => (rootId === 1 ? disk.present() : rootStatus(db, rootId).present);
 
@@ -142,6 +145,7 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
     const file = get<{ status: string }>(db, 'SELECT status FROM media_files WHERE id = ?', req.params.id);
     if (!file) return reply.code(404).send({ error: 'not_found' });
     if (file.status === 'downloading') return reply.code(409).send({ error: 'downloading' });
+    if (file.status === 'missing') return reply.code(409).send(missingFile);
     const jobId = enqueue(db, req.params.id);
     worker?.kick();
     return reply.code(202).send({ jobId });
@@ -155,6 +159,7 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
     );
     if (!file) return reply.code(404).send({ error: 'not_found' });
     if (file.status === 'downloading') return reply.code(409).send({ error: 'downloading' });
+    if (file.status === 'missing') return reply.code(409).send(missingFile);
     const lazy = isLazy(file);
     if (lazy && !rootPresent(file.root_id)) return diskAbsent(reply); // building the package needs the original
     if (file.status === 'ready' && !lazy) {
@@ -187,7 +192,21 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
         }
       }
       touchPlayed(db, req.params.mediaFileId);
-      return sendFile(reply, base, req.params['*'], STREAM_TYPES, (ext) => (ext === '.m3u8' ? 'no-cache' : 'public, max-age=3600'));
+      // Playlists change when a file is reprocessed, so only the media itself may be cached. Subtitles are
+      // re-written in place by the repair pass and their URLs keep no version, so they must revalidate too.
+      return sendFile(reply, base, req.params['*'], STREAM_TYPES, (ext) =>
+        ext === '.m3u8' || ext === '.vtt' || ext === '.ass' ? 'no-cache' : 'public, max-age=3600',
+      );
     },
   );
+
+  // T80: the player preloads the package fonts into libass (JASSUB); a readdir answers both old and new
+  // packages, where rewriting already published meta.json files would not.
+  api.get<{ Params: { mediaFileId: number } }>('/stream/:mediaFileId/fonts', { schema: { params: idParams('mediaFileId') } }, async (req, reply) => {
+    if (disk.hlsOnLibrary && !disk.present()) return diskAbsent(reply);
+    const dir = join(hlsDir, String(req.params.mediaFileId));
+    const base = (await stat(dir).catch(() => null))?.isDirectory() ? dir : `${dir}.tmp`;
+    const names = await readdir(join(base, 'fonts')).catch(() => []);
+    return { fonts: names.filter((n) => FONT_FILE.test(n)).sort() };
+  });
 }

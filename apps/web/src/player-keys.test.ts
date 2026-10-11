@@ -36,6 +36,13 @@ describe('decidePlayerKey', () => {
     expect(decidePlayerKey(target('BODY'), 'x')).toBe('pass');
     expect(decidePlayerKey(null, 'x')).toBe('pass');
   });
+  it('toggles fullscreen with f/F, except in fields and sliders', () => {
+    expect(decidePlayerKey(target('BODY'), 'f')).toBe('toggle-fullscreen');
+    expect(decidePlayerKey(target('VIDEO'), 'F')).toBe('toggle-fullscreen');
+    expect(decidePlayerKey(target('BUTTON'), 'f')).toBe('toggle-fullscreen');
+    expect(decidePlayerKey(target('INPUT', 'range'), 'f')).toBe('pass');
+    expect(decidePlayerKey(target('INPUT', 'text'), 'f')).toBe('ignore');
+  });
 });
 
 describe('decidePlayerKey remote keys', () => {

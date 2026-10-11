@@ -13,6 +13,8 @@ export type PendingReason = 'unparsed' | 'no_match' | 'unmapped_episode';
 export interface FileFacts {
   rel: string;
   size: number;
+  /** T70: file mtime in ms; null when unknown (a confirmed pending file) and backfilled by the next scan. */
+  mtimeMs?: number | null;
   probe: ProbeResult;
   /** Content identity computed by the ingestor; null when the file could not be read. */
   fingerprint?: string | null;
@@ -27,13 +29,14 @@ export function registerFile(
 ): void {
   const { lastInsertId } = run(
     db,
-    `INSERT INTO media_files (root_id, path, size, fingerprint, title_id, episode_id, extra_label, status, duration_s,
+    `INSERT INTO media_files (root_id, path, size, fingerprint, mtime_ms, title_id, episode_id, extra_label, status, duration_s,
        audio_tracks, subtitle_tracks, parsed_season, parsed_number)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
     rootId,
     f.rel,
     f.size,
     f.fingerprint ?? null,
+    f.mtimeMs ?? null,
     placement.titleId,
     placement.episodeId,
     placement.extraLabel,
@@ -63,15 +66,17 @@ export function registerDownloading(
   placement: Placement,
   rootId = 1,
   fingerprint: string | null = null,
+  mtimeMs: number | null = null,
 ): void {
   run(
     db,
-    `INSERT INTO media_files (root_id, path, size, fingerprint, title_id, episode_id, extra_label, status, parsed_season, parsed_number)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?)`,
+    `INSERT INTO media_files (root_id, path, size, fingerprint, mtime_ms, title_id, episode_id, extra_label, status, parsed_season, parsed_number)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?)`,
     rootId,
     rel,
     size,
     fingerprint,
+    mtimeMs,
     placement.titleId,
     placement.episodeId,
     placement.extraLabel,
@@ -80,11 +85,14 @@ export function registerDownloading(
   );
 }
 
-export function promoteDownload(db: DatabaseSync, id: number, size: number, probe: ProbeResult): void {
+// The status is set here (not only by `enqueue`): a stale queued job from before a replacement is reused by
+// `enqueue` without touching the row, and a row left 'downloading' would never be claimed.
+export function promoteDownload(db: DatabaseSync, id: number, size: number, probe: ProbeResult, mtimeMs: number | null = null): void {
   run(
     db,
-    'UPDATE media_files SET size = ?, duration_s = ?, audio_tracks = ?, subtitle_tracks = ? WHERE id = ?',
+    "UPDATE media_files SET status = 'pending', size = ?, mtime_ms = ?, duration_s = ?, audio_tracks = ?, subtitle_tracks = ? WHERE id = ?",
     size,
+    mtimeMs,
     probe.durationS,
     JSON.stringify(probe.audio),
     JSON.stringify(probe.subtitles),

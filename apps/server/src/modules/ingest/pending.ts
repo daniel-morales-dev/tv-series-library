@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
+import { ApiError } from '../../http/api-error.ts';
 import { type RootDir, sourcePath } from '../../library/roots.ts';
 import { FranchiseError, type FranchiseRelation, assertTitleExists, linkFranchise } from '../catalog/franchise.ts';
 import { type GroupMatch, adoptSeries, normalize, placeEpisode } from './assign.ts';
@@ -10,15 +11,7 @@ import { registerFile } from './register.ts';
 import { showDirKey } from './scanner.ts';
 import type { EpisodeGroupDetails } from './tmdb.ts';
 
-export class PendingError extends Error {
-  status: number;
-  code: string;
-  constructor(status: number, code: string) {
-    super(code);
-    this.status = status;
-    this.code = code;
-  }
-}
+export class PendingError extends ApiError {}
 
 interface PendingRow {
   id: number;

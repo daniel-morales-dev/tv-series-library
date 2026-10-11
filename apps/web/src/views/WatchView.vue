@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import Hls from 'hls.js';
+import Jassub from 'jassub';
+import workerUrl from 'jassub/dist/worker/worker.js?worker&url';
+import modernWasmUrl from 'jassub/dist/wasm/jassub-worker-modern.wasm?url';
+import wasmUrl from 'jassub/dist/wasm/jassub-worker.wasm?url';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api, getProfileId, playErrorMessage, saveProgress, streamUrl } from '../api.ts';
 import { fullscreenMode, isIOS, isMobile, volumeWritable } from '../device.ts';
 import { isBackKey } from '../spatial.ts';
 import { decidePlayerKey, stepIndex } from '../player-keys.ts';
-import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
+import { audioMenu, audioSelection, clock, defaultSubtitleChoice, fontUrls, idleAllowed, nextFile, parseFontList, prevFile, resumePosition, seekRange, subtitleChoiceLabel, subtitleChoices, subtitleLabel, type SubtitleChoice } from '../player.ts';
 import { SPEEDS, loadSpeed, saveSpeed, speedLabel } from '../speed.ts';
 import { type Chapter, activeSkip, skipLabel } from '../skip.ts';
 import type { MediaFile, SubtitleTrack, TitleDetail } from '../types.ts';
@@ -26,6 +30,8 @@ const percent = ref(0);
 const detail = ref<TitleDetail | null>(null);
 const file = ref<MediaFile | null>(null);
 const subs = ref<SubtitleTrack[]>([]);
+const assOk = ref(true); // T80: libass failed to start here (no WASM/Worker); the ASS rows disappear, VTT stays
+const subChoices = computed(() => subtitleChoices(subs.value, assOk.value));
 const subIndex = ref(-1);
 const audio = ref<{ id: number; name: string }[]>([]);
 const audioIndex = ref(0);
@@ -46,16 +52,28 @@ const mobile = isMobile(navigator.userAgent, navigator.platform, touch);
 let autoFullscreen = false; // enter fullscreen once per file, on its first play
 
 let hls: Hls | undefined;
+let jassub: Jassub | undefined; // T80: libass renderer for the ASS original, one per playing file
+let assJob = 0; // bumped on every (de)activation so a stale async init cannot attach
 let run = 0; // bumped on every (re)start so stale async work can bail out
 let saveTimer: ReturnType<typeof setInterval> | undefined;
 let nextTimer: ReturnType<typeof setInterval> | undefined;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
+let inputModality: 'pointer' | 'keyboard' = 'pointer'; // T78: a click may leave focus on a chrome button
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fail = (text: string) => {
   phase.value = 'error';
   message.value = text;
+  stopAss();
 };
+
+// T80: JASSUB owns a canvas and a worker; every (de)activation bumps the job so a stale init cannot attach.
+function stopAss() {
+  assJob++;
+  const old = jassub;
+  jassub = undefined;
+  if (old) void old.destroy().catch(() => {});
+}
 
 function save() {
   const v = video.value;
@@ -68,6 +86,7 @@ function save() {
 function teardown() {
   save();
   run++;
+  stopAss();
   clearInterval(saveTimer);
   clearInterval(nextTimer);
   hls?.destroy();
@@ -109,7 +128,7 @@ async function start() {
     if (!f) return fail('No se encontró el archivo.');
     detail.value = d;
     file.value = f;
-    subs.value = f.subtitleTracks.filter((t) => t.supported && t.vtt);
+    subs.value = f.subtitleTracks.filter((t) => t.supported && (t.vtt || t.ass));
     next.value = null;
     loadChapters(f, mine);
 
@@ -124,7 +143,7 @@ async function start() {
     await nextTick();
     if (run !== mine) return;
     attach(f, resumePosition(d.progress, f.id));
-    subIndex.value = defaultSubtitle(subs.value);
+    subIndex.value = defaultSubtitleChoice(subChoices.value, subs.value);
     applySubtitle();
   } catch (e) {
     if (run === mine) fail(playErrorMessage(e));
@@ -188,13 +207,45 @@ function attach(f: MediaFile, startAt: number) {
 }
 
 function applySubtitle() {
+  const choice = subChoices.value[subIndex.value];
   const tracks = video.value?.textTracks;
-  if (!tracks) return;
-  for (let i = 0; i < tracks.length; i++) tracks[i]!.mode = i === subIndex.value ? 'showing' : 'disabled';
+  if (tracks) {
+    for (let i = 0; i < tracks.length; i++) tracks[i]!.mode = choice?.mode === 'vtt' && i === choice.track ? 'showing' : 'disabled';
+  }
+  void applyAss(choice);
 }
 function pickSubtitle(i: number) {
   subIndex.value = i;
   applySubtitle();
+}
+
+// T80: the ASS original renders on JASSUB's own canvas over the video; the native track is bypassed for it.
+// JASSUB follows the video element itself, so seeking and pausing need no extra plumbing.
+async function applyAss(choice: SubtitleChoice | undefined) {
+  stopAss();
+  const mine = assJob;
+  const f = file.value;
+  const v = video.value;
+  const track = choice?.mode === 'ass' ? choice.track : -1;
+  const src = track >= 0 ? subs.value[track]?.ass : null;
+  if (!f || !v || !src || phase.value !== 'playing') return;
+  let instance: Jassub | undefined;
+  try {
+    // A missing font list only degrades typography: libass falls back to its own default font.
+    const list = await api.fonts(f.id).catch(() => ({ fonts: [] }));
+    if (mine !== assJob) return;
+    instance = new Jassub({ video: v, subUrl: streamUrl(f.id, src), fonts: fontUrls(f.id, parseFontList(list.fonts)), workerUrl, wasmUrl, modernWasmUrl });
+    await instance.ready;
+    if (mine !== assJob) return void instance.destroy().catch(() => {});
+    jassub = instance;
+    void instance.resize().catch(() => {});
+  } catch {
+    if (instance !== jassub) void instance?.destroy().catch(() => {});
+    if (mine !== assJob) return;
+    assOk.value = false; // no WASM/Worker here: keep playing with the simple VTT track
+    subIndex.value = subChoices.value.findIndex((c) => c.track === track);
+    applySubtitle();
+  }
 }
 function pickSpeed(s: number) {
   speed.value = s;
@@ -210,8 +261,13 @@ function poke() {
   idle.value = false;
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if (video.value && !video.value.paused && !menu.value && !next.value && !needsGesture.value && !chromeHasFocus()) idle.value = true;
+    if (video.value && !video.value.paused && !menu.value && !next.value && !needsGesture.value && idleAllowed(inputModality, chromeHasFocus())) idle.value = true;
   }, 3000);
+}
+// T78: a pointer user still gets the idle fade while focus sits on the chrome button they just clicked.
+function pokePointer() {
+  inputModality = 'pointer';
+  poke();
 }
 // T56: autoplay may be blocked without a gesture (TV policy); keep the paused frame and ask for OK.
 function tryPlay() {
@@ -336,7 +392,8 @@ function goPrev() {
 function goNextEp() {
   if (nextEp.value) goTo(nextEp.value);
 }
-const back = () => router.push(`/title/${titleId.value}`);
+// T78: leave with `replace` so the title page's Back cannot land on the player again.
+const back = () => router.replace(`/title/${titleId.value}`);
 
 // Fullscreen the container, not the <video>, so the menus and the next-episode prompt stay visible.
 // iPhone is the exception (T43): it uses the native player, which rotates by itself.
@@ -361,8 +418,11 @@ function toggleFullscreen() {
   if (fullscreen.value) exitFullscreen();
   else enterFullscreen();
 }
+// T80: the canvas is positioned from the video's box, so it follows size changes too.
+const onWindowResize = () => void jassub?.resize().catch(() => {});
 function onFullscreenChange() {
   syncFullscreen();
+  void jassub?.resize().catch(() => {});
   if (!document.fullscreenElement) {
     try {
       screen.orientation?.unlock?.();
@@ -404,6 +464,7 @@ function focusPlayButton() {
 }
 
 function onKey(e: KeyboardEvent) {
+  inputModality = 'keyboard'; // T78: a keyboard/remote user keeps the chrome up while focus sits on a control
   const v = video.value;
   if (!v) return;
   const action = decidePlayerKey(e.target, e.key);
@@ -437,6 +498,8 @@ function onKey(e: KeyboardEvent) {
     goPrev();
   } else if (action === 'next-episode') {
     goNextEp();
+  } else if (action === 'toggle-fullscreen') {
+    toggleFullscreen();
   } else {
     return;
   }
@@ -457,6 +520,7 @@ watch(menu, async (m) => {
 onMounted(() => {
   window.addEventListener('keydown', onKey);
   window.addEventListener('pagehide', save);
+  window.addEventListener('resize', onWindowResize);
   document.addEventListener('fullscreenchange', onFullscreenChange);
   video.value?.addEventListener('volumechange', onVolumeChange);
   poke();
@@ -464,6 +528,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey);
   window.removeEventListener('pagehide', save);
+  window.removeEventListener('resize', onWindowResize);
   document.removeEventListener('fullscreenchange', onFullscreenChange);
   video.value?.removeEventListener('volumechange', onVolumeChange);
   clearTimeout(idleTimer);
@@ -473,7 +538,7 @@ watch([fileId, titleId], start, { immediate: true });
 </script>
 
 <template>
-  <div ref="root" class="watch" :class="{ idle }" @mousemove="poke" @pointerdown="poke" @touchstart.passive="poke">
+  <div ref="root" class="watch" :class="{ idle }" @mousemove="pokePointer" @pointerdown="pokePointer" @touchstart.passive="pokePointer">
     <video
       ref="video"
       v-show="phase === 'playing'"
@@ -492,20 +557,20 @@ watch([fileId, titleId], start, { immediate: true });
         v-for="(t, i) in subs"
         :key="`${fileId}-${t.index}`"
         kind="subtitles"
-        :src="streamUrl(fileId, t.vtt!)"
+        :src="t.vtt ? streamUrl(fileId, t.vtt) : undefined"
         :srclang="t.language ?? undefined"
         :label="subtitleLabel(t, i)"
       />
     </video>
 
-    <RouterLink class="btn top left" :to="`/title/${titleId || ''}`">← Volver</RouterLink>
+    <RouterLink class="btn top left" replace :to="`/title/${titleId || ''}`">← Volver</RouterLink>
 
     <p v-if="phase === 'loading'" class="center muted">Cargando…</p>
     <p v-else-if="phase === 'preparing'" class="center">Preparando… {{ percent }} %</p>
     <p v-else-if="phase === 'error'" class="center error">{{ message }}</p>
 
     <template v-if="phase === 'playing'">
-      <p v-if="needsGesture" class="hint" role="status">Pulsa OK para reproducir</p>
+      <p v-if="needsGesture" class="hint" role="status" @click="tryPlay">Pulsa OK para reproducir</p>
       <div class="top right actions chrome">
         <button class="round speed" :class="{ on: menu === 'speed' }" aria-label="Velocidad de reproducción" title="Velocidad de reproducción" aria-haspopup="menu" :aria-expanded="menu === 'speed'" @click="toggleMenu('speed')">
           {{ speedLabel(speed) }}
@@ -566,7 +631,7 @@ watch([fileId, titleId], start, { immediate: true });
         </template>
         <h2>Subtítulos</h2>
         <button role="menuitemradio" :aria-checked="subIndex === -1" :class="{ on: subIndex === -1 }" @click="pickSubtitle(-1)">Sin subtítulos</button>
-        <button v-for="(t, i) in subs" :key="t.index" role="menuitemradio" :aria-checked="subIndex === i" :class="{ on: subIndex === i }" @click="pickSubtitle(i)">{{ subtitleLabel(t, i) }}</button>
+        <button v-for="(c, i) in subChoices" :key="`${c.track}-${c.mode}`" role="menuitemradio" :aria-checked="subIndex === i" :class="{ on: subIndex === i }" @click="pickSubtitle(i)">{{ subtitleChoiceLabel(c, subs) }}</button>
       </div>
       <div v-else-if="menu === 'speed'" class="menu" role="menu" data-spatial-scope>
         <h2>Velocidad</h2>
@@ -594,10 +659,10 @@ video { width: 100%; height: 100%; background: #000; }
 .idle { cursor: none; }
 /* T51: the back link is deliberately not .chrome, so it stays visible and tappable while idle. */
 .idle .chrome { opacity: 0; pointer-events: none; }
-/* T56: autoplay was blocked; never swallow a click on the video underneath. */
+/* T56/T78: autoplay was blocked; the hint itself retries playback, so it must take clicks. */
 .hint {
   position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; margin: 0;
-  padding: 12px 24px; border-radius: 999px; background: rgba(15, 15, 18, 0.95); pointer-events: none;
+  padding: 12px 24px; border-radius: 999px; background: rgba(15, 15, 18, 0.95); cursor: pointer;
 }
 .center { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; text-align: center; padding: 0 16px; }
 .menu {

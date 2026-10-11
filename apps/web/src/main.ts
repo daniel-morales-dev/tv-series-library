@@ -20,6 +20,7 @@ const router = createRouter({
     { path: '/watch/:mediaFileId(\\d+)', component: () => import('./views/WatchView.vue'), meta: { chrome: false } },
     { path: '/setup', component: () => import('./views/SetupView.vue'), meta: { chrome: false } },
     { path: '/settings', component: () => import('./views/SettingsView.vue') },
+    { path: '/pending', component: () => import('./views/PendingView.vue') },
     { path: '/titles', redirect: '/browse' },
     { path: '/titles/:id(\\d+)', redirect: (to) => `/title/${to.params.id}` },
   ],

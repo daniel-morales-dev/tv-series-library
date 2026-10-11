@@ -2,10 +2,17 @@ import { resolve } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { sendFile } from '../../http/static-file.ts';
+import { sendApiError } from '../../http/api-error.ts';
 import type { Ingestor } from './ingestor.ts';
 import { type ConfirmBody, PendingError, ignorePending, listPending } from './pending.ts';
+import { ReanalyzeError } from './reanalyze.ts';
 
 const idParams = { type: 'object', properties: { id: { type: 'integer' } }, required: ['id'] } as const;
+const reanalyzeBody = {
+  type: 'object',
+  properties: { titleId: { type: 'integer', minimum: 1 } },
+  additionalProperties: false,
+} as const;
 const confirmBody = {
   type: 'object',
   properties: {
@@ -41,7 +48,7 @@ export function ingestRoutes(api: FastifyInstance, db: DatabaseSync, dataDir: st
       try {
         return await ingestor.confirm(req.params.id, req.body);
       } catch (err) {
-        if (err instanceof PendingError) return reply.code(err.status).send({ error: err.code });
+        if (err instanceof PendingError) return sendApiError(reply, err);
         req.log.error(err);
         return reply.code(502).send({ error: 'tmdb_unavailable' });
       }
@@ -51,6 +58,18 @@ export function ingestRoutes(api: FastifyInstance, db: DatabaseSync, dataDir: st
   api.post('/ingest/scan', async (_req, reply) =>
     ingestor ? ingestor.scan() : reply.code(503).send({ error: 'ingest_disabled' }),
   );
+
+  // T74/T84: reanalyze the whole library, or one title when `titleId` is given.
+  api.post<{ Body: { titleId?: number } }>('/library/reanalyze', { schema: { body: reanalyzeBody } }, async (req, reply) => {
+    if (!ingestor) return reply.code(503).send({ error: 'ingest_disabled' });
+    try {
+      return await ingestor.reanalyze(req.body?.titleId);
+    } catch (err) {
+      if (err instanceof ReanalyzeError) return sendApiError(reply, err);
+      req.log.error(err);
+      return reply.code(500).send({ error: 'reanalyze_failed' });
+    }
+  });
 
   api.get<{ Params: { '*': string } }>('/images/*', (req, reply) =>
     sendFile(reply, imagesDir, req.params['*'], IMAGE_TYPES, 'public, max-age=31536000, immutable'),

@@ -8,6 +8,7 @@ export type PlayerKeyAction =
   | 'volume-down'
   | 'prev-episode'
   | 'next-episode'
+  | 'toggle-fullscreen'
   | 'pass'; // nothing the player handles
 
 /** The parts of the event target the routing inspects (real DOM nodes and test doubles both fit). */
@@ -44,6 +45,8 @@ export function decidePlayerKey(target: KeyTarget | EventTarget | null, key: str
   // T51: a slider keeps the keys that adjust it (native range behavior fires `input` → onSeek/onVolume).
   if (tag === 'INPUT' && el?.type === 'range') return SLIDER_KEYS.has(key) ? 'ignore' : 'pass';
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return 'ignore';
+  // T78: `f` toggles fullscreen like the button; fields and sliders above keep their own keys.
+  if (key === 'f' || key === 'F') return 'toggle-fullscreen';
   // Space/Enter on a button or link belong to that control.
   if (key === ' ' || key === 'Enter') return tag === 'BUTTON' || tag === 'A' ? 'pass' : 'toggle';
   if (key === 'ArrowLeft') return 'seek-back';

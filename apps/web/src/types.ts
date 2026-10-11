@@ -58,6 +58,8 @@ export interface SubtitleTrack {
   supported: boolean;
   /** Path under /api/stream/:id/, e.g. `subs/0.vtt`; null when unsupported. */
   vtt: string | null;
+  /** T80: path of the original ASS track, e.g. `subs/0.ass`; null or missing when the codec has no libass original. */
+  ass?: string | null;
 }
 
 export interface WatchProgress {
@@ -97,6 +99,8 @@ export interface Season {
   id: number;
   number: number;
   name: string | null;
+  /** ISO date `YYYY-MM-DD`; the internal number may not be chronological, so this orders presentation. */
+  airDate?: string | null;
   episodes: Episode[];
 }
 
