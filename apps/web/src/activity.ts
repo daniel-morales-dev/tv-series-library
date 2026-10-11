@@ -21,6 +21,27 @@ export interface Activity {
   failed: ActivityItem[];
   /** Automatic backlog paused; a job the user asked to play still runs. */
   paused: boolean;
+  /** Server budget (T21); null when the server has no budget option. */
+  budget?: ActivityBudget | null;
+}
+
+export interface ActivityBudget {
+  jobs: number;
+  threadsPerJob: number;
+  limitedBy: 'cpu' | 'ram' | 'io' | 'env';
+}
+
+const LIMITED_BY: Record<Exclude<ActivityBudget['limitedBy'], 'cpu'>, string> = {
+  ram: 'memoria',
+  io: 'disco',
+  env: 'configuración',
+};
+
+/** One small line for the panel: `2 a la vez`, `1 a la vez · limitado por disco`. */
+export function budgetLine(budget: ActivityBudget | null): string | null {
+  if (!budget) return null;
+  const base = `${budget.jobs} a la vez`;
+  return budget.limitedBy === 'cpu' ? base : `${base} · limitado por ${LIMITED_BY[budget.limitedBy]}`;
 }
 
 /** Badge number: everything running plus everything waiting, not just the preview. */

@@ -8,7 +8,7 @@ Instalador `.exe` (Inno Setup 6) con todo incluido: Node portable, ffmpeg/ffprob
 - Crea la regla de firewall `Sala 8080` (solo `LocalSubnet`) y la elimina al desinstalar.
 - Añade un acceso directo al menú Inicio y otro en **Inicio de sesión** (`wscript.exe sala-launcher.vbs`, sin ventana).
 - `sala-launcher.vbs`: si el servidor ya responde, abre el navegador; si no, hace la copia verificada de SQLite (bloqueante), arranca el servidor en segundo plano, espera hasta 30 s a `/api/health` y abre `http://127.0.0.1:8080`. Los dos procesos Node cargan `--env-file-if-exists` de `<install>\.env` y de `%LOCALAPPDATA%\sala\.env` (ambos opcionales).
-- El estado (base, imágenes, HLS, copias) vive en `%LOCALAPPDATA%\sala`: desinstalar no borra datos.
+- El estado (base, imágenes, HLS, copias) vive en `%LOCALAPPDATA%\sala`. Al desinstalar se pregunta si borrarlo; en modo silencioso se conserva.
 - Sin firma digital: SmartScreen muestra "Windows protegió su PC" → **Más información → Ejecutar de todas formas**.
 
 ## Cómo generar el instalador
@@ -36,9 +36,26 @@ Las dependencias de producción del servidor se instalan en un workspace aislado
 # Salida: packaging\windows\output\sala-setup-1.0.0.exe
 ```
 
-## Antes de desinstalar
+## Desinstalar y empezar de cero
 
-Cerrar Sala (o reiniciar sesión) para que `node.exe` no esté en uso; si no, Inno pedirá reiniciar para borrar los archivos.
+Desde la v0.1.4 el desinstalador cierra el `node.exe`/`ffmpeg.exe` de Sala (por ruta, sin tocar otros Node) y pregunta **«¿Borrar también tus datos de Sala?»**:
+
+- **Sí**: borra `%LOCALAPPDATA%\sala` (catálogo, perfiles, progreso, ajustes, carátulas y videos procesados). Al reinstalar aparece el asistente de primer uso.
+- **No**: conserva todo; al reinstalar o actualizar sigue el mismo catálogo.
+
+Los videos originales (p. ej. `%USERPROFILE%\Videos\Sala`) nunca se borran.
+
+Limpieza manual (v0.1.3 o anteriores), en PowerShell como administrador y con la sesión del usuario que usa Sala:
+
+```powershell
+Get-Process node,ffmpeg -ErrorAction SilentlyContinue | Where-Object { $_.Path -like 'C:\Program Files\Sala\*' } | Stop-Process -Force
+Start-Sleep 2
+Remove-Item "$env:LOCALAPPDATA\sala" -Recurse -Force
+Remove-Item "$([Environment]::GetFolderPath('Startup'))\Sala.lnk" -ErrorAction SilentlyContinue
+Remove-Item "$env:USERPROFILE\Videos\Sala\.sala-library.json" -ErrorAction SilentlyContinue
+```
+
+Luego desinstalar desde Configuración → Aplicaciones y borrar `C:\Program Files\Sala` si quedó. Si `http://127.0.0.1:8080` todavía carga, sigue vivo un servidor viejo.
 
 ## Solo verificable en Windows real
 

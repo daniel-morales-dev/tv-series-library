@@ -1,4 +1,4 @@
-; Sala para Windows 11: instalador Inno Setup 6.
+﻿; Sala para Windows 11: instalador Inno Setup 6.
 ; Compilar (el payload lo prepara .github/workflows/build-windows-installer.yml en packaging\windows\payload):
 ;   iscc /DAppVersion=1.0.0 packaging\windows\sala.iss
 ; Salida: packaging\windows\output\sala-setup-<version>.exe
@@ -28,6 +28,7 @@ WizardStyle=modern
 OutputDir=output
 OutputBaseFilename=sala-setup-{#AppVersion}
 UninstallDisplayName=Sala
+DirExistsWarning=no
 ; La app no escribe nada bajo {app}: el estado vive en %LOCALAPPDATA%\sala (base, imagenes, HLS, copias).
 
 [Messages]
@@ -57,3 +58,36 @@ Filename: "{sys}\wscript.exe"; Parameters: """{app}\sala-launcher.vbs"""; Workin
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Sala 8080"""; Flags: runhidden; RunOnceId: "RemoveFirewallRule"
+
+[UninstallDelete]
+; Restos de {app} (logs, caches) que no son archivos instalados. Los datos del usuario viven en %LOCALAPPDATA%\sala.
+Type: filesandordirs; Name: "{app}"
+
+[Code]
+// Mata solo los node/ffmpeg que viven bajo {app} (por ruta, no por nombre de imagen: no toca otros Node del usuario).
+procedure StopSalaProcesses();
+var
+  ResultCode: Integer;
+  Cmd: String;
+begin
+  Cmd := '-NoProfile -ExecutionPolicy Bypass -Command "Get-Process node,ffmpeg -ErrorAction SilentlyContinue | Where-Object { $_.Path -like ''' + ExpandConstant('{app}') + '\*'' } | Stop-Process -Force; Start-Sleep -Seconds 1"';
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Cmd, '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  StopSalaProcesses();
+  Result := '';
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    StopSalaProcesses();
+    // Solo se pregunta en modo interactivo; en silencioso se conservan los datos.
+    // Nunca se borra la carpeta de biblioteca ni los videos originales.
+    if (not UninstallSilent()) and (MsgBox('¿Borrar también tus datos de Sala (catálogo, carátulas, progreso, ajustes y videos procesados)? Tus videos originales NO se borran.', mbConfirmation, MB_YESNO) = IDYES) then
+      DelTree(ExpandConstant('{localappdata}\sala'), True, True, True);
+  end;
+end;

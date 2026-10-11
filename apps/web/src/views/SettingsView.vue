@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue';
 import { api, type LibraryRoot, type OrphanScan } from '../api.ts';
 import { suggestedFolder, tmdbSectionState, type AppConfig } from '../config.ts';
 import { formatGb } from '../dataMigration.ts';
+import { tmdbGuide } from '../onboarding.ts';
 import ConfigForm from '../components/ConfigForm.vue';
 import DataMigrationPanel from '../components/DataMigrationPanel.vue';
 import FolderPicker from '../components/FolderPicker.vue';
@@ -175,6 +176,15 @@ onMounted(() => {
         <h2 id="tmdb-title">TMDB</h2>
         <p class="help">Token de acceso de lectura de TMDB. Con él la biblioteca busca portadas, sinopsis y episodios; sin token, la ingesta funciona sin conexión.</p>
         <p class="tmdb-state">Estado: <b>{{ tmdbState.state }}</b></p>
+        <details class="tmdb-guide">
+          <summary>¿Cómo consigo el token?</summary>
+          <ol>
+            <li v-for="(item, i) in tmdbGuide" :key="item">
+              {{ item }}
+              <a v-if="i === 1" href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>
+            </li>
+          </ol>
+        </details>
         <form class="tmdb-form" @submit.prevent="saveTmdbToken">
           <label for="tmdb-token">Token de TMDB</label>
           <input id="tmdb-token" v-model="tmdbToken" type="password" autocomplete="off" spellcheck="false" />
@@ -229,6 +239,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.tmdb-guide summary { cursor: pointer; color: var(--accent, inherit); }
+.tmdb-guide ol { margin: 8px 0 0; padding-left: 1.4em; display: grid; gap: 6px; }
 .settings { max-width: min(960px, 100%); margin: 0 auto; padding: calc(var(--header-h) + 24px) var(--gutter) 48px; display: grid; gap: 16px; }
 h1, h2, dl { margin: 0; }
 dt { color: var(--text-dim); font-size: 0.85rem; margin-top: 10px; }
