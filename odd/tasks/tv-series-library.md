@@ -362,3 +362,9 @@ Rama `fix/qa-usage-round3`. Commits y verificación por tarea:
 Verificación en vivo (servicio con el código de la rama): `reanalyze {"titleId":1}` → `{scanned:49, reparsed:1, placed:4}` (Monogatari: S4 "Nekomonogatari (Black)" 4 eps, ids 218-221); `reanalyze {}` → `{scanned:104, placed:38, reseasoned:1}` (Frieren re-adoptó grupo de 3 temporadas); `reprocess-subtitles {}` → 49 saneados. Backups: `/tmp/opencode/pre-reanalyze.db`, `/tmp/opencode/pre-global.db`.
 
 Pendiente del dueño: confirmación visual en TV/iPhone (T6d) del render ASS y del orden cronológico; probar los botones nuevos.
+
+### T87 (ronda 4, 2026-10-11) — caché de subtítulos ✅
+
+- ✅ T87 → `aaa728f` (server 715/715, typecheck limpio): `GET /api/titles/:id` versiona `vtt`/`ass` con el mtime del archivo (`?v=<mtimeMs>`; `withSubtitleVersions` en catalog/repository.ts, `hlsDir` hilado por app.ts → catalogRoutes) y `/api/stream` responde `no-cache` para `.vtt`/`.ass` (antes `public, max-age=3600`).
+- Regla de UX del dueño: "Reparar subtítulos" debe invalidar la caché solo — sin hard refresh, también en TV/celular. Verificado en vivo: `cache-control: no-cache` y `subs/0.vtt?v=1791756830602` en el detalle; las entradas viejas (sin `?v`) ya no se usan en ningún dispositivo.
+- Push a `fix/qa-usage-round3` (PR #12).
