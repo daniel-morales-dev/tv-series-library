@@ -26,6 +26,8 @@ describe('catalog API', () => {
     const titleId = addTitle(db, 'Show', { kind: 'series' });
     run(db, 'UPDATE titles SET collection_id = ? WHERE id = ?', collectionId, titleId);
     const file = addEpisode(db, titleId, 1, 1);
+    // T80: the stored ASS path must reach the player, which renders it with libass instead of the VTT copy.
+    run(db, 'UPDATE media_files SET subtitle_tracks = ? WHERE id = ?', JSON.stringify([{ index: 0, language: 'jpn', title: null, supported: true, vtt: 'subs/0.vtt', ass: 'subs/0.ass' }]), file);
     addFile(db, titleId, { status: 'pending' });
     const personId = run(db, "INSERT INTO people (tmdb_id, name) VALUES (7, 'Actor')").lastInsertId;
     run(db, "INSERT INTO credits (title_id, person_id, role, character) VALUES (?, ?, 'cast', 'Hero')", titleId, personId);
@@ -36,6 +38,7 @@ describe('catalog API', () => {
     const plain = (await app.inject(`/api/titles/${titleId}`)).json();
     expect(plain.seasons[0].episodes).toHaveLength(1);
     expect(plain.files.map((f: any) => [f.id, f.status])).toEqual([[file, 'ready'], [file + 1, 'pending']]);
+    expect(plain.files[0].subtitleTracks[0]).toMatchObject({ vtt: 'subs/0.vtt', ass: 'subs/0.ass' });
     expect(plain.credits[0]).toMatchObject({ name: 'Actor', character: 'Hero' });
     expect(plain.collection.titles).toHaveLength(1);
     expect(plain.inMyList).toBeUndefined();

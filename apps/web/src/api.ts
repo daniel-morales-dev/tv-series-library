@@ -165,6 +165,8 @@ export const api = {
   resumeProcessing: () => request<{ paused: boolean }>('/processing/resume', { method: 'POST' }),
   retryFile: (mediaFileId: number) => request<{ jobId: number }>(`/media-files/${mediaFileId}/process`, { method: 'POST' }),
   play: (mediaFileId: number) => request<{ status: 'ready' | 'processing' }>(`/media-files/${mediaFileId}/play`, { method: 'POST' }),
+  // T80: font file names of the HLS package, preloaded into the libass (JASSUB) renderer.
+  fonts: (mediaFileId: number) => request<{ fonts: string[] }>(`/stream/${mediaFileId}/fonts`),
   random: (pid?: number | null) => request<{ titleId: number; mediaFileId: number }>(`/random${pid ? `?profile=${pid}` : ''}`),
 };
 

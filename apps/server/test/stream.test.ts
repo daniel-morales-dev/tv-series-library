@@ -64,6 +64,28 @@ describe('GET /api/stream', () => {
   });
 });
 
+describe('GET /api/stream/:id/fonts', () => {
+  it('lists only the package fonts, sorted', async () => {
+    const { app, dataDir } = env();
+    writeFileSync(join(dataDir, 'hls', '7', 'fonts', 'Zapf.otf'), 'font');
+    writeFileSync(join(dataDir, 'hls', '7', 'fonts', 'README.txt'), 'nope');
+    const res = await app.inject('/api/stream/7/fonts');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ fonts: ['Arial.TTF', 'Zapf.otf'] });
+  });
+
+  it('reads the fonts of a package still being processed', async () => {
+    const { app, dataDir } = env();
+    mkdirSync(join(dataDir, 'hls', '9.tmp', 'fonts'), { recursive: true });
+    writeFileSync(join(dataDir, 'hls', '9.tmp', 'fonts', 'X.ttf'), 'font');
+    expect((await app.inject('/api/stream/9/fonts')).json()).toEqual({ fonts: ['X.ttf'] });
+  });
+
+  it('answers an empty list when there is no package', async () => {
+    expect((await env().app.inject('/api/stream/8/fonts')).json()).toEqual({ fonts: [] });
+  });
+});
+
 describe('streaming while processing', () => {
   it('serves from the .tmp folder until the final one exists', async () => {
     const { app, dataDir } = env();

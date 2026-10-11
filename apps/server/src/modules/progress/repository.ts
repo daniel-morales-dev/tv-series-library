@@ -202,7 +202,7 @@ export function listContinueWatching(db: DatabaseSync, profileId: number) {
        LEFT JOIN seasons s ON s.id = e.season_id
        LEFT JOIN watch_progress wp ON wp.media_file_id = mf.id AND wp.profile_id = ?
        WHERE mf.title_id = ? AND mf.status = 'ready'
-       ORDER BY s.number, e.number, mf.id`,
+       ORDER BY s.air_date IS NULL, s.air_date, s.number, e.number, mf.id`, // T86b: same chronological order as the title detail
       profileId,
       l.title_id,
     );

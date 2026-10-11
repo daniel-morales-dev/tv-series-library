@@ -1,3 +1,4 @@
+import { streamUrl } from './api.ts';
 import { languageName } from './languages.ts';
 import { buildEpisodes } from './titlePage.ts';
 import type { SubtitleTrack, TitleDetail, WatchProgress } from './types.ts';
@@ -19,6 +20,46 @@ export function subtitleLabel(t: SubtitleTrack, i: number): string {
   if (lang === 'Desconocido') return t.title || `Subtítulo ${i + 1}`;
   const plain = [lang, t.language, new Intl.DisplayNames(['en'], { type: 'language' }).of(t.language!)].map((x) => x?.toLowerCase());
   return t.title && !plain.includes(t.title.toLowerCase()) ? `${lang} · ${t.title}` : lang;
+}
+
+/** T80: one selectable subtitle row; `ass` renders with libass (JASSUB), `vtt` with the native track element. */
+export interface SubtitleChoice {
+  /** Index into the track list handed to `subtitleChoices`. */
+  track: number;
+  mode: 'ass' | 'vtt';
+}
+
+/** Menu rows per track: the ASS original when the package carries one, plus the simple copy when both exist. */
+export function subtitleChoices(tracks: SubtitleTrack[], assOk = true): SubtitleChoice[] {
+  return tracks.flatMap((t, track) => [
+    ...(assOk && t.ass ? [{ track, mode: 'ass' as const }] : []),
+    ...(t.vtt ? [{ track, mode: 'vtt' as const }] : []),
+  ]);
+}
+
+/** Index in `choices` of the default track (first Spanish), its ASS row when that track has one. */
+export function defaultSubtitleChoice(choices: SubtitleChoice[], tracks: SubtitleTrack[]): number {
+  const track = defaultSubtitle(tracks);
+  return track < 0 ? -1 : choices.findIndex((c) => c.track === track);
+}
+
+/** "Español · Original (ASS)" / "Español · Simple" when the track offers both; the plain label otherwise. */
+export function subtitleChoiceLabel(choice: SubtitleChoice, tracks: SubtitleTrack[]): string {
+  const track = tracks[choice.track];
+  if (!track) return '';
+  const label = subtitleLabel(track, choice.track);
+  if (!track.ass || !track.vtt) return label;
+  return `${label} · ${choice.mode === 'ass' ? 'Original (ASS)' : 'Simple'}`;
+}
+
+/** T80: font names a package really serves — a plain file name with a font extension, nothing path-like. */
+export function parseFontList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((n): n is string => typeof n === 'string' && /^[\w.-]+\.(ttf|otf|ttc|woff2?)$/i.test(n)) : [];
+}
+
+/** T80: the URLs JASSUB fetches the package fonts from. */
+export function fontUrls(mediaFileId: number, names: string[]): string[] {
+  return names.map((name) => streamUrl(mediaFileId, `fonts/${name}`));
 }
 
 interface EpisodeFile {

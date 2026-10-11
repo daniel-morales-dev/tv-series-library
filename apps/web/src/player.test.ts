@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { audioMenu, audioSelection, clock, defaultSubtitle, idleAllowed, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from './player.ts';
+import { audioMenu, audioSelection, clock, defaultSubtitle, defaultSubtitleChoice, fontUrls, idleAllowed, nextFile, parseFontList, prevFile, resumePosition, seekRange, subtitleChoiceLabel, subtitleChoices, subtitleLabel } from './player.ts';
 import type { Episode, MediaFile, SubtitleTrack, TitleDetail } from './types.ts';
 
 const p = (mediaFileId: number, positionS: number, completed = false) => ({ mediaFileId, positionS, durationS: 1400, completed });
@@ -17,8 +17,8 @@ describe('resumePosition', () => {
   });
 });
 
-const sub = (index: number, language: string | null, supported = true): SubtitleTrack => ({
-  index, language, title: null, supported, vtt: supported ? `subs/${index}.vtt` : null,
+const sub = (index: number, language: string | null, supported = true, ass: string | null = null): SubtitleTrack => ({
+  index, language, title: null, supported, vtt: supported ? `subs/${index}.vtt` : null, ass,
 });
 
 describe('defaultSubtitle', () => {
@@ -39,6 +39,59 @@ describe('subtitleLabel', () => {
   it('falls back to the title, then a number', () => {
     expect(subtitleLabel({ ...sub(0, null), title: 'Comentarios' }, 0)).toBe('Comentarios');
     expect(subtitleLabel(sub(0, null), 2)).toBe('Subtítulo 3');
+  });
+});
+
+describe('subtitleChoices', () => {
+  it('offers the ASS original first and the simple copy after it', () => {
+    expect(subtitleChoices([sub(0, 'spa', true, 'subs/0.ass')])).toEqual([
+      { track: 0, mode: 'ass' },
+      { track: 0, mode: 'vtt' },
+    ]);
+  });
+  it('offers only the simple copy without an ASS original, or when libass failed to start', () => {
+    expect(subtitleChoices([sub(0, 'spa')])).toEqual([{ track: 0, mode: 'vtt' }]);
+    expect(subtitleChoices([sub(0, 'spa', true, 'subs/0.ass')], false)).toEqual([{ track: 0, mode: 'vtt' }]);
+  });
+});
+
+describe('defaultSubtitleChoice', () => {
+  it('defaults to the Spanish track, its ASS row when that track has one', () => {
+    const tracks = [sub(0, 'eng'), sub(1, 'spa', true, 'subs/1.ass'), sub(2, 'es', true, 'subs/2.ass')];
+    expect(defaultSubtitleChoice(subtitleChoices(tracks), tracks)).toBe(1);
+  });
+  it('falls back to the simple row of the same track, and to off', () => {
+    const tracks = [sub(0, 'spa', true, 'subs/0.ass')];
+    expect(defaultSubtitleChoice(subtitleChoices(tracks, false), tracks)).toBe(0);
+    expect(defaultSubtitleChoice(subtitleChoices([sub(0, 'eng')]), [sub(0, 'eng')])).toBe(-1);
+  });
+});
+
+describe('subtitleChoiceLabel', () => {
+  it('marks Original (ASS) vs Simple only when the track offers both', () => {
+    const tracks = [sub(0, 'spa', true, 'subs/0.ass')];
+    expect(subtitleChoiceLabel({ track: 0, mode: 'ass' }, tracks)).toBe('Español · Original (ASS)');
+    expect(subtitleChoiceLabel({ track: 0, mode: 'vtt' }, tracks)).toBe('Español · Simple');
+  });
+  it('keeps the plain label when only one rendering exists', () => {
+    expect(subtitleChoiceLabel({ track: 0, mode: 'vtt' }, [sub(0, 'spa')])).toBe('Español');
+    expect(subtitleChoiceLabel({ track: 0, mode: 'vtt' }, [sub(0, 'spa', true, 'subs/0.ass')])).toBe('Español · Simple');
+  });
+});
+
+describe('fontUrls', () => {
+  it('builds local stream URLs for the package fonts', () => {
+    expect(fontUrls(7, ['Arial.TTF', 'Noto.woff2'])).toEqual(['/api/stream/7/fonts/Arial.TTF', '/api/stream/7/fonts/Noto.woff2']);
+  });
+});
+
+describe('parseFontList', () => {
+  it('keeps only plain font file names', () => {
+    expect(parseFontList(['Arial.TTF', 'x.woff2', 'notes.txt', '../evil.ttf', 'sub/dir.ttf', 7, null])).toEqual(['Arial.TTF', 'x.woff2']);
+  });
+  it('tolerates anything that is not a list', () => {
+    expect(parseFontList(undefined)).toEqual([]);
+    expect(parseFontList('Arial.TTF')).toEqual([]);
   });
 });
 

@@ -1,4 +1,4 @@
-import { stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
@@ -6,6 +6,7 @@ import { sendFile } from '../../http/static-file.ts';
 import { all, get } from '../../db/sql.ts';
 import { rootStatus } from '../../library/roots.ts';
 import { touchPlayed } from './cache.ts';
+import { FONT_FILE } from './plan.ts';
 import { enqueue, listJobs } from './queue.ts';
 import type { Worker } from './worker.ts';
 
@@ -194,4 +195,14 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
       return sendFile(reply, base, req.params['*'], STREAM_TYPES, (ext) => (ext === '.m3u8' ? 'no-cache' : 'public, max-age=3600'));
     },
   );
+
+  // T80: the player preloads the package fonts into libass (JASSUB); a readdir answers both old and new
+  // packages, where rewriting already published meta.json files would not.
+  api.get<{ Params: { mediaFileId: number } }>('/stream/:mediaFileId/fonts', { schema: { params: idParams('mediaFileId') } }, async (req, reply) => {
+    if (disk.hlsOnLibrary && !disk.present()) return diskAbsent(reply);
+    const dir = join(hlsDir, String(req.params.mediaFileId));
+    const base = (await stat(dir).catch(() => null))?.isDirectory() ? dir : `${dir}.tmp`;
+    const names = await readdir(join(base, 'fonts')).catch(() => []);
+    return { fonts: names.filter((n) => FONT_FILE.test(n)).sort() };
+  });
 }
