@@ -22,7 +22,7 @@ const MESSAGES: Record<string, string> = {
   not_found: 'Esa carpeta no existe.',
   not_directory: 'Esa ruta es un archivo, no una carpeta.',
   forbidden: 'No hay permiso para abrir esa carpeta.',
-  invalid_path: 'Escribe una ruta absoluta (por ejemplo /home/usuario/series).',
+  invalid_path: 'Escribe la ruta completa de la carpeta (por ejemplo C:\\Users\\tu-usuario\\Videos\\Sala o /home/tu-usuario/Videos/Sala).',
 };
 
 export function pickerError(code: string): string {

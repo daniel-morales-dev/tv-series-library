@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, posix, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ROOTS } from '../modules/ingest/scanner.ts';
 
@@ -234,6 +234,11 @@ export function resolveTmdbToken(env: NodeJS.ProcessEnv = process.env, options: 
   const fromEnv = env.TMDB_READ_ACCESS_TOKEN?.trim();
   if (fromEnv) return fromEnv;
   return readUserConfig({ ...options, dir: options.dir ?? configDir(env) })?.tmdbToken ?? null;
+}
+
+/** T60: where a brand-new library is proposed when no folder exists yet (installed app, no repo `content/`). */
+export function defaultLibraryDir({ platform = process.platform, home = homedir() }: { platform?: NodeJS.Platform; home?: string } = {}): string {
+  return (platform === 'win32' ? win32 : posix).join(home, 'Videos', 'Sala');
 }
 
 export function expandHome(input: string): string {

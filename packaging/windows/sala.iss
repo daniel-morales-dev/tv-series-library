@@ -30,6 +30,10 @@ OutputBaseFilename=sala-setup-{#AppVersion}
 UninstallDisplayName=Sala
 ; La app no escribe nada bajo {app}: el estado vive en %LOCALAPPDATA%\sala (base, imagenes, HLS, copias).
 
+[Messages]
+; El instalador no toca la configuracion: la app guia el primer arranque (carpeta, token TMDB opcional).
+FinishedLabel=Sala quedo instalada. Al abrirse en el navegador te guiara paso a paso: elegir la carpeta de tus series y peliculas y, si quieres, agregar tu token de TMDB para los posters.
+
 [Files]
 Source: "{#PayloadDir}\node\node.exe"; DestDir: "{app}\node"
 Source: "{#PayloadDir}\ffmpeg\bin\ffmpeg.exe"; DestDir: "{app}\ffmpeg\bin"

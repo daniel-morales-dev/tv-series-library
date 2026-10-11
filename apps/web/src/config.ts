@@ -13,6 +13,13 @@ export interface AppConfig {
   suggestedDefault: string;
   /** T58: whether a TMDB token is resolvable (env or config.json). Sent by GET /api/config; older payloads may omit it. */
   tmdbConfigured?: boolean;
+  /** T60: proposed folder for a brand-new library (e.g. ~/Videos/Sala), created on save. Older payloads may omit it. */
+  newLibraryDir?: string;
+}
+
+/** T60: an existing default folder wins; otherwise propose a new one so a fresh install never shows an empty field. */
+export function suggestedFolder(config: Pick<AppConfig, 'suggestedDefault' | 'newLibraryDir'>): string {
+  return config.suggestedDefault || config.newLibraryDir || '';
 }
 
 /** T58: derived UI state of the TMDB section in Settings; the token itself never round-trips through here. */
@@ -36,12 +43,13 @@ export function tmdbSectionState(config: AppConfig | null, input: string, busy: 
 
 /**
  * Where the boot guard sends `path`, or null to let it through.
- * Only `missing` (chosen folder absent) forces /setup, which shows its own error.
- * `unset` never forces the wizard: the development folder from .env keeps working.
+ * `missing` (chosen folder absent) forces /setup, which shows its own error.
+ * `unset` forces the wizard only on a first run (no existing default folder);
+ * with one, the development folder from .env keeps working.
  */
-export function guardRedirect(status: ConfigState, path: string): string | null {
-  if (status === 'ready') return path === '/setup' ? '/' : null;
-  if (status === 'missing') return path === '/setup' ? null : '/setup';
+export function guardRedirect(config: Pick<AppConfig, 'status' | 'suggestedDefault'>, path: string): string | null {
+  if (config.status === 'ready') return path === '/setup' ? '/' : null;
+  if (config.status === 'missing' || !config.suggestedDefault) return path === '/setup' ? null : '/setup';
   return null;
 }
 
@@ -82,7 +90,7 @@ export type SubmitError = { kind: 'confirm-create' } | { kind: 'error'; message:
 
 export function submitError(code: string): SubmitError {
   if (code === 'not_found') return { kind: 'confirm-create' };
-  if (code === 'invalid_path') return { kind: 'error', message: 'Escribe una ruta absoluta (por ejemplo /home/usuario/series).' };
+  if (code === 'invalid_path') return { kind: 'error', message: 'Escribe la ruta completa de la carpeta (por ejemplo C:\\Users\\tu-usuario\\Videos\\Sala o /home/tu-usuario/Videos/Sala).' };
   if (code === 'not_directory') return { kind: 'error', message: 'Esa ruta es un archivo, no una carpeta.' };
   return { kind: 'error', message: 'No se pudo guardar la carpeta. Intenta de nuevo.' };
 }

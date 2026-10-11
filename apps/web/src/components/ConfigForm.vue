@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { api } from '../api.ts';
 import { submitError } from '../config.ts';
 import { startPath } from '../folderPicker.ts';
@@ -7,13 +7,22 @@ import FolderPicker from './FolderPicker.vue';
 import Icon from './Icon.vue';
 
 const props = defineProps<{ suggested: string; initial?: string }>();
-const emit = defineEmits<{ saved: [] }>();
+const emit = defineEmits<{ saved: []; path: [value: string] }>();
 
 const path = ref(props.initial ?? '');
 const busy = ref(false);
 const error = ref('');
 const confirmCreate = ref(false);
 const browsing = ref(false);
+
+watch(path, (value) => emit('path', value), { immediate: true });
+
+/** Lets the wizard swap the typed path for its "use the parent folder" suggestion. */
+function usePath(value: string) {
+  path.value = value;
+  confirmCreate.value = false;
+}
+defineExpose({ usePath });
 
 function picked(value: string) {
   path.value = value;
@@ -43,7 +52,7 @@ async function save(create = false) {
   <form class="cfg" @submit.prevent="save()">
     <label for="content-dir">Carpeta de contenido</label>
     <div class="field">
-      <input id="content-dir" v-model="path" type="text" autocomplete="off" spellcheck="false" placeholder="/ruta/a/tu/contenido" @input="confirmCreate = false" />
+      <input id="content-dir" v-model="path" type="text" autocomplete="off" spellcheck="false" :placeholder="suggested || 'Ruta completa de la carpeta'" @input="confirmCreate = false" />
       <button type="button" class="browse" aria-label="Explorar carpetas" title="Explorar carpetas" @click="browsing = true">
         <Icon name="folder" :size="20" /><span>Explorar</span>
       </button>

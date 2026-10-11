@@ -23,9 +23,9 @@ Las dependencias de producción del servidor se instalan en un workspace aislado
 ## Token TMDB (solo para importar contenido nuevo)
 
 - El instalador no incluye `.env` ni ningún token; el build no usa secretos y el archivo no forma parte del payload.
-- Sin token, la reproducción funciona completa y sin conexión: la biblioteca ya importada no lo necesita.
-- Para importar contenido nuevo con metadata de TMDB, crear `%LOCALAPPDATA%\sala\.env` con la línea `TMDB_READ_ACCESS_TOKEN=...` (el dueño copia el valor de su `.env` de Linux; nunca se sube a git ni se imprime).
-- El lanzador también carga `<install>\.env` si el usuario lo crea; ambos archivos son opcionales y solo se leen si existen.
+- Sin token, la reproducción funciona completa y sin conexión: los títulos salen del nombre del archivo, sin pósters.
+- El token se pide en el asistente del primer arranque (paso «Metadata de TMDB», con guía para conseguirlo) o después en **Ajustes**; se guarda en `%LOCALAPPDATA%\sala\config.json`.
+- Alternativa avanzada: `TMDB_READ_ACCESS_TOKEN=...` en `%LOCALAPPDATA%\sala\.env` o `<install>\.env` (opcionales; la variable de entorno gana sobre `config.json`).
 
 ## Compilación local (referencia, requiere Windows)
 

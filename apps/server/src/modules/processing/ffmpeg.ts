@@ -29,6 +29,8 @@ export interface RunOptions {
    * Without it the child is tied to this process and dies with it.
    */
   detached?: { progressFile: string; logFile: string };
+  /** Working directory for ffmpeg; keeps any relative output away from a read-only install folder. */
+  cwd?: string;
   onSpawn?: (info: SpawnInfo) => void;
 }
 
@@ -64,7 +66,7 @@ export function createRunFfmpeg({ bin = ffmpegBin(), pollMs = 1_000, killAfterMs
       if (signal?.aborted) return reject(signal.reason ?? new Error('aborted'));
       let logFd: number | undefined;
       if (detached) logFd = openSync(detached.logFile, 'a');
-      const child = spawn(bin, args, { detached: !!detached, stdio: ['ignore', logFd ?? 'ignore', logFd ?? 'pipe'] });
+      const child = spawn(bin, args, { cwd: opts.cwd, detached: !!detached, stdio: ['ignore', logFd ?? 'ignore', logFd ?? 'pipe'] });
       if (logFd !== undefined) closeSync(logFd);
       let stderr = '';
       child.stderr?.on('data', (d: Buffer) => {
@@ -199,13 +201,15 @@ export function mainArgs(
   const audio = plan.audio.flatMap((a, i) =>
     a.mode === 'copy' ? [`-c:a:${i}`, 'copy'] : [`-c:a:${i}`, 'aac', `-b:a:${i}`, a.bitrate!, `-ac:a:${i}`, String(a.channels)],
   );
+  // ffmpeg's HLS muxer finds the playlist folder by its last '/', so a native Windows path would send init.mp4 to the cwd.
+  const out = (rel: string) => join(outDir, rel).replaceAll('\\', '/');
   const streamMap = [
     'v:0,agroup:aud,name:v',
     ...plan.audio.map((a, i) => `a:${i},agroup:aud,name:a${a.n}${a.language ? `,language:${a.language}` : ''}${i === 0 ? ',default:yes' : ''}`),
   ].join(' ');
   return [
     ...BASE,
-    '-progress', join(outDir, PROGRESS_FILE), '-nostats',
+    '-progress', out(PROGRESS_FILE), '-nostats',
     '-i', src,
     '-map', `0:${plan.video.index}`,
     ...plan.audio.flatMap((a) => ['-map', `0:${a.index}`]),
@@ -217,10 +221,10 @@ export function mainArgs(
     '-hls_segment_type', 'fmp4',
     '-hls_flags', 'independent_segments',
     '-hls_fmp4_init_filename', 'init.mp4',
-    '-hls_segment_filename', join(outDir, '%v/seg_%05d.m4s'),
+    '-hls_segment_filename', out('%v/seg_%05d.m4s'),
     '-master_pl_name', 'master.m3u8',
     '-var_stream_map', streamMap,
-    join(outDir, '%v/index.m3u8'),
+    out('%v/index.m3u8'),
   ];
 }
 
