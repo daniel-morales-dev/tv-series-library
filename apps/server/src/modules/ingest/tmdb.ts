@@ -138,8 +138,10 @@ export function createTmdbClient(token: string, fetchImpl: typeof fetch = fetch,
       await sleep(Math.min(wait, MAX_BACKOFF_MS));
     }
   };
+  // TMDB_API_BASE points the client at a stand-in (tests, mirrors); production talks to the real API.
+  const base = process.env.TMDB_API_BASE || API;
   const api = async <T>(path: string, params: Record<string, string | number | undefined> = {}): Promise<T> => {
-    const url = new URL(API + path);
+    const url = new URL(base + path);
     url.searchParams.set('language', 'es-MX');
     for (const [k, v] of Object.entries(params)) if (v !== undefined) url.searchParams.set(k, String(v));
     const res = await request(url.toString(), path, { Authorization: `Bearer ${token}`, accept: 'application/json' });

@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync, type Stat
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ROOTS } from '../modules/ingest/scanner.ts';
 
 /** Hidden marker written at the content-folder root so a relocated disk can be recognized (T9/T22). */
 export const MARKER_FILE = '.sala-library.json';
@@ -185,6 +186,8 @@ export function setContentDir(input: string, options: { create?: boolean } & Con
     mkdirSync(path, { recursive: true });
   }
   if (stats && !stats.isDirectory()) return { ok: false, error: 'not_directory' };
+  // The scanner only reads `shows/` and `films/`: create them now so the user finds where to drop media.
+  for (const sub of ROOTS) mkdirSync(join(path, sub), { recursive: true });
   const marker = readMarker(path, options.warn ?? console.warn);
   const previous = readUserConfig({ ...options, warn: () => {} });
   const same = previous?.contentDir === path;

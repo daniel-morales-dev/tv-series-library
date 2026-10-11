@@ -196,6 +196,18 @@ describe('setContentDir', () => {
     expect(readJson(join(configDirectory, 'config.json'))).toEqual({ contentDir: media, libraryId: result.status.libraryId });
   });
 
+  it('creates the shows/ and films/ folders the scanner reads, and re-saving is idempotent', () => {
+    const configDirectory = join(tempRoot(), 'cfg');
+    const media = join(tempRoot(), 'new-library');
+    expect(setContentDir(media, { dir: configDirectory, create: true }).ok).toBe(true);
+    expect(existsSync(join(media, 'shows'))).toBe(true);
+    expect(existsSync(join(media, 'films'))).toBe(true);
+    // Saving the same folder again must not fail on the folders that already exist.
+    expect(setContentDir(media, { dir: configDirectory }).ok).toBe(true);
+    expect(existsSync(join(media, 'shows'))).toBe(true);
+    expect(existsSync(join(media, 'films'))).toBe(true);
+  });
+
   it('adopts an existing marker id and keeps the marker untouched', () => {
     const configDirectory = join(tempRoot(), 'cfg');
     const media = tempRoot();

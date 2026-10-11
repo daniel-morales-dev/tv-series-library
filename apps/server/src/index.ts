@@ -83,7 +83,8 @@ const worker =
         dataDir,
         hlsDir,
         diskPresent,
-        contentDir: workerContentDir,
+        // T22: live resolver, so a PUT to a new folder re-targets the worker without a restart.
+        contentDir: () => resolveContentDir(),
         // T21: jobs x threads from CPU share, free RAM and volume type; PROCESS_CONCURRENCY/FFMPEG_THREADS fix them.
         budget: {
           hardware: createHardwareProbe([workerContentDir, hlsDir]),
@@ -116,15 +117,18 @@ const app = buildApp({
   ingestor,
   worker,
   dataMigration,
+  // T52: with a token the refresh endpoint re-queries TMDB; without one it keeps answering 503.
+  tmdb: token ? tmdb : undefined,
   webDir: resolve(process.env.WEB_DIR ?? '../web/dist'),
   config: {
     currentContentDir: () => resolveContentDir(),
     // A successful PUT just chose the folder: start scanning there (start() stops the previous timers first).
-    // The worker's folder is fixed at boot, so it only starts if the chosen folder is the one it was built with.
+    // The worker reads the same live resolver, so it follows the new folder without a restart.
     onReady: (dir: string) => {
+      // T9a: the chosen folder is root 1 from now on; refresh its last known path so availability follows the disk.
+      const status = configStatus(dir);
+      if (status.status === 'ready') linkPrimaryRoot(db, { libraryId: status.libraryId, path: status.contentDir });
       ingestor?.start(scanIntervalMin);
-      if (dir === workerContentDir) startWorker();
-      else if (worker && !workerStarted) console.warn('Restart the service to process media from the newly chosen folder.');
     },
   },
 });
