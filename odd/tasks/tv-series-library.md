@@ -347,3 +347,18 @@ Tareas (ruta delegada; writers sin git de escritura — el padre commitea):
 - Hecho en esta sesión: T69/T70/T71 commiteados en `e711afa` (suite server 644/644, typecheck limpio; desviación aceptada: no hay abort de job en curso, la fila `processing` se re-detecta en el siguiente escaneo).
 
 **Checks de cierre de la sesión:** suites completas server+web + typechecks; dry-run de T69/T70/T74 sobre copia `VACUUM INTO` de la BD real + carpeta de prueba con los nombres reales del dueño; verificación de subtítulos antes/después con un paquete real.
+
+### Resultado (cierre T82, 2026-10-11) — T69–T86b cerrados
+
+Rama `fix/qa-usage-round3`. Commits y verificación por tarea:
+- ✅ T69/T70/T71 → `e711afa` (server 644/644; desviación aceptada: la fila `processing` se re-detecta en el siguiente escaneo). En vivo: 33 filas de la carpeta Cifer → `missing`.
+- ✅ T72 → `d00e0ce` (675/675). ✅ T73/T75/T83 → `e8db2d2` (685/685). ✅ T74/T84 → `b98472d` (690/690; contrato congelado, consumido por T81).
+- ✅ T76 → `0ab1ab6` (703/703). En vivo: `POST /api/maintenance/reprocess-subtitles {}` → `{checked:83, fixed:49}`; llaves `{NNNN}` 205/271/132/8 → 0 y líneas de dibujo 966/1268/775/1034 → 0 en `hls/135-138`.
+- ✅ T77/T81 → `9fdd5fa` (web 298/298 + build). Botones "Re-analizar biblioteca/título", "Reparar subtítulos" y pantalla `/pending`.
+- ✅ T78/T79 + refactor DRY web → `b936fbd` (web 282/282). ✅ T85 server → `4675fb6` (703/703).
+- ✅ T86/T86b (nuevas, 2ª ronda del reporte) → `196aa96` (server 708, web 300): temporadas ordenadas por fecha de emisión (Nekomonogatari 2012 antes de Second Season 2013) + "Continuar viendo" cronológico; `refreshSeasonAirDates` rellena fechas desde "Re-analizar título".
+- ✅ T80 → `bfeda28` (server 712, web 309, build con wasm/worker de JASSUB locales): render ASS con libass + toggle "Original (ASS)"/"Simple" + fallback VTT.
+
+Verificación en vivo (servicio con el código de la rama): `reanalyze {"titleId":1}` → `{scanned:49, reparsed:1, placed:4}` (Monogatari: S4 "Nekomonogatari (Black)" 4 eps, ids 218-221); `reanalyze {}` → `{scanned:104, placed:38, reseasoned:1}` (Frieren re-adoptó grupo de 3 temporadas); `reprocess-subtitles {}` → 49 saneados. Backups: `/tmp/opencode/pre-reanalyze.db`, `/tmp/opencode/pre-global.db`.
+
+Pendiente del dueño: confirmación visual en TV/iPhone (T6d) del render ASS y del orden cronológico; probar los botones nuevos.
