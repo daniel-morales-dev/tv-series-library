@@ -11,6 +11,13 @@ import { type Parsed, parsePath, parseTitleTag } from './parser.ts';
 import { type Probe, ffprobe } from './probe.ts';
 import { type ConfirmBody, confirmPending } from './pending.ts';
 import { type Placement, addPending, promoteDownload, registerDownloading, registerFile, relinkFiles } from './register.ts';
+import {
+  type ReanalyzeSummary,
+  type ScanCounts,
+  emptyReanalyzeSummary,
+  reanalyzeTitle,
+  reanalyzeTitles,
+} from './reanalyze.ts';
 import { enqueue } from '../processing/queue.ts';
 import { ROOTS, type VideoFile, listVideos, showDirKey } from './scanner.ts';
 import { type TmdbClient, memoize } from './tmdb.ts';
@@ -46,6 +53,8 @@ export interface Ingestor {
   confirm(id: number, body: ConfirmBody): Promise<{ titleId: number; placed: number }>;
   /** Concurrent callers share the scan in flight; a request made during a scan triggers one more pass. */
   scan(): Promise<ScanSummary>;
+  /** T74/T84: full reanalysis (scan plus folder, seasons-group and placement passes), or one title only. */
+  reanalyze(titleId?: number): Promise<ReanalyzeSummary>;
   start(intervalMin: number): void;
   stop(): void;
 }
@@ -78,6 +87,9 @@ interface SyncRow {
 
 const fpKey = (rootId: number, rel: string) => `${rootId}:${rel}`;
 
+/** Counters a reanalysis pass reads back; a plain scan just ignores them. */
+const emptyScanCounts = (): ScanCounts => ({ scanned: 0, missing: 0, replaced: 0, promoted: 0, pending: 0 });
+
 interface ScanRoot {
   id: number;
   path: string;
@@ -108,11 +120,11 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   // T9b: root 1 is the configured folder, guarded by the injected `diskPresent`; every other root by its marker.
   const rootPresent = (rootId: number) => (rootId === 1 ? diskPresent() : rootStatus(db, rootId).present);
 
-  async function scanLoop(): Promise<ScanSummary> {
+  async function scanLoop(counts?: ScanCounts): Promise<ScanSummary> {
     let summary: ScanSummary;
     do {
       again = false;
-      summary = await scanOnce();
+      summary = await scanOnce(counts);
     } while (again);
     return summary;
   }
@@ -128,7 +140,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     return running;
   }
 
-  async function scanOnce(): Promise<ScanSummary> {
+  async function scanOnce(counts: ScanCounts = emptyScanCounts()): Promise<ScanSummary> {
     const state: ScanState = { ctx: { db, tmdb: memoize(tmdb()), dataDir }, onDisk: new Map(), offline: false, dirs: new Map() };
     const summary: ScanSummary = { ingested: 0, pending: 0, waiting: 0, failed: 0 };
     const present = scanRoots().filter((r) => rootPresent(r.id));
@@ -143,10 +155,11 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
       const files = (await listVideos(root.path)).map((f) => ({ ...f, rootId: root.id }));
       listed.set(root.id, files);
       state.onDisk.set(root.id, new Set(files.map((f) => f.rel)));
+      counts.scanned += files.length;
     }
     const known = knownPaths(present);
     const fingerprints = await relocateMoved(state, present, listed, known);
-    for (const root of present) await scanRoot(state, root, listed.get(root.id)!, known.get(root.id)!, fingerprints, summary);
+    for (const root of present) await scanRoot(state, root, listed.get(root.id)!, known.get(root.id)!, fingerprints, summary, counts);
     if (summary.waiting > 0) schedule(RECENT_RESCAN_MS, 'recent');
     log('info', `scan done: ${JSON.stringify(summary)}`);
     return summary;
@@ -184,14 +197,15 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     known: Set<string>,
     fingerprints: Map<string, string | null>,
     summary: ScanSummary,
+    counts: ScanCounts,
   ): Promise<void> {
-    await markMissing(root, files);
-    await promoteDownloads(root.id, files, summary);
-    await resyncFiles(root, files);
+    await markMissing(root, files, counts);
+    await promoteDownloads(root.id, files, summary, counts);
+    await resyncFiles(root, files, counts);
     for (const file of files) {
       if (known.has(file.rel)) continue;
       try {
-        summary[await ingestFile(state, file, fingerprints.get(fpKey(root.id, file.rel)) ?? null)]++;
+        summary[await ingestFile(state, file, fingerprints.get(fpKey(root.id, file.rel)) ?? null, counts)]++;
       } catch (err) {
         summary.failed++;
         log('warn', `ingest failed for ${file.rel}: ${(err as Error).message}`);
@@ -201,7 +215,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
 
   // T69: a registered file that is gone from a present root keeps its row (progress, HLS) and only leaves the
   // queue. Only ENOENT counts: an unreadable file is still there. Absent and forgotten roots never get here.
-  async function markMissing(root: ScanRoot, files: RootVideo[]): Promise<void> {
+  async function markMissing(root: ScanRoot, files: RootVideo[], counts: ScanCounts): Promise<void> {
     const onDisk = new Set(files.map((f) => f.rel));
     for (const row of all<{ id: number; path: string; status: string }>(db, 'SELECT id, path, status FROM media_files WHERE root_id = ?', root.id)) {
       if (row.status === 'missing' || onDisk.has(row.path)) continue;
@@ -212,13 +226,14 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
       if (!gone) continue;
       run(db, "UPDATE media_files SET status = 'missing' WHERE id = ?", row.id);
       run(db, "DELETE FROM jobs WHERE type = 'process' AND media_file_id = ? AND status = 'queued'", row.id);
+      counts.missing++;
       log('info', `missing from disk: ${row.path}`);
     }
   }
 
   // T70: a file replaced in place (size, mtime or fingerprint changed) is re-registered on the same row, so
   // progress and HLS stay. A touch (same fingerprint) only refreshes the stored mtime.
-  async function resyncFiles(root: ScanRoot, files: RootVideo[]): Promise<void> {
+  async function resyncFiles(root: ScanRoot, files: RootVideo[], counts: ScanCounts): Promise<void> {
     const rows = new Map(
       all<SyncRow>(db, 'SELECT id, path, size, mtime_ms, fingerprint, status, hls_dir FROM media_files WHERE root_id = ?', root.id).map((r) => [r.path, r]),
     );
@@ -235,7 +250,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
             run(db, "UPDATE media_files SET status = 'pending', error = NULL, size = ?, mtime_ms = ? WHERE id = ?", file.size, file.mtimeMs, row.id);
             enqueue(db, row.id);
           }
-        } else replaceFile(row, file, fp);
+        } else replaceFile(row, file, fp, counts);
         continue;
       }
       const touched = row.mtime_ms !== file.mtimeMs || row.size !== file.size;
@@ -251,17 +266,18 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
         run(db, 'UPDATE media_files SET size = ?, mtime_ms = ? WHERE id = ?', file.size, file.mtimeMs, row.id);
         continue;
       }
-      replaceFile(row, file, fp);
+      replaceFile(row, file, fp, counts);
     }
   }
 
-  function replaceFile(row: SyncRow, file: RootVideo, fp: string | null): void {
+  function replaceFile(row: SyncRow, file: RootVideo, fp: string | null, counts: ScanCounts): void {
     if (row.status === 'processing') {
       // The running job owns the row; its stored facts stay untouched so the next scan sees the change again
       // and re-queues once the job is over (a running job cannot be aborted from the ingestor).
       log('warn', `replaced while processing, left for the next scan: ${file.rel}`);
       return;
     }
+    counts.replaced++;
     const fresh = now() - file.mtimeMs < MIN_AGE_MS;
     if (fresh) {
       // Still being copied: drop the job of the old bytes and let the promotion (T71) pick the finished file up.
@@ -443,18 +459,21 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   }
 
   // Downloads whose file is now old enough and readable join the queue.
-  async function promoteDownloads(rootId: number, files: RootVideo[], summary: ScanSummary): Promise<void> {
+  async function promoteDownloads(rootId: number, files: RootVideo[], summary: ScanSummary, counts: ScanCounts): Promise<void> {
     const byRel = new Map(files.map((f) => [f.rel, f]));
     for (const row of all<{ id: number; path: string }>(db, "SELECT id, path FROM media_files WHERE status = 'downloading' AND root_id = ?", rootId)) {
       const file = byRel.get(row.path);
       if (!file) continue;
       const info = now() - file.mtimeMs > MIN_AGE_MS ? await probe(file.abs).catch(() => null) : null;
       if (!info) summary.waiting++;
-      else promoteDownload(db, row.id, file.size, info, file.mtimeMs);
+      else {
+        promoteDownload(db, row.id, file.size, info, file.mtimeMs);
+        counts.promoted++;
+      }
     }
   }
 
-  async function ingestFile(state: ScanState, file: RootVideo, fp: string | null): Promise<'ingested' | 'pending' | 'waiting'> {
+  async function ingestFile(state: ScanState, file: RootVideo, fp: string | null, counts: ScanCounts): Promise<'ingested' | 'pending' | 'waiting'> {
     const info = now() - file.mtimeMs > MIN_AGE_MS ? await probe(file.abs).catch(() => null) : null;
     let parsed = parsePath(file.rel);
     // T72: some releases only carry the season/episode pair in the container title tag ("S05E06-Orario: ...").
@@ -466,6 +485,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     const toPending = (reason: 'unparsed' | 'no_match' | 'unmapped_episode', candidates: Parameters<typeof addPending>[5] = []) => {
       if (!info) return 'waiting' as const; // unplaceable and unfinished: nothing is stored until it can be probed
       addPending(db, file.rel, file.size, parsed, reason, candidates, file.rootId);
+      counts.pending++;
       return 'pending' as const;
     };
     const store = (placement: Placement) => {
@@ -673,5 +693,24 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   const confirm = (id: number, body: ConfirmBody) =>
     confirmPending({ ctx: { db, tmdb: memoize(tmdb()), dataDir }, probe, contentDir: (rootId) => rootPath(rootId) }, id, body);
 
-  return { scan, start, stop, confirm };
+  // T74/T84: the scan pass runs through the same lock as a normal scan, so watchers and manual scans queue
+  // behind it instead of racing it; the stored-data passes that follow are plain idempotent rewrites.
+  async function reanalyzeOnce(titleId?: number): Promise<ReanalyzeSummary> {
+    const summary = emptyReanalyzeSummary();
+    const deps = { db, ctx: { db, tmdb: memoize(tmdb()), dataDir }, rootPath, log };
+    if (titleId !== undefined) {
+      await reanalyzeTitle(deps, summary, titleId);
+      return summary;
+    }
+    while (running) await running.catch(() => {});
+    const pass = scanLoop(summary);
+    running = pass.finally(() => {
+      running = null;
+    });
+    await pass;
+    await reanalyzeTitles(deps, summary);
+    return summary;
+  }
+
+  return { scan, start, stop, confirm, reanalyze: reanalyzeOnce };
 }

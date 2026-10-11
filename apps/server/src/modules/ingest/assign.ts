@@ -129,15 +129,22 @@ export async function adoptSeries(
   return { status: 'matched', titleId, seasonNumber };
 }
 
-// Throws when TMDB cannot be reached; the caller decides how to degrade.
-export async function assignSeries(ctx: IngestContext, dirRel: string, folder: string, rootId = 1): Promise<Assignment> {
+// Throws when TMDB cannot be reached; the caller decides how to degrade. T74: `force` skips the known-folder
+// shortcut and matches again from scratch, so a mapping stored by an older resolver can be corrected.
+export async function assignSeries(
+  ctx: IngestContext,
+  dirRel: string,
+  folder: string,
+  rootId = 1,
+  opts: { force?: boolean } = {},
+): Promise<Assignment> {
   const known = get<{ title_id: number; season_number: number | null }>(
     ctx.db,
     'SELECT title_id, season_number FROM source_dirs WHERE root_id = ? AND path = ?',
     rootId,
     dirRel,
   );
-  if (known) return { status: 'matched', titleId: known.title_id, seasonNumber: known.season_number };
+  if (known && !opts.force) return { status: 'matched', titleId: known.title_id, seasonNumber: known.season_number };
   const found = await matchSeries(ctx, folder);
   if ('candidates' in found) return { status: 'no_match', candidates: found.candidates };
   return adoptSeries(ctx, dirRel, found.tv, found.group, undefined, rootId);
