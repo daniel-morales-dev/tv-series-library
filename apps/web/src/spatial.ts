@@ -57,7 +57,7 @@ function wrap<T extends Rect>(from: Rect, candidates: readonly T[], forward: boo
 // ---- DOM wiring ----
 
 const FOCUSABLE = 'a[href], button, input, select, [tabindex]:not([tabindex="-1"])';
-const SCOPES = '[aria-modal="true"], [role="menu"]';
+const SCOPES = '[data-spatial-scope]';
 const AUTOFOCUS = '[data-autofocus], .poster-grid a[href], .list-grid a[href], .scroller a[href]';
 const DIRECTIONS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 const TEXT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password', 'number']);
@@ -65,13 +65,34 @@ const TEXT_TYPES = new Set(['text', 'search', 'email', 'url', 'tel', 'password',
 const isTextField = (el: EventTarget | null) =>
   el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && TEXT_TYPES.has(el.type));
 
-function usable(el: HTMLElement): boolean {
-  if (el.tabIndex < 0 || el.matches(':disabled') || el.closest('[inert], [hidden]')) return false;
+function shown(el: HTMLElement): boolean {
+  if (el.matches(':disabled') || el.closest('[inert], [hidden]')) return false;
   const r = el.getBoundingClientRect();
   return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
 }
 
-const openScope = () => [...document.querySelectorAll<HTMLElement>(SCOPES)].reverse().find(usable) ?? null;
+function usable(el: HTMLElement): boolean {
+  return el.tabIndex >= 0 && shown(el);
+}
+
+/**
+ * T56: scopes are opt-in via `data-spatial-scope` — only overlays that close themselves on Back (the episode
+ * panel, the player menus) trap arrows and defer the Back key. A generic menu is not a scope: the global Back
+ * handler would stop for an overlay that cannot close, leaving Back stuck. The root is often tabindex="-1" and
+ * must still trap arrows once visible.
+ */
+export function openScope(root: ParentNode = document): HTMLElement | null {
+  return [...root.querySelectorAll<HTMLElement>(SCOPES)].reverse().find(shown) ?? null;
+}
+
+/**
+ * T56: only real focusables anchor arrow navigation. `body`, `#app` and scope roots are tabindex="-1" — they
+ * exist so the browser has something focused to deliver keys to, but a full-page origin has every candidate
+ * "inside" it, which breaks sideways moves (see pickNext's containment check).
+ */
+export function canAnchor(el: { tabIndex: number } | null | undefined): boolean {
+  return !!el && el.tabIndex >= 0;
+}
 
 /** Arrow-key (TV remote) focus movement, initial focus per page and the Back key. */
 export function installSpatialNav(router: Router): void {
@@ -95,7 +116,8 @@ export function installSpatialNav(router: Router): void {
   };
 
   function move(dir: Direction, e: KeyboardEvent) {
-    const active = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
+    const raw = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const active = canAnchor(raw) ? raw : null;
     const scope = openScope() ?? document;
     if (!active) {
       const back = last && last.isConnected && usable(last) && scope.contains(last) ? last : null;
@@ -133,26 +155,45 @@ export function installSpatialNav(router: Router): void {
   }
   window.addEventListener('keydown', onKey);
 
+  // T56: a TV browser only delivers D-pad keys while something in the document is focused; #app (tabindex="-1",
+  // no ring) is the always-available anchor. Pages with a primary action upgrade to it once it renders.
+  const appRoot = () => document.getElementById('app');
+  const focusApp = () => {
+    const app = appRoot();
+    if (app && (!document.activeElement || document.activeElement === document.body)) app.focus({ preventScroll: true });
+  };
+  // Whenever focus falls back to body (the focused element was removed), re-anchor so the remote keeps working.
+  document.addEventListener('focusout', (e) => {
+    if (e.relatedTarget) return;
+    requestAnimationFrame(() => focusApp());
+  });
+
   // Initial focus: once the page has rendered its primary action (data loads async), unless the user already moved focus.
   let watcher: MutationObserver | undefined;
   let timeout: ReturnType<typeof setTimeout> | undefined;
   function seekFocus() {
     watcher?.disconnect();
     clearTimeout(timeout);
-    if (onWatch()) return;
     (document.activeElement as HTMLElement | null)?.blur?.();
-    if (!keyboard) return; // pointer user: don't steal focus or draw a ring; the first arrow key will focus the primary action
     const done = () => (watcher?.disconnect(), clearTimeout(timeout));
+    const primary = () => (onWatch() || !keyboard ? null : [...document.querySelectorAll<HTMLElement>(AUTOFOCUS)].find(usable) ?? null);
     const attempt = () => {
-      if (document.activeElement && document.activeElement !== document.body) return void done();
-      const el = [...document.querySelectorAll<HTMLElement>(AUTOFOCUS)].find(usable);
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== appRoot()) return void done();
+      const el = primary();
       if (el) (el.focus({ preventScroll: true }), done());
+      else focusApp();
     };
     attempt();
-    if (document.activeElement && document.activeElement !== document.body) return;
+    if (document.activeElement && document.activeElement !== document.body && document.activeElement !== appRoot()) return;
     watcher = new MutationObserver(attempt);
     watcher.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['inert', 'class', 'style'] });
-    timeout = setTimeout(done, 5000);
+    timeout = setTimeout(() => (done(), focusApp()), 5000);
+    // Enter-navigation resets focus to body when the activated link unmounts, after `afterEach` already ran;
+    // one frame later the new route is rendered, so re-check once.
+    requestAnimationFrame(() => {
+      if (!document.activeElement || document.activeElement === document.body) attempt();
+    });
   }
   router.afterEach((to, from, failure) => {
     if (!failure && to.path !== from.path) seekFocus();

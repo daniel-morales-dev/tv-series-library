@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { isBackKey, pickNext, type Rect } from './spatial.ts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { canAnchor, isBackKey, openScope, pickNext, type Rect } from './spatial.ts';
 
 const box = (left: number, top: number, w = 100, h = 100): Rect & { id: string } => ({ id: `${left},${top}`, left, top, right: left + w, bottom: top + h });
 const from = box(0, 0);
@@ -58,6 +58,24 @@ describe('pickNext', () => {
   });
 });
 
+describe('canAnchor', () => {
+  it('anchors arrow navigation on real focusables', () => {
+    expect(canAnchor({ tabIndex: 0 })).toBe(true);
+  });
+  it('rejects body, #app and scope roots: tabindex="-1" anchors exist only to receive keys', () => {
+    expect(canAnchor({ tabIndex: -1 })).toBe(false);
+    expect(canAnchor(null)).toBe(false);
+    expect(canAnchor(undefined)).toBe(false);
+  });
+});
+
+describe('pickNext with a full-page origin', () => {
+  it('finds nothing sideways when the origin contains every candidate (why #app must not anchor)', () => {
+    const page = box(0, 0, 1920, 1080);
+    expect(pickNext(page, [box(100, 100)], 'right')).toBeNull();
+  });
+});
+
 describe('isBackKey', () => {
   const key = (init: Partial<KeyboardEvent>) => init as KeyboardEvent;
   it('accepts the remote and keyboard back keys', () => {
@@ -66,5 +84,47 @@ describe('isBackKey', () => {
   });
   it('rejects other keys', () => {
     expect(isBackKey(key({ key: 'Enter', keyCode: 13 }))).toBe(false);
+  });
+});
+
+describe('openScope (T56)', () => {
+  // Minimal stand-in for the browser: `matches` understands only the simple `[attr]` / `[attr="value"]` forms
+  // used by the scope selector, so openScope can run without a DOM.
+  type FakeEl = HTMLElement & { attrs: Record<string, string> };
+  const fakeEl = (attrs: Record<string, string>, w = 10, h = 10): FakeEl =>
+    ({
+      attrs,
+      matches: (sel: string) =>
+        sel.split(',').some((part) => {
+          const m = /^\[([\w-]+)(?:="([^"]*)")?\]$/.exec(part.trim());
+          return !!m && attrs[m[1]!] !== undefined && (m[2] === undefined || attrs[m[1]!] === m[2]);
+        }),
+      closest: () => null,
+      getBoundingClientRect: () => ({ width: w, height: h }),
+    }) as unknown as FakeEl;
+  const fakeRoot = (els: FakeEl[]): ParentNode =>
+    ({ querySelectorAll: (sel: string) => els.filter((e) => e.matches(sel)) }) as unknown as ParentNode;
+
+  beforeEach(() => vi.stubGlobal('getComputedStyle', () => ({ visibility: 'visible' })));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('is null for a visible menu that did not opt in: a generic menu cannot close on Back, so it is not a scope', () => {
+    expect(openScope(fakeRoot([fakeEl({ role: 'menu' })]))).toBeNull();
+  });
+
+  it('accepts a visible element explicitly marked data-spatial-scope', () => {
+    const scope = fakeEl({ 'data-spatial-scope': '' });
+    expect(openScope(fakeRoot([scope]))).toBe(scope);
+  });
+
+  it('still requires visibility: a marked element that is not visible is not a scope', () => {
+    vi.stubGlobal('getComputedStyle', () => ({ visibility: 'hidden' }));
+    expect(openScope(fakeRoot([fakeEl({ 'data-spatial-scope': '' })]))).toBeNull();
+  });
+
+  it('returns the topmost visible scope', () => {
+    const under = fakeEl({ 'data-spatial-scope': '' });
+    const over = fakeEl({ 'data-spatial-scope': '' });
+    expect(openScope(fakeRoot([under, over]))).toBe(over);
   });
 });
