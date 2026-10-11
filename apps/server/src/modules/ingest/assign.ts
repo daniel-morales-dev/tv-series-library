@@ -1,4 +1,5 @@
 import { all, get } from '../../db/sql.ts';
+import { normalize, splitSeasonMarker } from './parser.ts';
 import {
   type IngestContext,
   findEpisodeId,
@@ -13,7 +14,7 @@ import {
   importTv,
   setSourceDir,
 } from './metadata.ts';
-import type { EpisodeSubGroup, TvDetails } from './tmdb.ts';
+import type { EpisodeGroupDetails, EpisodeGroupRef, EpisodeSubGroup, TvDetails } from './tmdb.ts';
 
 const MAX_CANDIDATES = 5;
 // TMDB episode group types: 1 = original air date, 3 = DVD; anything else comes after.
@@ -37,8 +38,13 @@ export interface GroupMatch {
   group: EpisodeSubGroup;
 }
 
-export const normalize = (s: string): string =>
-  s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+export { normalize };
+
+// TMDB arc titles use the English color ("Nekomonogatari (Black)") while folders use the Japanese token
+// ("nekomonogatari kuro"). Word-bounded, so "Kurosawa" is never rewritten.
+const NAME_ALIASES: Record<string, string> = { kuro: 'black', shiro: 'white' };
+const aliasNames = (s: string): string =>
+  s.replace(/\b(?:kuro|shiro)\b/gi, (m) => NAME_ALIASES[m.toLowerCase()]!).replace(/\s+/g, ' ');
 
 const yearOf = (date?: string | null) => (date ? Number(date.slice(0, 4)) || null : null);
 const rank = (type: number) => {
@@ -46,17 +52,27 @@ const rank = (type: number) => {
   return i < 0 ? GROUP_PREFERENCE.length : i;
 };
 
-// The group whose name equals the folder, looked up in the preferred ordering first.
+// The group whose name equals the folder, looked up in the preferred ordering first. A second pass retries
+// with kuro/shiro translated, since the folder spells the arc the Japanese way and TMDB the English one.
 export async function findGroup(ctx: IngestContext, tv: TvDetails, folder: string): Promise<GroupMatch | null> {
   const wanted = normalize(folder);
   if (!wanted) return null;
   const refs = [...(tv.episode_groups?.results ?? [])].sort((a, b) => rank(a.type) - rank(b.type));
+  const pick = (ref: EpisodeGroupRef, detail: EpisodeGroupDetails, index: number): GroupMatch => {
+    const group = detail.groups[index]!;
+    return { episodeGroupId: ref.id, seasonNumber: group.order > 0 ? group.order : index + 1, group };
+  };
   for (const ref of refs) {
     const detail = await ctx.tmdb.episodeGroup(ref.id);
     const index = detail.groups.findIndex((g) => normalize(g.name) === wanted);
-    if (index >= 0) {
-      const group = detail.groups[index]!;
-      return { episodeGroupId: ref.id, seasonNumber: group.order > 0 ? group.order : index + 1, group };
+    if (index >= 0) return pick(ref, detail, index);
+  }
+  const aliased = normalize(aliasNames(folder));
+  if (aliased !== wanted) {
+    for (const ref of refs) {
+      const detail = await ctx.tmdb.episodeGroup(ref.id);
+      const index = detail.groups.findIndex((g) => normalize(aliasNames(g.name)) === aliased);
+      if (index >= 0) return pick(ref, detail, index);
     }
   }
   return null;
@@ -68,11 +84,14 @@ export async function matchSeries(
 ): Promise<{ tv: TvDetails; group: GroupMatch | null } | { candidates: Candidate[] }> {
   const results = (await ctx.tmdb.searchTv(folder)).slice(0, MAX_CANDIDATES);
   const wanted = normalize(folder);
+  // "Show - Temporada 3" carries a season marker the title never has: retry the name without it.
+  const bare = normalize(splitSeasonMarker(folder).show);
+  const matches = (name: string) => normalize(name) === wanted || (bare !== wanted && normalize(name) === bare);
   for (const r of wanted ? results : []) {
     const tv = await ctx.tmdb.tv(r.id);
     const group = await findGroup(ctx, tv, folder);
     const names = [tv.name, tv.original_name, ...(tv.alternative_titles?.results ?? []).map((a) => a.title)];
-    if (group || names.some((n) => normalize(n) === wanted)) return { tv, group };
+    if (group || names.some(matches)) return { tv, group };
   }
   return {
     candidates: results.map((r) => ({
@@ -96,16 +115,18 @@ export async function adoptSeries(
   rootId = 1,
 ): Promise<Matched> {
   const titleId = await importTv(ctx, tv, reuseTitleId);
+  let seasonNumber: number | null = null;
   if (group) {
-    await importGroupSeason(ctx, titleId, group.episodeGroupId, group.seasonNumber, group.group);
+    // The real number may differ when the group's order collides with another season of the title.
+    seasonNumber = await importGroupSeason(ctx, titleId, group.episodeGroupId, group.seasonNumber, group.group);
     markOfficialSeasons(ctx.db, titleId);
   } else if (get(ctx.db, 'SELECT 1 FROM titles WHERE id = ? AND seasons_group_id IS NULL', titleId)) {
     const seasons = await findSeasonsGroup(ctx, tv);
     if (seasons) await importSeasonsGroup(ctx, titleId, seasons);
     else markOfficialSeasons(ctx.db, titleId);
   }
-  setSourceDir(ctx.db, dirRel, titleId, group?.seasonNumber ?? null, rootId);
-  return { status: 'matched', titleId, seasonNumber: group?.seasonNumber ?? null };
+  setSourceDir(ctx.db, dirRel, titleId, seasonNumber, rootId);
+  return { status: 'matched', titleId, seasonNumber };
 }
 
 // Throws when TMDB cannot be reached; the caller decides how to degrade.

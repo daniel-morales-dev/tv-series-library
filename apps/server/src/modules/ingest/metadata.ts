@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run, transaction } from '../../db/sql.ts';
 import { indexEntry } from '../search/repository.ts';
 import { type ImageWant, saveImages } from './images.ts';
+import { normalize } from './parser.ts';
 import type { Credits, EpisodeGroupDetails, EpisodeSubGroup, MovieDetails, PersonNames, SeasonDetails, TmdbClient, TmdbEpisode, TvDetails } from './tmdb.ts';
 
 export interface IngestContext {
@@ -319,33 +320,61 @@ function upsertEpisode(db: DatabaseSync, seasonId: number, number: number, e: Tm
 }
 
 // An alternative ordering becomes one season: its group order is the season number and
-// the N-th episode of the group is episode N.
+// the N-th episode of the group is episode N. The number actually used comes back.
 export async function importGroupSeason(
   ctx: IngestContext,
   titleId: number,
   episodeGroupId: string,
   seasonNumber: number,
   group: EpisodeSubGroup,
-): Promise<void> {
+): Promise<number> {
   const saved = await saveImages(ctx.tmdb, ctx.dataDir, group.episodes.map((e): ImageWant => [STILL, e.still_path]));
-  transaction(ctx.db, () => {
-    const seasonId = upsertSeason(ctx.db, titleId, seasonNumber, group.name, null, null);
+  return transaction(ctx.db, () => {
+    const number = seasonNumberFor(ctx.db, titleId, seasonNumber, group.name);
+    const seasonId = upsertSeason(ctx.db, titleId, number, group.name, null, null);
     group.episodes.forEach((e, i) => upsertEpisode(ctx.db, seasonId, i + 1, e, saved(STILL, e.still_path)));
     run(ctx.db, 'UPDATE titles SET episode_group_id = ? WHERE id = ?', episodeGroupId, titleId);
+    return number;
   });
 }
 
-// TMDB type 6 = "Seasons". It replaces the official seasons only when it splits the series into more of them
-// (e.g. a 38-episode season 1 that is really 28 + 10).
-const SEASONS_GROUP_TYPE = 6;
+// A group's order may collide with a season already there under a different name (Monogatari's
+// "Nekomonogatari (Black)" and "Monogatari Series: Second Season" are both order 3): the group takes the
+// next free number instead of overwriting or renaming that season. A re-import of the same group reuses it.
+function seasonNumberFor(db: DatabaseSync, titleId: number, wanted: number, name: string): number {
+  const at = get<{ name: string | null }>(db, 'SELECT name FROM seasons WHERE title_id = ? AND number = ?', titleId, wanted);
+  if (!at || normalize(at.name ?? '') === normalize(name)) return wanted;
+  const same = all<{ number: number; name: string | null }>(db, 'SELECT number, name FROM seasons WHERE title_id = ?', titleId).find(
+    (s) => normalize(s.name ?? '') === normalize(name),
+  );
+  if (same) return same.number;
+  return (get<{ n: number | null }>(db, 'SELECT MAX(number) AS n FROM seasons WHERE title_id = ?', titleId)?.n ?? 0) + 1;
+}
+
+// TMDB "Seasons" groups: type 6 splits official seasons, type 7 reorders them into production seasons.
+// A set is adopted only when it covers at least the official seasons and episodes: Mushoku Tensei's type 6
+// "Cours" set lists an empty third season (50 of 61 episodes), so counting seasons alone adopted it by error.
+const SEASONS_GROUP_TYPES = [6, 7];
 
 export async function findSeasonsGroup(ctx: IngestContext, tv: TvDetails): Promise<EpisodeGroupDetails | null> {
-  const official = tv.seasons.filter((s) => s.season_number > 0).length;
-  for (const ref of (tv.episode_groups?.results ?? []).filter((r) => r.type === SEASONS_GROUP_TYPE)) {
+  const official = tv.seasons.filter((s) => s.season_number > 0);
+  const officialEpisodes = official.reduce((n, s) => n + s.episode_count, 0);
+  let best: EpisodeGroupDetails | null = null;
+  let bestEpisodes = -1;
+  let bestSeasons = -1;
+  for (const ref of tv.episode_groups?.results ?? []) {
+    if (!SEASONS_GROUP_TYPES.includes(ref.type)) continue;
     const detail = await ctx.tmdb.episodeGroup(ref.id);
-    if (detail.groups.filter((g) => g.order > 0).length > official) return detail;
+    const groups = detail.groups.filter((g) => g.order > 0);
+    const episodes = groups.reduce((n, g) => n + g.episodes.length, 0);
+    if (groups.length < official.length || episodes < officialEpisodes) continue;
+    if (episodes > bestEpisodes || (episodes === bestEpisodes && groups.length > bestSeasons)) {
+      best = detail;
+      bestEpisodes = episodes;
+      bestSeasons = groups.length;
+    }
   }
-  return null;
+  return best;
 }
 
 export async function importSeasonsGroup(ctx: IngestContext, titleId: number, detail: EpisodeGroupDetails): Promise<void> {

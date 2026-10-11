@@ -292,6 +292,7 @@ describe('moved or renamed files', () => {
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.path.startsWith('shows/baka/'))).toBe(true);
     expect(rows.find((r) => r.id === file.id)).toMatchObject({ status: 'ready', hls_dir: 'hls/1' });
+    expect(get<any>(e.db, 'SELECT s.number AS s, e.number AS e FROM media_files m JOIN episodes e ON e.id = m.episode_id JOIN seasons s ON s.id = e.season_id WHERE m.id = ?', file.id)).toEqual({ s: 1, e: 1 });
     expect(all(e.db, 'SELECT id FROM titles')).toHaveLength(1);
     expect(get<any>(e.db, 'SELECT COUNT(*) AS n FROM watch_progress WHERE media_file_id = ?', file.id)?.n).toBe(1);
     expect(e.tmdb.calls).toEqual([]);
@@ -318,6 +319,76 @@ describe('moved or renamed files', () => {
     await e.ingestor.scan();
     expect(get<any>(e.db, 'SELECT id, status FROM media_files')).toMatchObject({ id, status: 'downloading' });
     expect(all(e.db, 'SELECT id FROM titles')).toHaveLength(1);
+  });
+
+  it('re-places a renamed file on its own row when the episode number changes', async () => {
+    const e = env();
+    e.addFile(bake('01'));
+    e.addFile(bake('02'));
+    await e.ingestor.scan();
+    const before = get<any>(e.db, 'SELECT id FROM media_files WHERE path = ?', bake('01'))!;
+    e.move(bake('01'), bake('03'));
+
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, pending: 0, waiting: 0, failed: 0 });
+    const after = get<any>(
+      e.db,
+      'SELECT m.id, m.path, m.parsed_number, e.number FROM media_files m LEFT JOIN episodes e ON e.id = m.episode_id WHERE m.id = ?',
+      before.id,
+    );
+    expect(after).toMatchObject({ id: before.id, path: bake('03'), parsed_number: 3, number: 3 });
+    expect(all(e.db, 'SELECT id FROM media_files')).toHaveLength(2);
+  });
+
+  it('keeps the old placement when the new name does not parse', async () => {
+    const e = env();
+    e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const before = get<any>(e.db, 'SELECT id, episode_id, parsed_number FROM media_files')!;
+    e.move(bake('01'), 'shows/bakemonogatari/behind the scenes.mkv');
+
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT id, path, episode_id, parsed_number FROM media_files WHERE id = ?', before.id)).toMatchObject({
+      id: before.id,
+      path: 'shows/bakemonogatari/behind the scenes.mkv',
+      episode_id: before.episode_id,
+      parsed_number: before.parsed_number,
+    });
+  });
+
+  it('restores a missing file that comes back renamed, keeping its package', async () => {
+    const e = env();
+    const abs = e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id FROM media_files')!;
+    run(e.db, "UPDATE media_files SET status = 'ready', hls_dir = 'hls/3' WHERE id = ?", row.id);
+    rmSync(abs);
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT status FROM media_files WHERE id = ?', row.id)?.status).toBe('missing');
+
+    e.addFile(bake('03')); // same bytes, new name
+    await e.ingestor.scan();
+    const after = get<any>(
+      e.db,
+      'SELECT m.id, m.path, m.status, m.hls_dir, e.number FROM media_files m LEFT JOIN episodes e ON e.id = m.episode_id WHERE m.id = ?',
+      row.id,
+    );
+    expect(after).toMatchObject({ id: row.id, path: bake('03'), status: 'ready', hls_dir: 'hls/3', number: 3 });
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(0);
+  });
+
+  it('restores a missing file that reappears in place with its package', async () => {
+    const e = env();
+    const abs = e.addFile(bake('01'));
+    await e.ingestor.scan();
+    const row = get<any>(e.db, 'SELECT id FROM media_files')!;
+    run(e.db, "UPDATE media_files SET status = 'ready', hls_dir = 'hls/8' WHERE id = ?", row.id);
+    rmSync(abs);
+    await e.ingestor.scan();
+
+    e.addFile(bake('01')); // same bytes back
+    await e.ingestor.scan();
+    expect(get<any>(e.db, 'SELECT status, hls_dir FROM media_files WHERE id = ?', row.id)).toMatchObject({ status: 'ready', hls_dir: 'hls/8' });
+    expect(all(e.db, 'SELECT * FROM jobs')).toHaveLength(0);
   });
 
   it('does not merge when several missing rows share basename and size', async () => {

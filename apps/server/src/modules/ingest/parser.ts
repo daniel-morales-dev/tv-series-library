@@ -24,6 +24,10 @@ const ORDINAL_WORD = new Map([
   ['decima', 10],
 ]);
 const fold = (word: string): string => word.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+// Folds a full name for identity comparison: accents, punctuation and case removed. Shared by the
+// folder/group matcher and the season-name collision check.
+export const normalize = (s: string): string =>
+  s.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
 // Season number spelled in a folder or as a show-name suffix: "Season 3", "Temporada 4",
 // "Cuarta Temporada", "4ª Temporada", "S5".
 const SEASON_PHRASE = /^(?:season|temporada|s)[\s._-]*(\d+)$|^(\d{1,2})\s*[ªa]?[\s._-]+temporada$|^([a-záéíóú]+)[\s._-]+temporada$/i;
@@ -72,7 +76,7 @@ const stem = (file: string) => basename(file, extname(file));
 // Trailing season marker on a show name: "Show S2", "Show Season 3", "Show 2nd Season",
 // "Show Cuarta Temporada", "Show Temporada 4", "Show 4ª Temporada".
 const SEASON_MARKER = /\s+(?:S(\d{1,2})|Season\s+(\d{1,2})|(\d{1,2})(?:st|nd|rd|th)\s+Season|Temporada\s+(\d{1,2})|(\d{1,2})\s*[ªa]?\s+Temporada|([a-záéíóú]+)\s+Temporada)$/i;
-function splitSeasonMarker(name: string): { show: string; season: number | null } {
+export function splitSeasonMarker(name: string): { show: string; season: number | null } {
   const m = SEASON_MARKER.exec(name);
   if (!m) return { show: name, season: null };
   const ordinal = m[6] !== undefined ? ORDINAL_WORD.get(fold(m[6])) : undefined;

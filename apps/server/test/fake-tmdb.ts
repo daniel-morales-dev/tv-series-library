@@ -131,7 +131,8 @@ const sameCount: TvDetails = {
   id: 201,
   name: 'Same Count',
   original_name: 'Same Count',
-  seasons: [season(1, 3), season(2, 2)],
+  // Six official episodes against the group's five: still not enough to replace the official seasons (T73).
+  seasons: [season(1, 3), season(2, 3)],
   episode_groups: { results: [{ id: 'g_c_seasons', name: 'Seasons', type: 6, episode_count: 5 }] },
 };
 const tvById: Record<number, TvDetails> = { 46195: monogatari, 200: seasoned, 201: sameCount };

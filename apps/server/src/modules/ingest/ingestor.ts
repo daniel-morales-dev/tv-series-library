@@ -60,6 +60,9 @@ interface MissingRow {
   path: string;
   size: number;
   fingerprint: string | null;
+  title_id: number;
+  status: string;
+  hls_dir: string | null;
 }
 
 /** The stored facts of a registered row, used by the per-scan reconciliation (T69/T70). */
@@ -70,6 +73,7 @@ interface SyncRow {
   mtime_ms: number | null;
   fingerprint: string | null;
   status: string;
+  hls_dir: string | null;
 }
 
 const fpKey = (rootId: number, rel: string) => `${rootId}:${rel}`;
@@ -216,17 +220,21 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   // progress and HLS stay. A touch (same fingerprint) only refreshes the stored mtime.
   async function resyncFiles(root: ScanRoot, files: RootVideo[]): Promise<void> {
     const rows = new Map(
-      all<SyncRow>(db, 'SELECT id, path, size, mtime_ms, fingerprint, status FROM media_files WHERE root_id = ?', root.id).map((r) => [r.path, r]),
+      all<SyncRow>(db, 'SELECT id, path, size, mtime_ms, fingerprint, status, hls_dir FROM media_files WHERE root_id = ?', root.id).map((r) => [r.path, r]),
     );
     for (const file of files) {
       const row = rows.get(file.rel);
       if (!row || row.status === 'downloading') continue; // unknown: ingested later; downloading: promotion owns it
       if (row.status === 'missing') {
-        // T69: the file is back. Same content: re-register as-is; anything else follows the replacement rules.
+        // T69/T75: the file is back. Same content: restore the row as it was, package included.
         const fp = await fingerprint(file.abs);
         if (fp !== null && fp === row.fingerprint) {
-          run(db, "UPDATE media_files SET status = 'pending', error = NULL, size = ?, mtime_ms = ? WHERE id = ?", file.size, file.mtimeMs, row.id);
-          enqueue(db, row.id);
+          if (row.hls_dir) {
+            run(db, "UPDATE media_files SET status = 'ready', error = NULL, size = ?, mtime_ms = ? WHERE id = ?", file.size, file.mtimeMs, row.id);
+          } else {
+            run(db, "UPDATE media_files SET status = 'pending', error = NULL, size = ?, mtime_ms = ? WHERE id = ?", file.size, file.mtimeMs, row.id);
+            enqueue(db, row.id);
+          }
         } else replaceFile(row, file, fp);
         continue;
       }
@@ -305,17 +313,31 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     const missing: MissingRow[] = [];
     for (const root of present) {
       const onDisk = state.onDisk.get(root.id) ?? new Set<string>();
-      for (const row of all<MissingRow>(db, 'SELECT id, root_id, path, size, fingerprint FROM media_files WHERE size IS NOT NULL AND root_id = ?', root.id)) {
+      for (const row of all<MissingRow>(db, 'SELECT id, root_id, path, size, fingerprint, title_id, status, hls_dir FROM media_files WHERE size IS NOT NULL AND root_id = ?', root.id)) {
         if (!onDisk.has(row.path)) missing.push(row);
       }
     }
 
     const claimed = new Set<number>();
     const relocated = new Set<number>();
-    const move = (row: MissingRow, index: number) => {
+    const move = async (row: MissingRow, index: number) => {
       const file = fresh[index]!;
       run(db, 'UPDATE media_files SET root_id = ?, path = ? WHERE id = ?', file.rootId, file.rel, row.id);
       inheritSourceDir(row.root_id, row.path, file.rootId, file.rel);
+      try {
+        await replacePlacement(state, row, file);
+      } catch (err) {
+        log('warn', `re-placement failed for ${file.rel}, keeping its old assignment: ${(err as Error).message}`);
+      }
+      if (row.status === 'missing') {
+        // T75: the file came back while it was away; a ready package survives the absence.
+        if (row.hls_dir) {
+          run(db, "UPDATE media_files SET status = 'ready', error = NULL WHERE id = ?", row.id);
+        } else {
+          run(db, "UPDATE media_files SET status = 'pending', error = NULL WHERE id = ?", row.id);
+          enqueue(db, row.id);
+        }
+      }
       claimed.add(index);
       relocated.add(row.id);
       known.get(file.rootId)?.add(file.rel);
@@ -335,12 +357,12 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
       const files = (freshByFp.get(fp) ?? []).filter((i) => !claimed.has(i));
       if (openRows.length === 0 || files.length === 0) continue;
       if (openRows.length === 1 && files.length === 1) {
-        move(openRows[0]!, files[0]!);
+        await move(openRows[0]!, files[0]!);
         continue;
       }
       const pairs = openRows.flatMap((row) => files.filter((i) => basename(fresh[i]!.rel) === basename(row.path)).map((i) => [row, i] as const));
       if (pairs.length === 1) {
-        move(pairs[0]![0], pairs[0]![1]);
+        await move(pairs[0]![0], pairs[0]![1]);
         continue;
       }
       log('warn', `fingerprint ${fp} matches ${openRows.length} missing file(s) and ${files.length} on disk; not relocating`);
@@ -364,10 +386,49 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
         if (inRoot.length !== 1) continue;
         const files = (freshByKey.get(key) ?? []).filter((i) => !claimed.has(i) && fresh[i]!.rootId === root.id);
         if (files.length !== 1) continue;
-        move(inRoot[0]!, files[0]!);
+        await move(inRoot[0]!, files[0]!);
       }
     }
     return fingerprints;
+  }
+
+  // T75: a moved row is re-parsed and re-placed on the same row. When the folder changed, the mapping is
+  // resolved again (offline or unmapped keeps the inherited one); a file that cannot be placed keeps its
+  // old assignment instead of leaving the library.
+  async function replacePlacement(state: ScanState, row: MissingRow, file: RootVideo): Promise<void> {
+    const parsed = parsePath(file.rel);
+    if (parsed.kind !== 'episode') return;
+    const oldParsed = parsePath(row.path);
+    const oldDir = oldParsed.kind === 'episode' ? showDirKey(row.path, oldParsed.show) : null;
+    const dir = showDirKey(file.rel, parsed.show);
+    let titleId = row.title_id;
+    let seasonNumber: number | null;
+    if (dir !== oldDir || file.rootId !== row.root_id) {
+      const assignment = await resolveDir(state, file.rootId, dir, parsed.show);
+      if (assignment.status !== 'matched') {
+        log('warn', `moved file keeps its old placement (unmapped folder): ${file.rel}`);
+        return;
+      }
+      titleId = assignment.titleId;
+      seasonNumber = assignment.seasonNumber;
+    } else {
+      seasonNumber =
+        get<{ season_number: number | null }>(db, 'SELECT season_number FROM source_dirs WHERE root_id = ? AND path = ?', file.rootId, dir)?.season_number ?? null;
+    }
+    const episodeId = await placeEpisode(state.ctx, titleId, seasonNumber, parsed);
+    if (episodeId === null) {
+      log('warn', `moved file keeps its old placement (no episode): ${file.rel}`);
+      return;
+    }
+    run(
+      db,
+      'UPDATE media_files SET title_id = ?, episode_id = ?, parsed_season = ?, parsed_number = ? WHERE id = ?',
+      titleId,
+      episodeId,
+      parsed.season,
+      parsed.number,
+      row.id,
+    );
   }
 
   function inheritSourceDir(fromRoot: number, oldRel: string, toRoot: number, newRel: string): void {
