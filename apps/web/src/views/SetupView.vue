@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api } from '../api.ts';
-import type { AppConfig, LibraryCandidate } from '../config.ts';
+import { suggestedFolder, type AppConfig, type LibraryCandidate } from '../config.ts';
 import ConfigForm from '../components/ConfigForm.vue';
 
 const router = useRouter();
@@ -69,7 +69,7 @@ onMounted(load);
       <template v-else>
         <h2>Elige tu carpeta de contenido</h2>
         <p>Es la carpeta donde guardas tus series y películas. Puedes cambiarla después en Ajustes.</p>
-        <ConfigForm :suggested="config.suggestedDefault" @saved="router.replace('/')" />
+        <ConfigForm :suggested="suggestedFolder(config)" @saved="router.replace('/')" />
       </template>
     </template>
   </main>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
 import { api, type LibraryRoot, type OrphanScan } from '../api.ts';
-import { tmdbSectionState, type AppConfig } from '../config.ts';
+import { suggestedFolder, tmdbSectionState, type AppConfig } from '../config.ts';
 import { formatGb } from '../dataMigration.ts';
 import ConfigForm from '../components/ConfigForm.vue';
 import DataMigrationPanel from '../components/DataMigrationPanel.vue';
@@ -170,7 +170,7 @@ onMounted(() => {
         <dd><code>{{ config.libraryId ?? '—' }}</code></dd>
       </dl>
       <h2>Cambiar carpeta</h2>
-      <ConfigForm :key="config.contentDir ?? ''" :suggested="config.suggestedDefault" :initial="config.contentDir ?? ''" @saved="saved" />
+      <ConfigForm :key="config.contentDir ?? ''" :suggested="suggestedFolder(config)" :initial="config.contentDir ?? ''" @saved="saved" />
       <section aria-labelledby="tmdb-title">
         <h2 id="tmdb-title">TMDB</h2>
         <p class="help">Token de acceso de lectura de TMDB. Con él la biblioteca busca portadas, sinopsis y episodios; sin token, la ingesta funciona sin conexión.</p>

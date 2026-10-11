@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { guardRedirect, submitError } from './config.ts';
+import { guardRedirect, submitError, suggestedFolder } from './config.ts';
 
 describe('guardRedirect', () => {
   it('unset never forces the wizard (development folder from .env keeps working)', () => {
@@ -26,11 +26,19 @@ describe('submitError', () => {
   });
 
   it('other server codes map to Spanish messages', () => {
-    expect(submitError('invalid_path')).toEqual({ kind: 'error', message: 'Escribe una ruta absoluta (por ejemplo /home/usuario/series).' });
+    expect(submitError('invalid_path')).toEqual({ kind: 'error', message: 'Escribe la ruta completa de la carpeta (por ejemplo C:\\Users\\tu-usuario\\Videos\\Sala o /home/tu-usuario/Videos/Sala).' });
     expect(submitError('not_directory')).toEqual({ kind: 'error', message: 'Esa ruta es un archivo, no una carpeta.' });
   });
 
   it('unknown failures fall back to a generic message', () => {
     expect(submitError('500')).toEqual({ kind: 'error', message: 'No se pudo guardar la carpeta. Intenta de nuevo.' });
+  });
+});
+
+describe('suggestedFolder', () => {
+  it('prefers an existing default folder, then the proposed new one, else nothing', () => {
+    expect(suggestedFolder({ suggestedDefault: '/repo/content', newLibraryDir: '/home/ana/Videos/Sala' })).toBe('/repo/content');
+    expect(suggestedFolder({ suggestedDefault: '', newLibraryDir: 'C:\\Users\\ana\\Videos\\Sala' })).toBe('C:\\Users\\ana\\Videos\\Sala');
+    expect(suggestedFolder({ suggestedDefault: '' })).toBe('');
   });
 });

@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { candidateRoots, findMovedLibrary } from '../../config/relocate.ts';
-import { configStatus, resolveContentDir, resolveTmdbToken, setContentDir, setTmdbToken } from '../../config/config.ts';
+import { configStatus, defaultLibraryDir, resolveContentDir, resolveTmdbToken, setContentDir, setTmdbToken } from '../../config/config.ts';
 import { TmdbHttpError, createTmdbClient } from '../ingest/tmdb.ts';
 
 export interface ConfigRoutesDeps {
@@ -40,7 +40,8 @@ export function configRoutes(api: FastifyInstance, deps: ConfigRoutesDeps = {}):
   api.get('/config', async () => {
     const status = configStatus(currentContentDir());
     // T58: only the boolean travels — the token itself is never returned to the browser.
-    return { ...status, tmdbConfigured: resolveTmdbToken() !== null };
+    // T60: newLibraryDir is only a proposal for a brand-new library; the folder is created on save.
+    return { ...status, tmdbConfigured: resolveTmdbToken() !== null, newLibraryDir: defaultLibraryDir() };
   });
 
   // Suggestions only: the user accepts one with the normal PUT. Nothing is switched, created or written here.

@@ -43,7 +43,7 @@ async function save(create = false) {
   <form class="cfg" @submit.prevent="save()">
     <label for="content-dir">Carpeta de contenido</label>
     <div class="field">
-      <input id="content-dir" v-model="path" type="text" autocomplete="off" spellcheck="false" placeholder="/ruta/a/tu/contenido" @input="confirmCreate = false" />
+      <input id="content-dir" v-model="path" type="text" autocomplete="off" spellcheck="false" :placeholder="suggested || 'Ruta completa de la carpeta'" @input="confirmCreate = false" />
       <button type="button" class="browse" aria-label="Explorar carpetas" title="Explorar carpetas" @click="browsing = true">
         <Icon name="folder" :size="20" /><span>Explorar</span>
       </button>

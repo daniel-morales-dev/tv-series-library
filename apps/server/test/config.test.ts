@@ -9,6 +9,7 @@ import {
   autoScanAllowed,
   configDir,
   configStatus,
+  defaultLibraryDir,
   readMarker,
   REPO_ROOT,
   readUserConfig,
@@ -118,6 +119,13 @@ describe('resolveContentDir', () => {
   it('ignores an empty CONTENT_DIR instead of resolving to the repo root', () => {
     const dir = join(tempRoot(), 'cfg');
     expect(resolveContentDir({ CONTENT_DIR: '' }, { dir, root: '/srv/repo' })).toBe('/srv/repo/content');
+  });
+});
+
+describe('defaultLibraryDir', () => {
+  it('proposes a Sala folder under the user Videos folder, with native separators', () => {
+    expect(defaultLibraryDir({ platform: 'win32', home: 'C:\\Users\\ana' })).toBe('C:\\Users\\ana\\Videos\\Sala');
+    expect(defaultLibraryDir({ platform: 'linux', home: '/home/ana' })).toBe('/home/ana/Videos/Sala');
   });
 });
 
@@ -245,6 +253,7 @@ describe('config API', () => {
       libraryId: null,
       suggestedDefault: media,
       tmdbConfigured: false,
+      newLibraryDir: defaultLibraryDir(),
     });
     expect(existsSync(cfg)).toBe(false);
   });
@@ -259,6 +268,7 @@ describe('config API', () => {
       libraryId: 'lib-x',
       suggestedDefault: null,
       tmdbConfigured: false,
+      newLibraryDir: defaultLibraryDir(),
     });
     expect(existsSync(media)).toBe(false);
   });
@@ -294,7 +304,7 @@ describe('config API', () => {
     expect(onReady).toHaveBeenCalledExactlyOnceWith(media);
     expect(readJson(join(media, '.sala-library.json'))).toEqual({ libraryId: body.libraryId });
     expect(readJson(join(cfg, 'config.json'))).toEqual({ contentDir: media, libraryId: body.libraryId });
-    expect((await app.inject('/api/config')).json()).toEqual({ ...body, tmdbConfigured: false });
+    expect((await app.inject('/api/config')).json()).toEqual({ ...body, tmdbConfigured: false, newLibraryDir: defaultLibraryDir() });
   });
 
   it('PUT /api/config/content-dir adopts an existing marker on a second machine', async () => {
@@ -397,7 +407,7 @@ describe('TMDB token API', () => {
     expect(readUserConfig({ dir: cfg })?.tmdbToken).toBe('secret-token');
 
     const get = await app.inject('/api/config');
-    expect(get.json()).toEqual({ status: 'ready', contentDir: media, libraryId: 'lib-x', suggestedDefault: media, tmdbConfigured: true });
+    expect(get.json()).toEqual({ status: 'ready', contentDir: media, libraryId: 'lib-x', suggestedDefault: media, tmdbConfigured: true, newLibraryDir: defaultLibraryDir() });
     expect(JSON.stringify(get.json())).not.toContain('secret-token');
   });
 
