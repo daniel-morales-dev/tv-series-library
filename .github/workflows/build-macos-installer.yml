@@ -231,6 +231,8 @@ jobs:
             --title "sala $TAG" \
             --notes "Instaladores adjuntos: Windows (sala-setup.exe) y macOS (sala-macos-arm64.dmg / sala-macos-x64.dmg). Verifica los SHA256SUMS*.txt." || true
           gh release upload "$TAG" dmg-arm64/*.dmg dmg-x64/*.dmg SHA256SUMS-macos.txt --clobber
+          # Al recrear un tag, GitHub deja la release previa como draft: republicar es idempotente.
+          gh release edit "$TAG" --draft=false || true
 
       - name: Notify owner (success)
         if: success()
