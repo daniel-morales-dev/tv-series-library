@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>sala — presentación de producto</title>
+<style>
+@page { size: 1280px 720px; margin: 0; }
+:root {
+  --bg: #0b0a12; --panel: #15131f; --line: #2a2640; --ink: #f2f0fa; --muted: #a39fba;
+  --accent: #8f7bff; --accent2: #c86bff; --ok: #5ee6a8; --warn: #ffb86b;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--bg); color: var(--ink); font-family: "Noto Sans", sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.slide { width: 1280px; height: 720px; position: relative; overflow: hidden; page-break-after: always; padding: 64px 80px; background: var(--bg); }
+.slide:last-child { page-break-after: auto; }
+.glow::before { content: ""; position: absolute; width: 900px; height: 900px; right: -300px; top: -400px; background: radial-gradient(circle, rgba(143,123,255,.28), transparent 62%); }
+.glow2::after { content: ""; position: absolute; width: 700px; height: 700px; left: -300px; bottom: -400px; background: radial-gradient(circle, rgba(200,107,255,.18), transparent 62%); }
+.slide > * { position: relative; z-index: 1; }
+.kicker { font-size: 15px; letter-spacing: .22em; text-transform: uppercase; color: var(--accent); font-weight: 700; margin-bottom: 14px; }
+h1 { font-family: "Noto Sans Display", "Noto Sans"; font-size: 64px; line-height: 1.05; font-weight: 800; letter-spacing: -.02em; }
+h2 { font-family: "Noto Sans Display", "Noto Sans"; font-size: 44px; line-height: 1.1; font-weight: 800; letter-spacing: -.015em; margin-bottom: 18px; }
+h3 { font-size: 21px; font-weight: 700; margin-bottom: 8px; }
+p, li { font-size: 19px; line-height: 1.5; color: var(--muted); }
+.lead { font-size: 23px; color: #d6d2ea; max-width: 900px; }
+.grad { color: #b49cff; }
+b, strong { color: var(--ink); }
+code { font-family: "Noto Sans Mono", monospace; font-size: .88em; background: #221f33; color: #d9d2ff; padding: 1px 7px; border-radius: 6px; }
+.logo { font-family: "Noto Sans Display"; font-weight: 800; color: var(--accent); letter-spacing: -.03em; }
+.grid { display: grid; gap: 22px; }
+.g2 { grid-template-columns: 1fr 1fr; } .g3 { grid-template-columns: repeat(3, 1fr); } .g4 { grid-template-columns: repeat(4, 1fr); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 24px 26px; }
+.card p { font-size: 17px; }
+.icon { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; background: rgba(143,123,255,.15); color: var(--accent); font-size: 24px; margin-bottom: 14px; }
+.shot { border-radius: 16px; border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.6), 0 0 0 1px rgba(143,123,255,.15); display: block; }
+.foot { position: absolute; bottom: 26px; left: 80px; right: 80px; display: flex; justify-content: space-between; font-size: 13px; color: #5f5b78; z-index: 2; }
+.pill { display: inline-block; padding: 6px 14px; border-radius: 999px; border: 1px solid var(--line); background: #1b1828; font-size: 15px; color: #d6d2ea; margin: 0 8px 10px 0; }
+.pill.on { background: var(--accent); color: #120d2e; border-color: var(--accent); font-weight: 700; }
+.big { font-family: "Noto Sans Display"; font-size: 58px; font-weight: 800; line-height: 1; }
+.stat p { font-size: 16px; margin-top: 8px; }
+ul.check { list-style: none; }
+ul.check li { padding-left: 32px; position: relative; margin-bottom: 10px; }
+ul.check li::before { content: "✓"; position: absolute; left: 0; color: var(--ok); font-weight: 800; }
+.flow { display: flex; align-items: stretch; gap: 0; margin-top: 30px; }
+.step { flex: 1; background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px 20px; }
+.step .n { font-family: "Noto Sans Display"; font-size: 15px; font-weight: 800; color: var(--accent); letter-spacing: .12em; }
+.step h3 { margin-top: 8px; }
+.step p { font-size: 15.5px; }
+.arrow { width: 38px; display: grid; place-items: center; color: var(--accent); font-size: 26px; }
+table { width: 100%; border-collapse: collapse; }
+td, th { text-align: left; padding: 13px 16px; border-bottom: 1px solid var(--line); font-size: 17px; vertical-align: top; }
+th { color: var(--accent); font-size: 14px; letter-spacing: .14em; text-transform: uppercase; }
+td:first-child { color: var(--ink); font-weight: 700; width: 30%; }
+td { color: var(--muted); }
+.vs td:nth-child(2) { color: #7e7996; text-decoration: line-through; text-decoration-color: rgba(255,107,107,.5); }
+.vs td:nth-child(3) { color: var(--ink); }
+.phone { width: 230px; border-radius: 26px; border: 8px solid #1d1a2b; box-shadow: 0 30px 70px rgba(0,0,0,.6); }
+.term { background: #0f0d18; border: 1px solid var(--line); border-radius: 14px; padding: 18px 22px; font-family: "Noto Sans Mono", monospace; font-size: 15.5px; line-height: 1.75; color: #cfc9ea; }
+.term .c { color: #6f6a8c; } .term .p { color: var(--ok); }
+</style>
+</head>
+<body>
+
+<!-- 1. Portada -->
+<section class="slide glow glow2" style="display:flex;flex-direction:column;justify-content:center;">
+  <div class="kicker">Presentación de producto · 2026</div>
+  <div class="logo" style="font-size:150px;line-height:1;margin-bottom:10px;">sala</div>
+  <h1 style="max-width:1000px;">Tu propio Netflix en casa.<br><span class="grad">Sin anuncios. Sin cuentas. Sin internet.</span></h1>
+  <p class="lead" style="margin-top:28px;">Tus películas, series y anime, en la TV, el celular o la PC, desde una laptop y tu WiFi.</p>
+  <div style="margin-top:36px;">
+    <span class="pill on">Perfiles</span><span class="pill">Continuar viendo</span><span class="pill">Mi lista</span><span class="pill">Audio y subtítulos</span><span class="pill">Funciona offline</span>
+  </div>
+  <div class="foot"><span>sala · media server local</span><span>01</span></div>
+</section>
+
+<!-- 2. Problema -->
+<section class="slide glow">
+  <div class="kicker">El problema</div>
+  <h2>Tienes los videos. Verlos es otra historia.</h2>
+  <div class="grid g3" style="margin-top:34px;">
+    <div class="card"><div class="icon">✕</div><h3>La TV no lo reproduce</h3><p>MKV, H.264 de 10 bits, HEVC, audio FLAC y subtítulos ASS: Chrome y los navegadores de TV no los abren, y no dejan cambiar el doblaje.</p></div>
+    <div class="card"><div class="icon">⇄</div><h3>Carpetas, no un catálogo</h3><p>Nombres como <code>[Coalgirls] Bakemonogatari - 03 (1920x1080 Blu-Ray FLAC)</code>. Sin portadas, sin sinopsis, sin saber en qué episodio ibas.</p></div>
+    <div class="card"><div class="icon">$</div><h3>Las alternativas cuestan</h3><p>Suscripciones que rotan el catálogo, o servidores como Plex/Jellyfin con cuentas y demasiada configuración para una familia.</p></div>
+  </div>
+  <p class="lead" style="margin-top:38px;">Y si renombras los archivos para ordenarlos, <b>el torrent deja de compartirlos</b>.</p>
+  <div class="foot"><span>sala</span><span>02</span></div>
+</section>
+
+<!-- 3. Qué es -->
+<section class="slide glow2">
+  <div class="grid g2" style="align-items:center;gap:56px;height:100%;">
+    <div>
+      <div class="kicker">Qué es sala</div>
+      <h2>Una plataforma de streaming que vive en tu laptop.</h2>
+      <p class="lead" style="font-size:20px;">Dejas los videos en una carpeta. sala los reconoce, les pone portada, sinopsis y reparto, los prepara para cualquier pantalla y los sirve por tu WiFi.</p>
+      <ul class="check" style="margin-top:26px;">
+        <li><b>Perfiles</b> sin contraseña, cada uno con su progreso y su lista.</li>
+        <li><b>Continuar viendo</b> por episodio, y el siguiente listo.</li>
+        <li><b>Cambio de audio y subtítulos</b> en cualquier navegador.</li>
+        <li><b>Búsqueda</b> con autocompletado por título, actor o director.</li>
+      </ul>
+    </div>
+    <img class="shot" src="img/C-browse-focus.jpg" style="width:100%;">
+  </div>
+  <div class="foot"><span>sala</span><span>03</span></div>
+</section>
+
+<!-- 4. Experiencia -->
+<section class="slide" style="padding:0;">
+  <img src="img/ui-title.jpg" style="width:100%;height:100%;object-fit:cover;opacity:.92;">
+  <div style="position:absolute;inset:0;background:linear-gradient(90deg,rgba(11,10,18,.99) 0%,rgba(11,10,18,.97) 42%,rgba(11,10,18,.55) 62%,rgba(11,10,18,.15) 100%);"></div>
+  <div style="position:absolute;left:80px;top:150px;width:520px;">
+    <div class="kicker">La experiencia</div>
+    <h2>Se siente como un servicio de streaming.</h2>
+    <p style="font-size:19px;">Logo, sinopsis, calificación, temporadas con nombre propio, “Continuar T1·E3”, marcar visto por episodio, por temporada o el título entero. Idiomas disponibles a la vista antes de darle play.</p>
+  </div>
+  <div class="foot"><span>Página de título real · Monogatari</span><span>04</span></div>
+</section>
+
+<!-- 5. Cómo funciona -->
+<section class="slide glow">
+  <div class="kicker">Cómo funciona</div>
+  <h2>De un archivo suelto a tu TV, sin tocar nada.</h2>
+  <div class="flow">
+    <div class="step"><div class="n">01 · DETECTA</div><h3>Vigila la carpeta</h3><p>Un watcher ve cada archivo nuevo. Espera a que la descarga termine y lo valida con <code>ffprobe</code>.</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="n">02 · ENTIENDE</div><h3>Lee el nombre</h3><p>Deduce título, temporada y episodio. Separa openings y endings como extras.</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="n">03 · ENRIQUECE</div><h3>Metadata de TMDB</h3><p>Portadas, sinopsis y reparto, una sola vez. Todo queda guardado en local.</p></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="n">04 · PREPARA</div><h3>Convierte a HLS</h3><p>Video, cada pista de audio y subtítulos WebVTT, listos para cualquier navegador.</p></div>
+    <div class="arrow">→</div>
+    <div class="step" style="border-color:var(--accent);"><div class="n">05 · REPRODUCE</div><h3>Cualquier pantalla</h3><p>TV, celular, tablet o PC en la misma WiFi. Retoma donde quedaste.</p></div>
+  </div>
+  <div class="grid g3" style="margin-top:34px;">
+    <div class="card" style="padding:18px 22px;"><p><b>Backend:</b> Node.js 24 + Fastify, SQLite nativo (<code>node:sqlite</code>), ffmpeg.</p></div>
+    <div class="card" style="padding:18px 22px;"><p><b>Frontend:</b> Vue 3 + Vite, player propio sobre hls.js.</p></div>
+    <div class="card" style="padding:18px 22px;"><p><b>Datos:</b> SQLite con FTS5 para la búsqueda. Sin servidores extra.</p></div>
+  </div>
+  <div class="foot"><span>sala</span><span>05</span></div>
+</section>
+
+<!-- 6. Ingesta inteligente -->
+<section class="slide glow2">
+  <div class="kicker">Ingesta inteligente</div>
+  <h2>No hace falta renombrar nada.</h2>
+  <div class="grid g2" style="gap:40px;margin-top:20px;">
+    <div>
+      <ul class="check">
+        <li><b>Respeta el seeding:</b> los originales no se mueven ni se renombran.</li>
+        <li><b>Entiende los nombres reales:</b> <code>S5 - 03</code>, <code>V - 02v2</code> (números romanos), carpetas <code>S1</code>/<code>S01</code>, subcarpetas a cualquier profundidad.</li>
+        <li><b>Próximamente:</b> lo que aún se descarga ya aparece en el catálogo.</li>
+        <li><b>Extras aparte:</b> openings, endings y PVs no ensucian la lista de episodios.</li>
+        <li><b>Pendientes:</b> lo dudoso se confirma con un clic, nunca se adivina mal en silencio.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--accent);">Caso real: Bakemonogatari</h3>
+      <p>TMDB no tiene “Bakemonogatari”: es la temporada 1 de <b>Monogatari</b> con 12 episodios, y los 13–15 están en especiales.</p>
+      <p style="margin-top:12px;">sala usa los <b>ordenamientos alternativos</b> de TMDB (orden de emisión original) y arma la temporada correcta con sus <b>15 episodios</b>, separando 19 extras OP/ED/PV. Cero pendientes.</p>
+      <p style="margin-top:12px;">Y los torrents que preasignan el tamaño final no engañan: si <code>ffprobe</code> falla, espera y reintenta.</p>
+    </div>
+  </div>
+  <div class="foot"><span>sala</span><span>06</span></div>
+</section>
+
+<!-- 7. Reproducción -->
+<section class="slide glow">
+  <div class="grid" style="grid-template-columns:1.25fr 1fr;gap:48px;align-items:center;height:100%;">
+    <img class="shot" src="img/X-controls-tabbed.jpg" style="width:100%;">
+    <div>
+      <div class="kicker">Reproducción universal</div>
+      <h2>Se procesa una vez. Se ve en todas partes.</h2>
+      <p style="font-size:18px;">Cada video se convierte a <b>HLS</b> con una variante por pista de audio. Lo que ya es compatible se <b>copia sin recodificar</b>; lo de 10 bits o HEVC pasa a H.264.</p>
+      <div class="grid g2" style="margin-top:24px;gap:16px;">
+        <div class="card stat" style="padding:18px;"><div class="big grad">6,3 s</div><p>hasta el primer segmento: ves mientras procesa</p></div>
+        <div class="card stat" style="padding:18px;"><div class="big grad">3,9×</div><p>más rápido que tiempo real al recodificar</p></div>
+        <div class="card stat" style="padding:18px;"><div class="big grad">~4 s</div><p>para preparar un video compatible al darle play</p></div>
+        <div class="card stat" style="padding:18px;"><div class="big grad">0</div><p>transcodificación en vivo en cada reproducción</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Player propio: velocidad, subtítulos, ±10 s, siguiente episodio</span><span>07</span></div>
+</section>
+
+<!-- 8. Todas las pantallas -->
+<section class="slide glow2">
+  <div class="kicker">Un PC, todas las pantallas</div>
+  <h2>Enciendes la laptop. Ya está funcionando.</h2>
+  <div class="grid" style="grid-template-columns:1fr 250px 250px;gap:40px;margin-top:22px;align-items:start;">
+    <div>
+      <ul class="check">
+        <li><b>Arranca solo</b> como servicio de usuario de systemd, sin Docker y sin iniciar sesión.</li>
+        <li><b>QR en Ajustes:</b> lo escaneas con el celular y listo. En la TV, escribes la URL una vez.</li>
+        <li><b>Control remoto de la TV:</b> navegación espacial con las flechas y foco visible.</li>
+        <li><b>Celular:</b> barra inferior, diseño adaptado a pantalla vertical.</li>
+        <li><b>Varios discos:</b> si desconectas uno, sus títulos quedan “ausentes” y vuelven solos.</li>
+      </ul>
+      <div class="term" style="margin-top:18px;">
+        <span class="p">$</span> sala status <span class="c"># ¿en marcha? ¿qué se procesa?</span><br>
+        <span class="p">$</span> sala url <span class="c">&nbsp;&nbsp;&nbsp;# dirección para celular y TV</span><br>
+        <span class="p">$</span> sala pause <span class="c">&nbsp;# pausa el procesado</span>
+      </div>
+    </div>
+    <img class="phone" src="img/settings-mobile.jpg">
+    <img class="phone" src="img/ubic-mobile.jpg">
+  </div>
+  <div class="foot"><span>Capturas reales en un viewport de celular</span><span>08</span></div>
+</section>
+
+<!-- 9. Offline y robusto -->
+<section class="slide glow">
+  <div class="kicker">Offline-first y a prueba de fallos</div>
+  <h2>Internet solo para importar. Después, nada.</h2>
+  <div class="grid g3" style="margin-top:28px;">
+    <div class="card"><div class="icon">0</div><h3>Sin dependencias externas</h3><p>Metadata e imágenes en SQLite y en disco. Fuentes, iconos y scripts empaquetados: cero CDNs. Funciona con el router sin internet.</p></div>
+    <div class="card"><div class="icon">↻</div><h3>Se repara solo</h3><p>El procesado sobrevive a reinicios y se reanuda. Los errores se reintentan al arrancar. Un watchdog mata procesos colgados y no quedan ffmpeg huérfanos.</p></div>
+    <div class="card"><div class="icon">%</div><h3>Cuida tu disco</h3><p>Lo regenerable vive en una caché LRU (20 GB por defecto). Antes de escribir, comprueba el espacio libre y nunca llena el disco.</p></div>
+  </div>
+  <div class="grid g4" style="margin-top:26px;">
+    <div class="card stat" style="padding:18px 20px;"><div class="big grad" style="font-size:44px;">+30%</div><p>rendimiento con 2 trabajos × 8 hilos (medido)</p></div>
+    <div class="card stat" style="padding:18px 20px;"><div class="big grad" style="font-size:44px;">−345 MB</div><p>fuentes de subtítulos deduplicadas</p></div>
+    <div class="card stat" style="padding:18px 20px;"><div class="big grad" style="font-size:44px;">nice 19</div><p>procesa en segundo plano sin trabar la laptop</p></div>
+    <div class="card stat" style="padding:18px 20px;"><div class="big grad" style="font-size:44px;">1 clic</div><p>pausar y reanudar desde el panel Actividad</p></div>
+  </div>
+  <div class="foot"><span>sala</span><span>09</span></div>
+</section>
+
+<!-- 10. Por qué -->
+<section class="slide glow2">
+  <div class="kicker">Por qué así</div>
+  <h2>Decisiones simples, a propósito.</h2>
+  <table class="vs" style="margin-top:14px;">
+    <tr><th>Decisión</th><th>Descartado</th><th>Elegido y por qué</th></tr>
+    <tr><td>Plataforma propia</td><td>Jellyfin / Plex</td><td>Experiencia a medida, sin cuentas y sin curva de configuración.</td></tr>
+    <tr><td>Procesar al importar</td><td>Transcodificar en vivo</td><td>Reproducción instantánea y adelantar sin esperas; la CPU trabaja una sola vez.</td></tr>
+    <tr><td>Búsqueda</td><td>Elasticsearch (1–2 GB RAM)</td><td>SQLite FTS5: autocompletado en milisegundos, cero servicios extra.</td></tr>
+    <tr><td>Arranque en Linux</td><td>Docker Compose</td><td>Servicio systemd de usuario: menos piezas, arranca con el equipo.</td></tr>
+    <tr><td>Espacio en disco</td><td>Copiar todo al importar</td><td>Copia perezosa + caché LRU: solo ocupa lo que realmente se ve.</td></tr>
+    <tr><td>Base de datos</td><td>Módulos nativos de Node</td><td><code>node:sqlite</code>: sin compilar nada, listo para un instalador de Windows.</td></tr>
+  </table>
+  <div class="foot"><span>7 decisiones documentadas como ADR en docs/adr/</span><span>10</span></div>
+</section>
+
+<!-- 11. Números -->
+<section class="slide glow glow2">
+  <div class="kicker">Lo construido</div>
+  <h2>Hecho en serio, con evidencia.</h2>
+  <div class="grid g4" style="margin-top:34px;">
+    <div class="card stat"><div class="big grad">185</div><p>commits con Conventional Commits</p></div>
+    <div class="card stat"><div class="big grad">105</div><p>tareas y subtareas cerradas</p></div>
+    <div class="card stat"><div class="big grad">854</div><p>tests automáticos en verde (611 backend · 243 web)</p></div>
+    <div class="card stat"><div class="big grad">13</div><p>migraciones de base de datos validadas sobre copia real</p></div>
+  </div>
+  <div class="grid g2" style="margin-top:28px;gap:28px;">
+    <div class="card"><h3>Probado con contenido real</h3><p>Anime en Blu-ray de 10 bits con FLAC, películas, series por carpetas, torrents a medio descargar y lotes de distintos grupos mezclados en una misma temporada.</p></div>
+    <div class="card"><h3>Probado en el navegador real</h3><p>El player, el volumen y la navegación con teclado se verificaron contra Chrome real, con capturas guardadas como evidencia en <code>docs/progress/</code>.</p></div>
+  </div>
+  <div class="foot"><span>sala</span><span>11</span></div>
+</section>
+
+<!-- 12. Roadmap + cierre -->
+<section class="slide glow">
+  <div class="grid g2" style="gap:56px;height:100%;align-items:center;">
+    <div>
+      <div class="kicker">Lo que sigue</div>
+      <h2>Próximos pasos</h2>
+      <ul class="check" style="margin-top:14px;">
+        <li><b>Prueba final en casa:</b> reinicio de la laptop, TV Google TV y Android por WiFi.</li>
+        <li><b>Instalador para Windows</b> de un clic, para usuarios sin conocimientos técnicos.</li>
+        <li><b>Subtítulos con estilo:</b> renderizar ASS en el navegador (los originales y sus fuentes ya están guardados).</li>
+        <li><b>Búsqueda más amplia:</b> también por título original y nombre de temporada.</li>
+      </ul>
+    </div>
+    <div style="text-align:center;">
+      <div class="logo" style="font-size:140px;line-height:1;">sala</div>
+      <p class="lead" style="margin:18px auto 0;font-size:24px;max-width:460px;">Tu biblioteca, con la experiencia de un servicio de streaming.<br><span class="grad" style="font-weight:800;">En tu casa, bajo tus reglas.</span></p>
+    </div>
+  </div>
+  <div class="foot"><span>sala · media server local</span><span>12</span></div>
+</section>
+
+</body>
+</html>
