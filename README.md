@@ -32,6 +32,13 @@ La app guarda la carpeta donde está tu contenido en su propia configuración (`
 1. Solo en una instalación nueva y **solo para desarrollo**, crea `.env` desde `.env.example` **sin sobrescribir uno existente**. `CONTENT_DIR` ahí es opcional: tu elección en la app tiene prioridad.
 2. Configura tu *Read Access Token* de TMDB en `TMDB_READ_ACCESS_TOKEN`. Esta instalación ya lo tiene; no lo imprimas ni lo subas a git.
 
+## Instaladores para Windows y macOS
+
+Para usuarios sin conocimientos técnicos: todo incluido (Node, ffmpeg, servidor y web), arranque al iniciar sesión y apertura en el navegador. Se descargan desde la página del release (Assets) o como artifact del workflow en Actions.
+
+- **Windows 11**: `sala-setup.exe`. SmartScreen puede avisar la primera vez: **Más información → Ejecutar de todas formas**. Guía: [packaging/windows/README.md](packaging/windows/README.md).
+- **macOS 12+**: `sala-macos-arm64.dmg` (Apple Silicon) o `sala-macos-x64.dmg` (Intel). Abre el DMG y haz doble clic en **Instalar Sala**; si macOS bloquea la primera apertura (la app no está notarizada), clic derecho → **Abrir** → **Abrir**. Guía y desinstalación: [packaging/macos/README.md](packaging/macos/README.md).
+
 ## Correrlo en Linux (laptop) y verlo desde celular y TV
 
 Requisitos: Node.js 24 o superior, npm y ffmpeg. No hace falta internet, pero celular y TV deben estar en la **misma WiFi** que la laptop.
