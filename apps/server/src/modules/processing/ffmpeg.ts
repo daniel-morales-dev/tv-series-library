@@ -44,6 +44,14 @@ export const LOG_FILE = 'ffmpeg.log';
 const KILL_ESCALATION_MS = 5_000;
 const TAIL_BYTES = 4000;
 
+// PROCESS_NICE (default 19): lowest CPU priority (which also drops I/O to the lowest best-effort class)
+// so playback and the UI stay responsive. Read per spawn so a restart picks up .env changes.
+export function niceFromEnv(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.PROCESS_NICE;
+  const n = Number(raw);
+  return raw !== undefined && raw !== '' && Number.isInteger(n) && n >= -20 && n <= 19 ? n : 19;
+}
+
 export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000, killAfterMs = KILL_ESCALATION_MS }: { bin?: string; pollMs?: number; killAfterMs?: number } = {}): RunFfmpeg {
   return (args, opts = {}) =>
     new Promise((resolve, reject) => {
@@ -58,11 +66,10 @@ export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000, killAfterMs = 
         stderr = (stderr + d).slice(-TAIL_BYTES);
       });
       if (detached) child.unref();
-      // Lowest CPU priority (which also drops I/O to the lowest best-effort class) so playback and the UI stay responsive.
       const pid = child.pid;
       if (pid) {
         try {
-          setPriority(pid, 19);
+          setPriority(pid, niceFromEnv());
         } catch {}
         const pidStart = procStart(pid);
         if (pidStart !== null) opts.onSpawn?.({ pid, pidStart });

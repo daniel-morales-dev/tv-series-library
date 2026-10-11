@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.ts';
+import { budgetConfigFromEnv } from '../src/modules/processing/budget.ts';
 import { enqueue, claimNext, fail, setProgress } from '../src/modules/processing/queue.ts';
 import { createWorker } from '../src/modules/processing/worker.ts';
 import { addEpisode, addFile, addTitle, setup } from './helpers.ts';
@@ -44,7 +45,7 @@ function queue(db: ReturnType<typeof setup>['db'], fileId: number): number {
 describe('GET /api/activity', () => {
   it('answers empty sections on an empty library', async () => {
     const { app } = env();
-    expect((await app.inject('/api/activity')).json()).toEqual({ running: [], queued: [], queuedTotal: 0, failed: [], paused: false, lowDisk: false, lowDiskMessage: null, diskAbsent: false });
+    expect((await app.inject('/api/activity')).json()).toEqual({ running: [], queued: [], queuedTotal: 0, failed: [], paused: false, budget: null, lowDisk: false, lowDiskMessage: null, diskAbsent: false });
   });
 
   it('joins episode, film and extra files with their display names and kind', async () => {
@@ -192,5 +193,33 @@ describe('processing pause and resume', () => {
       expect(res.statusCode).toBe(409);
       expect(res.json()).toEqual({ error: 'processing_disabled' });
     }
+  });
+});
+
+describe('resource budget in activity', () => {
+  it('reports the last computed budget when the worker has one', async () => {
+    const { db } = setup();
+    const worker = createWorker({
+      db,
+      dataDir: 'data',
+      contentDir: 'content',
+      budget: {
+        hardware: () => ({ cores: 16, memAvailableMb: 8000, rotational: [false, false] }),
+        config: budgetConfigFromEnv({ PROCESS_MAX_JOBS: '4' }),
+      },
+    });
+    const app = buildApp({ db, worker });
+    worker.kick();
+
+    expect((await app.inject('/api/activity')).json()).toMatchObject({ budget: { jobs: 2, threadsPerJob: 4, limitedBy: 'cpu' } });
+  });
+
+  it('reports budget null when the worker has no budget option', async () => {
+    const { db } = setup();
+    const worker = createWorker({ db, dataDir: 'data', contentDir: 'content' });
+    const app = buildApp({ db, worker });
+    worker.kick();
+
+    expect((await app.inject('/api/activity')).json()).toMatchObject({ budget: null });
   });
 });

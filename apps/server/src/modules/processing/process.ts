@@ -156,6 +156,8 @@ export async function processMedia(
     onSpawn?: (info: SpawnInfo & { planHash: string }) => void;
     adopt?: Adoption;
     signal?: AbortSignal;
+    /** T21: per-job encoder threads from the resource budget; falls back to the worker's fixed value. */
+    threads?: number;
   } = {},
 ): Promise<ProcessResult> {
   const src = join(deps.contentDir, file.path);
@@ -178,7 +180,7 @@ export async function processMedia(
     opts.onTracks?.(tracks);
     return { hlsDir: null, mode, ...tracks };
   }
-  const args = mainArgs(plan, src, tmpDir, { threads: deps.threads });
+  const args = mainArgs(plan, src, tmpDir, { threads: opts.threads ?? deps.threads });
   const planHash = createHash('sha1').update(JSON.stringify(args)).digest('hex');
   const { signal } = opts;
   const report = (s: number) => opts.onProgress?.(info.durationS > 0 ? Math.min(s / info.durationS, 1) : 0);

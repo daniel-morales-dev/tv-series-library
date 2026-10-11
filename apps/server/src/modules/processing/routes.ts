@@ -106,6 +106,7 @@ export function processingRoutes(api: FastifyInstance, db: DatabaseSync, hlsDir:
     return {
       ...activityView(db),
       paused: worker?.isPaused() ?? false,
+      budget: worker?.budget() ?? null,
       lowDisk: lowDisk !== null,
       lowDiskMessage: lowDisk?.message ?? null,
       diskAbsent: !disk.present(),

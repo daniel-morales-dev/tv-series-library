@@ -7,7 +7,9 @@ import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
 import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
 import { networkRoutes } from './modules/network/routes.ts';
 import { createMigrationService } from './modules/data-migration/service.ts';
+import { budgetConfigFromEnv } from './modules/processing/budget.ts';
 import { GB } from './modules/processing/cache.ts';
+import { createHardwareProbe } from './modules/processing/hardware.ts';
 import { requeueErrors } from './modules/processing/queue.ts';
 import { createWorker } from './modules/processing/worker.ts';
 import { createShutdown } from './shutdown.ts';
@@ -74,9 +76,11 @@ const worker =
         hlsDir,
         diskPresent,
         contentDir: workerContentDir,
-        concurrency: Number(process.env.PROCESS_CONCURRENCY ?? 1),
-        // T35: 8 threads measured ~1.24x over 4 while still leaving half of the 16 cores free for playback.
-        threads: Number(process.env.FFMPEG_THREADS ?? 8),
+        // T21: jobs x threads from CPU share, free RAM and volume type; PROCESS_CONCURRENCY/FFMPEG_THREADS fix them.
+        budget: {
+          hardware: createHardwareProbe([workerContentDir, hlsDir]),
+          config: budgetConfigFromEnv(process.env),
+        },
         cacheBudgetBytes: envNumber('CACHE_BUDGET_GB', 20) * GB,
         minFreeBytes: envNumber('MIN_FREE_GB', 10) * GB,
         minFreePct: envNumber('MIN_FREE_PCT', 10),

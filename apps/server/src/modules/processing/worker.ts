@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { join, resolve } from 'node:path';
+import { type Budget, type BudgetConfig, type Hardware, computeBudget } from './budget.ts';
 import { type Statfs, DiskAbsentError, LowDiskError, createCache } from './cache.ts';
 import { KeepChildren, type ProbeStreams, type RunFfmpeg, type SpawnInfo, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
 import { type Adoption, InvalidPackageError, type ProcessDeps, SourceMissingError, processMedia } from './process.ts';
@@ -9,6 +10,7 @@ import {
   claimNext,
   complete,
   fail,
+  hasPrioritizedQueued,
   recover,
   requeue,
   runningWithProcess,
@@ -34,6 +36,11 @@ export interface WorkerOptions {
   concurrency?: number;
   /** x264 encoder threads. */
   threads?: number;
+  /**
+   * T21: dynamic jobs x threads from a resource budget. Opt-in: without it nothing reads the real
+   * hardware, and `concurrency`/`threads` behave exactly as before.
+   */
+  budget?: { hardware: () => Hardware; config: BudgetConfig };
   runFfmpeg?: RunFfmpeg;
   probeStreams?: ProbeStreams;
   /** Poll interval for progress files and adopted processes. */
@@ -53,6 +60,8 @@ export interface WorkerOptions {
 export interface Worker {
   /** Starts queued jobs up to the concurrency limit; cheap to call any time. */
   kick(): void;
+  /** T21: jobs x threads and the limiting factor from the last kick; null without the budget option. */
+  budget(): Pick<Budget, 'jobs' | 'threadsPerJob' | 'limitedBy'> | null;
   /** Makes a file's queued job run next, interrupting a running job of another file (it is requeued). */
   prioritize(mediaFileId: number): void;
   /** Resolves once nothing is running and nothing is queued. */
@@ -109,8 +118,13 @@ export function createWorker(opts: WorkerOptions): Worker {
   deps.ensureSpace = (needed, id) => cache.ensureSpace(needed, id);
   const abort = new AbortController();
   let active = 0;
+  // T21: summary of the last computed budget, exposed by /api/activity; null when no budget option was given.
+  let lastBudget: Pick<Budget, 'jobs' | 'threadsPerJob' | 'limitedBy'> | null = null;
   // `proc` is the job's main ffmpeg once known; `stopped` means a pause froze it with SIGSTOP (job still running).
-  const running = new Map<number, { mediaFileId: number; ctl: AbortController; preempted: boolean; proc?: SpawnInfo; stopped: boolean }>();
+  const running = new Map<
+    number,
+    { mediaFileId: number; ctl: AbortController; preempted: boolean; proc?: SpawnInfo; stopped: boolean; progress: number }
+  >();
   let timer: NodeJS.Timeout | undefined;
   let idle: (() => void)[] = [];
   // In memory only: a server restart resumes processing with the backlog.
@@ -127,7 +141,7 @@ export function createWorker(opts: WorkerOptions): Worker {
   // In memory (no schema change); a restart grants at most one more reprocess for the file.
   const reprocessedInvalid = new Set<number>();
 
-  async function runJob(job: NonNullable<ReturnType<typeof claimNext>>, adopt?: Adoption) {
+  async function runJob(job: NonNullable<ReturnType<typeof claimNext>>, adopt?: Adoption, threads?: number) {
     let lastWrite = Number.NEGATIVE_INFINITY;
     let retried = false;
     const entry: NonNullable<ReturnType<typeof running.get>> = {
@@ -136,6 +150,7 @@ export function createWorker(opts: WorkerOptions): Worker {
       preempted: false,
       proc: adopt && { pid: adopt.pid, pidStart: adopt.pidStart },
       stopped: false,
+      progress: 0,
     };
     running.set(job.id, entry);
     try {
@@ -149,9 +164,11 @@ export function createWorker(opts: WorkerOptions): Worker {
               setSpawned(db, job.id, p);
             },
             adopt: retried ? undefined : adopt,
+            threads,
             lazyCopy: lazyCopy && job.lazyEligible === true,
             signal: AbortSignal.any([abort.signal, entry.ctl.signal]),
             onProgress: (fraction) => {
+              entry.progress = fraction;
               if (now() - lastWrite < PROGRESS_EVERY_MS) return;
               lastWrite = now();
               setProgress(db, job.id, Math.min(fraction, 1) * MAIN_RUN_SHARE);
@@ -221,6 +238,16 @@ export function createWorker(opts: WorkerOptions): Worker {
     resume();
   }
 
+  // T21: recomputed on every kick, so a shrinking budget stops new claims without touching running jobs.
+  // The play slot (jobs + 1) is only granted when the RAM alone could host one more job.
+  function currentLimit(): { max: number; threadsPerJob?: number } {
+    if (!opts.budget) return { max: concurrency };
+    const b = computeBudget(opts.budget.hardware(), opts.budget.config);
+    lastBudget = { jobs: b.jobs, threadsPerJob: b.threadsPerJob, limitedBy: b.limitedBy };
+    const playSlot = hasPrioritizedQueued(db) && b.ramJobs >= b.jobs + 1;
+    return { max: b.jobs + (playSlot ? 1 : 0), threadsPerJob: b.threadsPerJob };
+  }
+
   function kick() {
     if (abort.signal.aborted || !ready) return;
     diskGone = !diskPresent();
@@ -232,12 +259,13 @@ export function createWorker(opts: WorkerOptions): Worker {
       return;
     }
     if (lowDisk) void resumeIfSpace();
-    while (active < concurrency) {
+    const limit = currentLimit();
+    while (active < limit.max) {
       if (paused) break;
       const job = claimNext(db);
       if (!job) break;
       active++;
-      void runJob(job).finally(() => {
+      void runJob(job, undefined, limit.threadsPerJob).finally(() => {
         active--;
         kick();
       });
@@ -251,8 +279,9 @@ export function createWorker(opts: WorkerOptions): Worker {
   function prioritize(mediaFileId: number) {
     const jobs = [...running.values()];
     if (jobs.some((r) => r.mediaFileId === mediaFileId)) return;
-    const victim = jobs[0];
-    if (active < concurrency || !victim) return kick();
+    if (active < currentLimit().max || jobs.length === 0) return kick();
+    // Several jobs running: the least advanced loses, so the requeued work is the cheapest to redo.
+    const victim = jobs.reduce((a, b) => (a.progress <= b.progress ? a : b));
     victim.preempted = true;
     victim.ctl.abort(); // its runJob requeues it, then kick() claims the prioritized job
   }
@@ -293,6 +322,7 @@ export function createWorker(opts: WorkerOptions): Worker {
   return {
     kick,
     prioritize,
+    budget: () => lastBudget,
     pause,
     resume,
     isPaused: () => paused,
@@ -320,12 +350,13 @@ export function createWorker(opts: WorkerOptions): Worker {
         );
         void startup.then(kick);
       }
+      const limit = currentLimit();
       for (const { job, ...adoption } of adopted.values()) {
         // Pause lives in memory only: a restart resumes processing, so an ffmpeg left stopped by a pause continues.
         signalIfSame(adoption.pid, adoption.pidStart, 'SIGCONT');
         active++;
         log('info', `${job.path}: adopting running ffmpeg ${job.pid}`);
-        void runJob(job, adoption).finally(() => {
+        void runJob(job, adoption, limit.threadsPerJob).finally(() => {
           active--;
           kick();
         });

@@ -141,6 +141,11 @@ export function claimNext(db: DatabaseSync): ClaimedJob | undefined {
   });
 }
 
+// T21: a play request waiting for a slot; only then is the extra play slot (jobs + 1) worth granting.
+export function hasPrioritizedQueued(db: DatabaseSync): boolean {
+  return get<{ n: number }>(db, "SELECT COUNT(*) AS n FROM jobs WHERE type = 'process' AND status = 'queued' AND priority > 0")!.n > 0;
+}
+
 export function setSpawned(db: DatabaseSync, jobId: number, p: SpawnedProcess): void {
   run(db, 'UPDATE jobs SET pid = ?, pid_start = ?, plan_hash = ? WHERE id = ?', p.pid, p.pidStart, p.planHash, jobId);
 }
