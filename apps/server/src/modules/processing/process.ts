@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { sourcePath } from '../../library/roots.ts';
 import { LOG_FILE, PROGRESS_FILE, type ProbeStreams, type RunFfmpeg, type SpawnInfo, extractArgs, keepsChildren, mainArgs, nameRenditions } from './ffmpeg.ts';
 import { isOurFfmpeg, readProgress, terminate, waitForExit, watchProgress } from './proc.ts';
 import { ESTIMATE_RATIO, dirBytes } from './cache.ts';
@@ -147,7 +148,7 @@ async function adoptRunning(
 // Writes the HLS package to `hls/<id>.tmp` and swaps it into place only when everything succeeded.
 export async function processMedia(
   deps: ProcessDeps,
-  file: { id: number; path: string },
+  file: { id: number; path: string; rootId?: number },
   opts: {
     onProgress?: (fraction: number) => void;
     onTracks?: (tracks: ProcessTracks) => void;
@@ -160,7 +161,7 @@ export async function processMedia(
     threads?: number;
   } = {},
 ): Promise<ProcessResult> {
-  const src = join(deps.contentDir, file.path);
+  const src = sourcePath(deps.contentDir, file.rootId, file.path);
   const srcStat = await stat(src).catch(() => null);
   if (!srcStat?.isFile()) throw new SourceMissingError(file.path);
 

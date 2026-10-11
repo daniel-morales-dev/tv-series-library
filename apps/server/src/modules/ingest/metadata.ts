@@ -378,11 +378,12 @@ export function createLocalTitle(db: DatabaseSync, kind: 'movie' | 'series', tit
   return id;
 }
 
-export function setSourceDir(db: DatabaseSync, path: string, titleId: number, seasonNumber: number | null): void {
+export function setSourceDir(db: DatabaseSync, path: string, titleId: number, seasonNumber: number | null, rootId = 1): void {
   run(
     db,
-    `INSERT INTO source_dirs (path, title_id, season_number) VALUES (?, ?, ?)
-     ON CONFLICT(path) DO UPDATE SET title_id = excluded.title_id, season_number = excluded.season_number`,
+    `INSERT INTO source_dirs (root_id, path, title_id, season_number) VALUES (?, ?, ?, ?)
+     ON CONFLICT(root_id, path) DO UPDATE SET title_id = excluded.title_id, season_number = excluded.season_number`,
+    rootId,
     path,
     titleId,
     seasonNumber,

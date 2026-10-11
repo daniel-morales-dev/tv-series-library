@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { api, getProfileId, playErrorMessage, saveProgress, streamUrl } from '../api.ts';
 import { fullscreenMode, isIOS, isMobile, volumeWritable } from '../device.ts';
 import { isBackKey } from '../spatial.ts';
+import { decidePlayerKey } from '../player-keys.ts';
 import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
 import { SPEEDS, loadSpeed, saveSpeed, speedLabel } from '../speed.ts';
 import { type Chapter, activeSkip, skipLabel } from '../skip.ts';
@@ -249,6 +250,12 @@ function toggleMute() {
   if (!muted.value && volume.value === 0) volume.value = 1;
   applyVolume();
 }
+// T51: ArrowUp/Down nudge the volume — TV remotes have no volume rocker of their own.
+function bumpVolume(delta: number) {
+  volume.value = Math.round(Math.min(1, Math.max(0, volume.value + delta)) * 100) / 100;
+  muted.value = volume.value === 0;
+  applyVolume();
+}
 function pickAudio(i: number) {
   if (hls) hls.audioTrack = i;
   audioIndex.value = i;
@@ -359,20 +366,27 @@ function onFullscreenChange() {
 }
 
 function onKey(e: KeyboardEvent) {
-  const t = e.target as HTMLElement;
-  const inField = (t instanceof HTMLInputElement && t.type !== 'range') || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement; // the seek slider must not swallow the player's keys
-  const onButton = t instanceof HTMLButtonElement || t instanceof HTMLAnchorElement;
   const v = video.value;
-  if (inField || !v) return;
+  if (!v) return;
+  const action = decidePlayerKey(e.target, e.key);
+  if (action === 'ignore') {
+    // T51: a keyboard-adjusted slider is still activity; the native range owns the key.
+    if ((e.target as HTMLInputElement)?.type === 'range') poke();
+    return;
+  }
   poke();
   if (e.key === 'Escape' && menu.value) {
     menu.value = null;
   } else if (isBackKey(e)) {
     back();
-  } else if ((e.key === ' ' || e.key === 'Enter') && !onButton) {
+  } else if (action === 'toggle') {
     togglePlay();
-  } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && !menu.value) {
-    v.currentTime = Math.max(0, v.currentTime + (e.key === 'ArrowLeft' ? -10 : 10));
+  } else if ((action === 'seek-back' || action === 'seek-forward') && !menu.value) {
+    skip(action === 'seek-back' ? -10 : 10);
+  } else if (action === 'volume-up' && canSetVolume.value) {
+    bumpVolume(0.05);
+  } else if (action === 'volume-down' && canSetVolume.value) {
+    bumpVolume(-0.05);
   } else {
     return;
   }
@@ -423,7 +437,7 @@ watch([fileId, titleId], start, { immediate: true });
       />
     </video>
 
-    <RouterLink class="btn top left chrome" :to="`/title/${titleId || ''}`">← Volver</RouterLink>
+    <RouterLink class="btn top left" :to="`/title/${titleId || ''}`">← Volver</RouterLink>
 
     <p v-if="phase === 'loading'" class="center muted">Cargando…</p>
     <p v-else-if="phase === 'preparing'" class="center">Preparando… {{ percent }} %</p>
@@ -516,6 +530,7 @@ video { width: 100%; height: 100%; background: #000; }
 .round.speed { width: auto; min-width: 44px; padding: 0 12px; border-radius: 999px; font-weight: 700; font-size: 0.95rem; }
 .chrome { transition: opacity 0.25s; }
 .idle { cursor: none; }
+/* T51: the back link is deliberately not .chrome, so it stays visible and tappable while idle. */
 .idle .chrome { opacity: 0; pointer-events: none; }
 .center { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; text-align: center; padding: 0 16px; }
 .menu {

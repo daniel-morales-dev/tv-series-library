@@ -1,0 +1,40 @@
+name: notify
+# Bot mention so the owner gets email/push: a mention written with the owner's
+# own token does not notify; it must come from a different account.
+on:
+  pull_request:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  notify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment mention for the owner
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BODY: ${{ github.event.comment.body }}
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "issue_comment" ]; then
+            case "$BODY" in
+              *NOTIFY-ME*) : ;;
+              *) echo "no marker; skip"; exit 0 ;;
+            esac
+            N="${{ github.event.issue.number }}"
+            LINK="https://github.com/$GITHUB_REPOSITORY/issues/$N#issuecomment-${{ github.event.comment.id }}"
+            TEXT="Nuevo reporte arriba en este hilo: $LINK"
+          else
+            N="${{ github.event.pull_request.number }}"
+            TEXT="PR abierto: $TITLE - https://github.com/$GITHUB_REPOSITORY/pull/$N"
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/issues/$N/comments" -f body="@daniel-morales-dev $TEXT"
