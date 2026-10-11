@@ -117,6 +117,7 @@ const budget = computed(() => budgetLine(props.activity?.budget ?? null));
             </section>
           </template>
           <p v-else-if="!error" class="note">Cargando…</p>
+          <p class="note pending-link"><RouterLink to="/pending" @click="emit('close')">Ver archivos pendientes</RouterLink></p>
         </div>
       </aside>
     </Transition>
@@ -172,6 +173,7 @@ section h3 { margin: 0 0 6px; font-size: 0.8rem; font-weight: 700; color: var(--
 .retry:hover:not(:disabled), .toggle:hover:not(:disabled) { background: var(--bg-hover); }
 .retry:disabled, .toggle:disabled { opacity: 0.55; cursor: default; }
 .note { margin: 16px 0 0; font-size: 0.88rem; color: var(--text-dim); }
+.pending-link a { color: var(--accent); font-weight: 600; }
 
 @media (prefers-reduced-motion: reduce) {
   .veil-enter-active, .veil-leave-active, .drawer-enter-active, .drawer-leave-active, .bar i { transition: none; }

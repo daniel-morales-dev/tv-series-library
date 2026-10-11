@@ -3,7 +3,9 @@ import type { DataPlan, DataStatus } from './dataMigration.ts';
 import type { AppConfig, LibraryCandidate } from './config.ts';
 import type { Franchise } from './franchise.ts';
 import type { DirListing } from './folderPicker.ts';
+import type { ReanalyzeSummary, SubtitleRepairResult } from './maintenance.ts';
 import type { NetworkInfo } from './network.ts';
+import type { ConfirmChoice, PendingItem } from './pending.ts';
 import type { Chapter } from './skip.ts';
 import type { ContinueItem, Job, Profile, Suggestion, TitleDetail, TitleSummary } from './types.ts';
 
@@ -120,6 +122,24 @@ export const api = {
     }),
   chapters: (mediaFileId: number) => request<{ chapters: Chapter[] }>(`/media-files/${mediaFileId}/chapters`),
   refreshMetadata: (titleId: number) => messageRequest<{ ok: true }>(`/titles/${titleId}/refresh-metadata`, { method: 'POST' }),
+  // T81: whole-library reanalysis (or one title); it can take tens of seconds and answers counters.
+  reanalyze: (titleId?: number) =>
+    messageRequest<ReanalyzeSummary>('/library/reanalyze', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(titleId === undefined ? {} : { titleId }),
+    }),
+  reprocessSubtitles: () =>
+    messageRequest<SubtitleRepairResult>('/maintenance/reprocess-subtitles', { method: 'POST', headers: JSON_HEADERS, body: '{}' }),
+  // T77: files the scanner could not place; confirm assigns one to a TMDB match the user picks.
+  pending: () => messageRequest<PendingItem[]>('/pending'),
+  confirmPending: (id: number, choice: ConfirmChoice) =>
+    messageRequest<{ titleId: number; placed: number }>(`/pending/${id}/confirm`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(choice),
+    }),
+  ignorePending: (id: number) => messageRequest<void>(`/pending/${id}/ignore`, { method: 'POST' }),
   dataPlan: () => migrationRequest<DataPlan>('/plan'),
   dataStatus: () => migrationRequest<DataStatus>('/status'),
   startDataMove: () => migrationRequest<DataStatus>('/start', { method: 'POST', headers: JSON_HEADERS, body: '{}' }),
@@ -147,6 +167,12 @@ export const api = {
   play: (mediaFileId: number) => request<{ status: 'ready' | 'processing' }>(`/media-files/${mediaFileId}/play`, { method: 'POST' }),
   random: (pid?: number | null) => request<{ titleId: number; mediaFileId: number }>(`/random${pid ? `?profile=${pid}` : ''}`),
 };
+
+/** An endpoint that answers a bare status (`500`) with no Spanish `message`: the view shows its own text. */
+export function errorText(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : '';
+  return message && !/^\d+$/.test(message) ? message : fallback;
+}
 
 export function playErrorMessage(e: unknown): string {
   if (!(e instanceof Error) || e.message === '404') return 'No se pudo cargar el video.';

@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { api, type LibraryRoot, type OrphanScan } from '../api.ts';
+import { api, errorText, type LibraryRoot, type OrphanScan } from '../api.ts';
 import { suggestedFolder, tmdbSectionState, type AppConfig } from '../config.ts';
 import { formatGb } from '../dataMigration.ts';
+import { reanalyzeSummary, subtitleSummary } from '../maintenance.ts';
 import { tmdbGuide } from '../onboarding.ts';
 import ConfigForm from '../components/ConfigForm.vue';
 import DataMigrationPanel from '../components/DataMigrationPanel.vue';
@@ -66,6 +67,38 @@ async function saved() {
   await load();
   showToast('Carpeta actualizada.');
 }
+// T81: both actions can take tens of seconds; the button stays disabled and says so meanwhile.
+const reanalyzing = ref(false);
+const repairing = ref(false);
+const maintNotice = ref<{ bad: boolean; text: string } | null>(null);
+
+async function reanalyzeAll() {
+  if (reanalyzing.value) return;
+  reanalyzing.value = true;
+  maintNotice.value = null;
+  try {
+    maintNotice.value = { bad: false, text: reanalyzeSummary(await api.reanalyze()) };
+    await Promise.all([load(), loadOrphans(), loadRoots()]);
+  } catch (err) {
+    maintNotice.value = { bad: true, text: errorText(err, 'No se pudo re-analizar la biblioteca.') };
+  } finally {
+    reanalyzing.value = false;
+  }
+}
+
+async function repairSubtitles() {
+  if (repairing.value) return;
+  repairing.value = true;
+  maintNotice.value = null;
+  try {
+    maintNotice.value = { bad: false, text: subtitleSummary(await api.reprocessSubtitles()) };
+  } catch (err) {
+    maintNotice.value = { bad: true, text: errorText(err, 'No se pudieron reparar los subtítulos.') };
+  } finally {
+    repairing.value = false;
+  }
+}
+
 async function loadOrphans() {
   try {
     orphans.value = await api.orphans();
@@ -233,6 +266,17 @@ onMounted(() => {
         </template>
         <p v-if="purged" role="status">{{ purged.removed }} paquetes eliminados, {{ formatGb(purged.bytesFreed) }} liberados.</p>
       </template>
+      <p class="help">Re-análisis: vuelve a leer las carpetas, reasigna episodios y refresca los datos de TMDB. Puede tardar.</p>
+      <div class="maint-actions">
+        <button type="button" class="primary" :disabled="reanalyzing" @click="reanalyzeAll">
+          {{ reanalyzing ? 'Re-analizando…' : 'Re-analizar biblioteca' }}
+        </button>
+        <button type="button" :disabled="repairing" @click="repairSubtitles">
+          {{ repairing ? 'Reparando…' : 'Reparar subtítulos' }}
+        </button>
+      </div>
+      <p v-if="maintNotice" role="status" :class="{ bad: maintNotice.bad }">{{ maintNotice.text }}</p>
+      <p class="help"><RouterLink to="/pending">Ver archivos pendientes</RouterLink></p>
     </section>
     <NetworkPanel />
   </main>
@@ -248,6 +292,8 @@ dd { margin: 2px 0 0; overflow-wrap: anywhere; }
 .help { color: var(--text-dim); font-size: 0.9rem; margin: 4px 0 0; }
 section p { margin: 8px 0 0; }
 .primary { margin-top: 8px; background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.maint-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.maint-actions .primary { margin-top: 0; }
 .roots { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
 .root { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-card); }
 .root-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
