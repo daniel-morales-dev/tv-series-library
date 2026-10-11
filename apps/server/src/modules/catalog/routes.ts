@@ -4,6 +4,8 @@ import { sourcePath } from '../../library/roots.ts';
 import { type ProbeChapters, loadChapters, saveChapters } from './chapters.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import { FranchiseError, type FranchiseRelation, linkFranchise, unlinkFranchise } from './franchise.ts';
+import { MetadataError, refreshTitleMetadata } from '../ingest/metadata.ts';
+import type { TmdbClient } from '../ingest/tmdb.ts';
 import { getTitleDetail, listTitles, type TitleFilters } from './repository.ts';
 
 export interface ChaptersDeps {
@@ -11,7 +13,12 @@ export interface ChaptersDeps {
   probe: ProbeChapters;
 }
 
-export function catalogRoutes(api: FastifyInstance, db: DatabaseSync, chapters?: ChaptersDeps): void {
+export interface RefreshDeps {
+  tmdb: TmdbClient;
+  dataDir: string;
+}
+
+export function catalogRoutes(api: FastifyInstance, db: DatabaseSync, chapters?: ChaptersDeps, refresh?: RefreshDeps): void {
   api.get<{ Querystring: Partial<TitleFilters> }>(
     '/titles',
     {
@@ -85,5 +92,22 @@ export function catalogRoutes(api: FastifyInstance, db: DatabaseSync, chapters?:
       }
     }
     return { chapters: loadChapters(db, req.params.id) };
+  });
+
+  // T52: explicit on-demand TMDB re-query for one title; never recurring. Offline fails before anything is written.
+  api.post<{ Params: { id: number } }>('/titles/:id/refresh-metadata', { schema: { params: idParams } }, async (req, reply) => {
+    if (!refresh) return reply.code(503).send({ error: 'tmdb_unavailable', message: 'TMDB no está disponible.' });
+    try {
+      await refreshTitleMetadata({ db, ...refresh }, req.params.id);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof MetadataError)
+        return reply.code(err.status).send({
+          error: err.code,
+          message: err.code === 'not_found' ? 'No se encontró el título.' : 'Este título no tiene datos de TMDB que refrescar.',
+        });
+      req.log.error(err);
+      return reply.code(502).send({ error: 'tmdb_unavailable', message: 'No se pudo consultar TMDB. Inténtalo de nuevo cuando haya conexión.' });
+    }
   });
 }

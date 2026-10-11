@@ -42,15 +42,18 @@ const diskPresent = () => libraryDiskPresent(workerContentDir);
 const rel = relative(workerContentDir, hlsDir);
 const hlsOnLibrary = rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 
+// T52: the refresh endpoint uses this same client unmemoized, so an explicit refresh always re-queries TMDB
+// (the ingestor memoizes it internally for scans).
+const token = process.env.TMDB_READ_ACCESS_TOKEN;
+const tmdb = token ? createTmdbClient(token) : unavailableTmdb();
 let ingestor: Ingestor | undefined;
 if (process.env.INGEST !== 'off') {
-  const token = process.env.TMDB_READ_ACCESS_TOKEN;
   ingestor = createIngestor({
     db,
     dataDir,
     contentDir: () => resolveContentDir(),
     diskPresent,
-    tmdb: token ? createTmdbClient(token) : unavailableTmdb(),
+    tmdb,
     log: (level, message) => app.log[level](message),
   });
   if (!token) console.warn('TMDB_READ_ACCESS_TOKEN is not set: ingesting offline');

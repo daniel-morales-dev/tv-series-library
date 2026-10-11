@@ -36,6 +36,21 @@ async function migrationRequest<T>(path: string, init?: RequestInit): Promise<T>
 
 const JSON_HEADERS = { 'content-type': 'application/json' };
 
+// T52: the refresh endpoint answers errors with a Spanish `message` that the title page shows as is.
+async function metadataRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, init);
+  } catch {
+    throw new Error('No se pudo conectar con el servidor.');
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(typeof body?.message === 'string' ? body.message : `${res.status}`);
+  }
+  return res.json();
+}
+
 export const api = {
   profiles: () => request<Profile[]>('/profiles'),
   createProfile: (name: string) =>
@@ -68,6 +83,7 @@ export const api = {
   setContentDir: (path: string, create = false) =>
     request<AppConfig>('/config/content-dir', { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ path, create }) }),
   chapters: (mediaFileId: number) => request<{ chapters: Chapter[] }>(`/media-files/${mediaFileId}/chapters`),
+  refreshMetadata: (titleId: number) => metadataRequest<{ ok: true }>(`/titles/${titleId}/refresh-metadata`, { method: 'POST' }),
   dataPlan: () => migrationRequest<DataPlan>('/plan'),
   dataStatus: () => migrationRequest<DataStatus>('/status'),
   startDataMove: () => migrationRequest<DataStatus>('/start', { method: 'POST', headers: JSON_HEADERS, body: '{}' }),

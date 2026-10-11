@@ -5,6 +5,7 @@ import type { Ingestor } from './modules/ingest/ingestor.ts';
 import { type DiskGuard, processingRoutes } from './modules/processing/routes.ts';
 import type { Worker } from './modules/processing/worker.ts';
 import { ingestRoutes } from './modules/ingest/routes.ts';
+import type { TmdbClient } from './modules/ingest/tmdb.ts';
 import { catalogRoutes } from './modules/catalog/routes.ts';
 import { type ProbeChapters, probeChapters as realProbeChapters } from './modules/catalog/chapters.ts';
 import { randomRoutes } from './modules/random/routes.ts';
@@ -41,9 +42,11 @@ export interface AppOptions {
   probeChapters?: ProbeChapters;
   /** T47e: guided move of the HLS data to the library folder; absent = endpoints not registered. */
   dataMigration?: MigrationService;
+  /** T52: explicit on-demand TMDB refresh; absent = the refresh endpoint answers 503. */
+  tmdb?: TmdbClient;
 }
 
-export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs, contentDir, probeChapters, dataMigration }: AppOptions) {
+export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk, ingestor, worker, webDir, config, fs, contentDir, probeChapters, dataMigration, tmdb }: AppOptions) {
   const app = Fastify({ logger });
 
   app.register(
@@ -53,7 +56,7 @@ export function buildApp({ db, logger = false, dataDir = './data', hlsDir, disk,
       fsRoutes(api, fs);
       if (dataMigration) dataMigrationRoutes(api, dataMigration);
       profileRoutes(api, db);
-      catalogRoutes(api, db, contentDir && { contentDir, probe: probeChapters ?? realProbeChapters });
+      catalogRoutes(api, db, contentDir && { contentDir, probe: probeChapters ?? realProbeChapters }, tmdb && { tmdb, dataDir });
       randomRoutes(api, db);
       searchRoutes(api, db);
       myListRoutes(api, db);

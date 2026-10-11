@@ -263,6 +263,30 @@ export async function importMovie(ctx: IngestContext, movie: MovieDetails, reuse
   });
 }
 
+export class MetadataError extends Error {
+  status: number;
+  code: string;
+  constructor(status: number, code: string) {
+    super(code);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+// T52: explicit on-demand refresh of one title's metadata and images; never recurring. TMDB answers before
+// anything is written, so an offline failure leaves the row untouched.
+export async function refreshTitleMetadata(ctx: IngestContext, titleId: number): Promise<void> {
+  const row = get<{ tmdb_type: 'tv' | 'movie' | null; tmdb_id: number | null }>(
+    ctx.db,
+    'SELECT tmdb_type, tmdb_id FROM titles WHERE id = ?',
+    titleId,
+  );
+  if (!row) throw new MetadataError(404, 'not_found');
+  if (!row.tmdb_type || row.tmdb_id === null) throw new MetadataError(409, 'not_linked');
+  if (row.tmdb_type === 'movie') await importMovie(ctx, await ctx.tmdb.movie(row.tmdb_id), titleId);
+  else await importTv(ctx, await ctx.tmdb.tv(row.tmdb_id), titleId);
+}
+
 function upsertSeason(db: DatabaseSync, titleId: number, number: number, name: string | null, overview: string | null, poster: string | null): number {
   run(
     db,
