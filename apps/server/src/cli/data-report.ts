@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { parseArgs } from 'node:util';
 import { sourcePath } from '../library/roots.ts';
+import { listOrphans } from '../modules/maintenance/orphans.ts';
 import { dedupeFontsDir } from '../modules/processing/fonts.ts';
 
 export interface ReportOptions {
@@ -130,14 +131,12 @@ export async function buildReport(opts: ReportOptions): Promise<Report> {
     const id = Number(m[1]);
     const dir = join(root, 'hls', e.name);
     const row = rows?.get(id);
+    // Orphan folders are listed by the maintenance module (single source of truth); stale .tmp folders keep their own check.
+    if (rows && !row && !m[2]) continue;
     const { bytes, newest } = await dirStats(dir);
     if (m[2]) {
       const ageMs = now - newest;
       if (ageMs >= minAge && row?.status !== 'processing') report.tmpOrphans.push({ dir, bytes, ageMs });
-      continue;
-    }
-    if (rows && !row) {
-      report.unreferenced.push({ dir, bytes });
       continue;
     }
     if (row && row.status !== 'ready') continue;
@@ -147,6 +146,10 @@ export async function buildReport(opts: ReportOptions): Promise<Report> {
     report.truncated.push({ id, dir, bytes, reason, originalMissing });
   }
   report.truncated.sort((a, b) => a.id - b.id);
+  if (rows) {
+    const scan = await listOrphans({ hlsDir: join(root, 'hls'), referenced: new Set(rows.keys()) });
+    report.unreferenced = scan.dirs.map((d) => ({ dir: join(root, 'hls', String(d.id)), bytes: d.bytes }));
+  }
   return report;
 }
 

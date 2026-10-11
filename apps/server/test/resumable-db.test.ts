@@ -22,7 +22,7 @@ describe('migration 006', () => {
 
     migrate(db);
 
-    expect(get(db, 'PRAGMA user_version')).toEqual({ user_version: 11 });
+    expect(get(db, 'PRAGMA user_version')).toEqual({ user_version: 12 });
     expect(get(db, 'SELECT status, progress, pid, pid_start, plan_hash FROM jobs')).toEqual({
       status: 'running', progress: 0.4, pid: null, pid_start: null, plan_hash: null,
     });
@@ -43,7 +43,7 @@ describe('process bookkeeping in the queue', () => {
     expect(runningWithProcess(db)).toEqual([]);
     setSpawned(db, job.id, { pid: 4242, pidStart: 99, planHash: 'abc' });
     expect(runningWithProcess(db)).toEqual([
-      { id: job.id, mediaFileId: f, path: job.path, durationS: job.durationS, pid: 4242, pidStart: 99, planHash: 'abc' },
+      { id: job.id, mediaFileId: f, path: job.path, rootId: 1, durationS: job.durationS, pid: 4242, pidStart: 99, planHash: 'abc' },
     ]);
   });
 

@@ -2,7 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { mkdir, readdir, rename, rm, stat, statfs as realStatfs } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { all, run } from '../../db/sql.ts';
-import { sourcePath } from '../../library/roots.ts';
+import { type RootDir, sourcePath } from '../../library/roots.ts';
 import { type ProbeStreams, probeStreams as realProbe } from './ffmpeg.ts';
 import { buildPlan } from './plan.ts';
 
@@ -64,7 +64,7 @@ export interface CacheOptions {
   dataDir: string;
   /** HLS root; defaults to `<dataDir>/hls`. */
   hlsDir?: string;
-  contentDir: string;
+  contentDir: RootDir;
   /** Throws DiskAbsentError when the library disk is gone; checked before anything is created. */
   assertDisk?: () => void;
   /** Copy packages are a regenerable cache: above this many bytes the least recently played are evicted. */

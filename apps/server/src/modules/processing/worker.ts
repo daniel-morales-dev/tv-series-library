@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { join, resolve } from 'node:path';
+import { all } from '../../db/sql.ts';
+import { type RootDir, rootStatus } from '../../library/roots.ts';
 import { type Budget, type BudgetConfig, type Hardware, computeBudget } from './budget.ts';
 import { type Statfs, DiskAbsentError, LowDiskError, createCache } from './cache.ts';
 import { KeepChildren, type ProbeStreams, type RunFfmpeg, type SpawnInfo, probeStreams as realProbe, runFfmpeg as realRun } from './ffmpeg.ts';
@@ -30,9 +32,14 @@ export interface WorkerOptions {
   dataDir: string;
   /** HLS root (T47d); defaults to `<dataDir>/hls`. */
   hlsDir?: string;
-  contentDir: string;
+  contentDir: RootDir;
   /** T47d: false while the library disk is not mounted; nothing is claimed and failures requeue. Default: always present. */
   diskPresent?: () => boolean;
+  /**
+   * T9b: presence of the file's root. Defaults to `diskPresent` for the primary root (id 1) and to the marker
+   * check (`rootStatus`) for every other root.
+   */
+  rootPresent?: (rootId: number) => boolean;
   concurrency?: number;
   /** x264 encoder threads. */
   threads?: number;
@@ -86,7 +93,12 @@ export function createWorker(opts: WorkerOptions): Worker {
   const concurrency = Math.max(1, opts.concurrency ?? 1);
   const hlsRoot = resolve(opts.hlsDir ?? join(opts.dataDir, 'hls'));
   const diskPresent = opts.diskPresent ?? (() => true);
-  const assertDisk = () => {
+  const rootPresent = opts.rootPresent ?? ((rootId: number) => (rootId === 1 ? diskPresent() : rootStatus(db, rootId).present));
+  // T9b: per file root; the HLS-volume guard stays global because the package tree may live on the primary root.
+  const assertDisk = (rootId: number) => {
+    if (!rootPresent(rootId)) throw new DiskAbsentError();
+  };
+  const hlsDisk = () => {
     if (!diskPresent()) throw new DiskAbsentError();
   };
   const deps: ProcessDeps = {
@@ -106,7 +118,7 @@ export function createWorker(opts: WorkerOptions): Worker {
     db,
     dataDir: opts.dataDir,
     hlsDir: hlsRoot,
-    assertDisk,
+    assertDisk: hlsDisk,
     contentDir: opts.contentDir,
     budgetBytes: opts.cacheBudgetBytes ?? 20 * 1024 ** 3,
     minFreeBytes: opts.minFreeBytes ?? 10 * 1024 ** 3,
@@ -157,7 +169,7 @@ export function createWorker(opts: WorkerOptions): Worker {
       let result: ProcessResult;
       for (;;) {
         try {
-          result = await processMedia(deps, { id: job.mediaFileId, path: job.path }, {
+          result = await processMedia(deps, { id: job.mediaFileId, path: job.path, rootId: job.rootId }, {
             onTracks: (tracks) => setTracks(db, job, tracks),
             onSpawn: (p) => {
               entry.proc = p;
@@ -199,10 +211,10 @@ export function createWorker(opts: WorkerOptions): Worker {
         return;
       }
       // A vanished disk surfaces as ENOENT/EIO/ffmpeg errors: whatever the symptom, the file is not at fault.
-      if (err instanceof DiskAbsentError || !diskPresent()) {
+      if (err instanceof DiskAbsentError || !rootPresent(job.rootId)) {
         requeue(db, job);
-        log('warn', `${job.path}: library disk not available, requeued until it returns`);
-        diskGone = true;
+        log('warn', `${job.path}: library root not available, requeued until it returns`);
+        diskGone = !diskPresent();
         return;
       }
       if (err instanceof LowDiskError) {
@@ -248,21 +260,20 @@ export function createWorker(opts: WorkerOptions): Worker {
     return { max: b.jobs + (playSlot ? 1 : 0), threadsPerJob: b.threadsPerJob };
   }
 
+  // Roots that may be claimed right now: the primary through `diskPresent`, every other through its marker.
+  function claimableRoots(): number[] {
+    return all<{ id: number }>(db, 'SELECT id FROM library_roots').map((r) => r.id).filter(rootPresent);
+  }
+
   function kick() {
     if (abort.signal.aborted || !ready) return;
     diskGone = !diskPresent();
-    if (diskGone) {
-      if (active === 0) {
-        idle.forEach((resolve) => resolve());
-        idle = [];
-      }
-      return;
-    }
     if (lowDisk) void resumeIfSpace();
     const limit = currentLimit();
+    const claimable = claimableRoots();
     while (active < limit.max) {
       if (paused) break;
-      const job = claimNext(db);
+      const job = claimNext(db, claimable);
       if (!job) break;
       active++;
       void runJob(job, undefined, limit.threadsPerJob).finally(() => {

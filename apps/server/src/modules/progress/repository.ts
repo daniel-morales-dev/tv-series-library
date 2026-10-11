@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
-import { SUMMARY_COLUMNS, toSummary } from '../catalog/repository.ts';
+import { SUMMARY_COLUMNS, availableTitles, toSummary } from '../catalog/repository.ts';
+import { rootAvailability } from '../../library/roots.ts';
 import { isCompleted, resolveContinueTarget, type PlayableFile } from './rules.ts';
 
 const now = () => new Date().toISOString();
@@ -190,6 +191,7 @@ export function listContinueWatching(db: DatabaseSync, profileId: number) {
   );
 
   const items = [];
+  const roots = rootAvailability(db);
   for (const l of latest) {
     const files = all<FileRow>(
       db,
@@ -215,7 +217,7 @@ export function listContinueWatching(db: DatabaseSync, profileId: number) {
     if (!target || !file) continue;
     const title = get<Record<string, any>>(db, `SELECT ${SUMMARY_COLUMNS} FROM titles t WHERE t.id = ?`, l.title_id)!;
     items.push({
-      title: toSummary(title),
+      title: toSummary(title, availableTitles(db, roots, [l.title_id]).has(l.title_id)),
       mediaFileId: target.mediaFileId,
       positionS: target.positionS,
       episodeId: file.episode_id,

@@ -51,6 +51,7 @@ onBeforeUnmount(() => {
 watch(() => route.params.id, () => {
   detail.value = null;
   seasonNumber.value = null;
+  refreshMsg.value = null;
   load();
 });
 
@@ -103,6 +104,24 @@ async function toggleFinished() {
     await load();
   } finally {
     busy.value = false;
+  }
+}
+
+// T52: explicit on-demand TMDB refresh; the only action that re-queries TMDB for an existing title.
+const refreshing = ref(false);
+const refreshMsg = ref<{ ok: boolean; text: string } | null>(null);
+async function refreshMetadata() {
+  if (!detail.value || refreshing.value) return;
+  refreshing.value = true;
+  refreshMsg.value = null;
+  try {
+    await api.refreshMetadata(detail.value.id);
+    refreshMsg.value = { ok: true, text: 'Metadata actualizada.' };
+    await load();
+  } catch (err) {
+    refreshMsg.value = { ok: false, text: err instanceof Error ? err.message : 'No se pudo actualizar la metadata.' };
+  } finally {
+    refreshing.value = false;
   }
 }
 
@@ -181,6 +200,10 @@ async function closeEpisode() {
           <button class="pill glass" :disabled="busy" :aria-pressed="!!detail.finished" @click="toggleFinished">
             <Icon :name="detail.finished ? 'close' : 'check'" :size="20" /> {{ detail.finished ? 'No visto' : 'Marcar como visto' }}
           </button>
+          <button class="pill glass" :disabled="refreshing" @click="refreshMetadata">
+            {{ refreshing ? 'Refrescando…' : 'Refrescar metadata' }}
+          </button>
+          <span v-if="refreshMsg" class="refresh-msg" :class="{ bad: !refreshMsg.ok }" role="status">{{ refreshMsg.text }}</span>
         </div>
       </div>
     </section>
@@ -326,6 +349,8 @@ async function closeEpisode() {
 }
 .btns { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-top: 6px; }
 .pill:disabled { opacity: 0.6; cursor: default; }
+.refresh-msg { font-size: 0.85rem; color: var(--text-dim); }
+.refresh-msg.bad { color: var(--danger); }
 
 .content { position: relative; z-index: 2; padding: 0 var(--gutter) 80px; max-width: 1500px; margin: 0 auto; }
 section { margin-top: 26px; }

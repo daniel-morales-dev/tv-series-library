@@ -14,6 +14,8 @@ export interface FileFacts {
   rel: string;
   size: number;
   probe: ProbeResult;
+  /** Content identity computed by the ingestor; null when the file could not be read. */
+  fingerprint?: string | null;
 }
 
 // A registered file starts 'pending' with a queued process job that turns it into HLS.
@@ -21,14 +23,17 @@ export function registerFile(
   db: DatabaseSync,
   f: FileFacts,
   placement: Placement,
+  rootId = 1,
 ): void {
   const { lastInsertId } = run(
     db,
-    `INSERT INTO media_files (path, size, title_id, episode_id, extra_label, status, duration_s, audio_tracks,
-       subtitle_tracks, parsed_season, parsed_number)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    `INSERT INTO media_files (root_id, path, size, fingerprint, title_id, episode_id, extra_label, status, duration_s,
+       audio_tracks, subtitle_tracks, parsed_season, parsed_number)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    rootId,
     f.rel,
     f.size,
+    f.fingerprint ?? null,
     placement.titleId,
     placement.episodeId,
     placement.extraLabel,
@@ -51,13 +56,22 @@ export interface Placement {
 }
 
 // A placed file whose download is not finished: kept out of the queue until it can be probed.
-export function registerDownloading(db: DatabaseSync, rel: string, size: number, placement: Placement): void {
+export function registerDownloading(
+  db: DatabaseSync,
+  rel: string,
+  size: number,
+  placement: Placement,
+  rootId = 1,
+  fingerprint: string | null = null,
+): void {
   run(
     db,
-    `INSERT INTO media_files (path, size, title_id, episode_id, extra_label, status, parsed_season, parsed_number)
-     VALUES (?, ?, ?, ?, ?, 'downloading', ?, ?)`,
+    `INSERT INTO media_files (root_id, path, size, fingerprint, title_id, episode_id, extra_label, status, parsed_season, parsed_number)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?)`,
+    rootId,
     rel,
     size,
+    fingerprint,
     placement.titleId,
     placement.episodeId,
     placement.extraLabel,
@@ -87,10 +101,12 @@ export function addPending(
   parsed: Parsed,
   reason: PendingReason,
   candidates: Candidate[] = [],
+  rootId = 1,
 ): void {
   run(
     db,
-    'INSERT OR IGNORE INTO pending_files (path, size, parsed, reason, candidates) VALUES (?, ?, ?, ?, ?)',
+    'INSERT OR IGNORE INTO pending_files (root_id, path, size, parsed, reason, candidates) VALUES (?, ?, ?, ?, ?, ?)',
+    rootId,
     rel,
     size,
     JSON.stringify(parsed),
@@ -102,9 +118,9 @@ export function addPending(
 // Re-places a title's episode files from the parsed numbers saved with them. Files whose episode does not
 // exist (any more) leave the library and become pending. Throws on network errors, leaving the rest for later.
 export async function relinkFiles(ctx: IngestContext, titleId: number): Promise<void> {
-  const files = all<{ id: number; path: string; size: number | null; parsed_season: number | null; parsed_number: number }>(
+  const files = all<{ id: number; root_id: number; path: string; size: number | null; parsed_season: number | null; parsed_number: number }>(
     ctx.db,
-    `SELECT id, path, size, parsed_season, parsed_number FROM media_files
+    `SELECT id, root_id, path, size, parsed_season, parsed_number FROM media_files
      WHERE title_id = ? AND extra_label IS NULL AND parsed_number IS NOT NULL`,
     titleId,
   );
@@ -113,7 +129,8 @@ export async function relinkFiles(ctx: IngestContext, titleId: number): Promise<
     const show = parsed.kind === 'episode' ? parsed.show : '';
     const dir = get<{ season_number: number | null }>(
       ctx.db,
-      'SELECT season_number FROM source_dirs WHERE path = ? AND title_id = ?',
+      'SELECT season_number FROM source_dirs WHERE root_id = ? AND path = ? AND title_id = ?',
+      f.root_id,
       showDirKey(f.path, show),
       titleId,
     );
@@ -125,7 +142,7 @@ export async function relinkFiles(ctx: IngestContext, titleId: number): Promise<
       run(ctx.db, 'UPDATE media_files SET episode_id = ? WHERE id = ?', episodeId, f.id);
     } else {
       run(ctx.db, 'DELETE FROM media_files WHERE id = ?', f.id);
-      addPending(ctx.db, f.path, f.size, parsed, 'unmapped_episode');
+      addPending(ctx.db, f.path, f.size, parsed, 'unmapped_episode', [], f.root_id);
     }
   }
 }

@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, parseJsonArray } from '../../db/sql.ts';
+import { type AvailabilityFile, availableFrom, rootAvailability } from '../../library/roots.ts';
 import { getFranchise } from './franchise.ts';
 import { loadChapters } from './chapters.ts';
 
@@ -19,6 +20,8 @@ export interface TitleSummary {
   metadataStatus: string;
   /** Has files, and every one is still downloading. */
   comingSoon: boolean;
+  /** At least one file plays right now (its root is present, or its x264 package is). */
+  available: boolean;
 }
 
 export interface TitleFilters {
@@ -35,7 +38,7 @@ export const SUMMARY_COLUMNS = `t.id, t.kind, t.title, t.original_title, t.overv
   (EXISTS (SELECT 1 FROM media_files f WHERE f.title_id = t.id)
     AND NOT EXISTS (SELECT 1 FROM media_files f WHERE f.title_id = t.id AND f.status <> 'downloading')) AS coming_soon`;
 
-export function toSummary(r: Record<string, any>): TitleSummary {
+export function toSummary(r: Record<string, any>, available: boolean): TitleSummary {
   return {
     id: r.id,
     kind: r.kind,
@@ -51,7 +54,22 @@ export function toSummary(r: Record<string, any>): TitleSummary {
     logoPath: r.logo_path,
     metadataStatus: r.metadata_status,
     comingSoon: r.coming_soon === 1,
+    available,
   };
+}
+
+/** Titles with at least one available file; availability is derived per request, never stored. */
+export function availableTitles(db: DatabaseSync, roots: ReadonlyMap<number, boolean>, titleIds: number[]): Set<number> {
+  const out = new Set<number>();
+  if (titleIds.length === 0) return out;
+  const marks = titleIds.map(() => '?').join(',');
+  const files = all<AvailabilityFile & { title_id: number }>(
+    db,
+    `SELECT title_id, root_id, hls_dir, pkg_mode FROM media_files WHERE title_id IN (${marks})`,
+    ...titleIds,
+  );
+  for (const f of files) if (availableFrom(roots, f)) out.add(f.title_id);
+  return out;
 }
 
 const ORDER: Record<NonNullable<TitleFilters['sort']>, string> = {
@@ -69,7 +87,9 @@ export function listTitles(db: DatabaseSync, f: TitleFilters): TitleSummary[] {
   const sql = `SELECT ${SUMMARY_COLUMNS} FROM titles t
     ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
     ORDER BY ${ORDER[f.sort ?? 'recent']} LIMIT ? OFFSET ?`;
-  return all<Record<string, any>>(db, sql, ...params, f.limit, f.offset).map(toSummary);
+  const rows = all<Record<string, any>>(db, sql, ...params, f.limit, f.offset);
+  const available = availableTitles(db, rootAvailability(db), rows.map((r) => r.id));
+  return rows.map((r) => toSummary(r, available.has(r.id)));
 }
 
 export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number) {
@@ -108,23 +128,29 @@ export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number)
     id,
   ).map((c) => ({ personId: c.id, name: c.name, profilePath: c.profile_path, role: c.role, character: c.character }));
 
+  const roots = rootAvailability(db);
+  const available = availableTitles(db, roots, [id]);
   const collection = row.collection_id
     ? get<Record<string, any>>(db, 'SELECT * FROM collections WHERE id = ?', row.collection_id)
     : undefined;
-  const saga = collection && {
-    id: collection.id,
-    name: collection.name,
-    overview: collection.overview,
-    posterPath: collection.poster_path,
-    backdropPath: collection.backdrop_path,
-    titles: all<Record<string, any>>(
+  const saga = collection && (() => {
+    const rows = all<Record<string, any>>(
       db,
       `SELECT ${SUMMARY_COLUMNS} FROM titles t WHERE t.collection_id = ? ORDER BY t.year, t.id`,
       collection.id,
-    ).map(toSummary),
-  };
+    );
+    const siblings = availableTitles(db, roots, rows.map((r) => r.id));
+    return {
+      id: collection.id,
+      name: collection.name,
+      overview: collection.overview,
+      posterPath: collection.poster_path,
+      backdropPath: collection.backdrop_path,
+      titles: rows.map((r) => toSummary(r, siblings.has(r.id))),
+    };
+  })();
 
-  const files = all<Record<string, any>>(
+  const files = all<Record<string, any> & AvailabilityFile>(
     db,
     'SELECT * FROM media_files WHERE title_id = ? ORDER BY id',
     id,
@@ -138,9 +164,10 @@ export function getTitleDetail(db: DatabaseSync, id: number, profileId?: number)
     subtitleTracks: parseJsonArray(f.subtitle_tracks),
     chaptersChecked: f.chapters_checked === 1,
     chapters: loadChapters(db, f.id),
+    available: availableFrom(roots, f),
   }));
 
-  const detail = { ...toSummary(row), seasons, credits, collection: saga ?? null, franchise: getFranchise(db, id, row.franchise_id), files };
+  const detail = { ...toSummary(row, available.has(id)), seasons, credits, collection: saga ?? null, franchise: getFranchise(db, id, row.franchise_id), files };
   if (profileId === undefined) return detail;
 
   const state = get<{ finished: number }>(

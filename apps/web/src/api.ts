@@ -36,6 +36,27 @@ async function migrationRequest<T>(path: string, init?: RequestInit): Promise<T>
 
 const JSON_HEADERS = { 'content-type': 'application/json' };
 
+export interface OrphanScan {
+  count: number;
+  bytes: number;
+  dirs: { id: number; bytes: number }[];
+}
+
+// T52/T53: endpoints whose failures answer with a Spanish `message` the UI shows as is.
+async function messageRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, init);
+  } catch {
+    throw new Error('No se pudo conectar con el servidor.');
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(typeof body?.message === 'string' ? body.message : `${res.status}`);
+  }
+  return res.json();
+}
+
 export const api = {
   profiles: () => request<Profile[]>('/profiles'),
   createProfile: (name: string) =>
@@ -68,11 +89,19 @@ export const api = {
   setContentDir: (path: string, create = false) =>
     request<AppConfig>('/config/content-dir', { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ path, create }) }),
   chapters: (mediaFileId: number) => request<{ chapters: Chapter[] }>(`/media-files/${mediaFileId}/chapters`),
+  refreshMetadata: (titleId: number) => messageRequest<{ ok: true }>(`/titles/${titleId}/refresh-metadata`, { method: 'POST' }),
   dataPlan: () => migrationRequest<DataPlan>('/plan'),
   dataStatus: () => migrationRequest<DataStatus>('/status'),
   startDataMove: () => migrationRequest<DataStatus>('/start', { method: 'POST', headers: JSON_HEADERS, body: '{}' }),
   freeDataOrigin: () =>
     migrationRequest<{ freedPackages: number; freedBytes: number; kept: string[] }>('/confirm-free-origin', { method: 'POST' }),
+  orphans: () => messageRequest<OrphanScan>('/maintenance/orphans'),
+  purgeOrphans: () =>
+    messageRequest<{ removed: number; bytesFreed: number }>('/maintenance/purge-orphans', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ confirm: true }),
+    }),
   jobs: () => request<Job[]>('/jobs'),
   activity: () => request<Activity>('/activity'),
   pauseProcessing: () => request<{ paused: boolean }>('/processing/pause', { method: 'POST' }),
