@@ -114,6 +114,11 @@ jobs:
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Compile installer
+        env:
+          # Git Bash rewrites /DAppVersion=x as a drive path (D:), and ISCC then sees
+          # two script filenames. Exclude all arguments from MSYS path conversion.
+          MSYS_NO_PATHCONV: "1"
+          MSYS2_ARG_CONV_EXCL: "*"
         run: |
           set -euo pipefail
           ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
