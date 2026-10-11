@@ -93,15 +93,17 @@ function play(p: HeroPick) {
 .slide { position: absolute; inset: 0; opacity: 0; transition: opacity 0.9s ease; }
 .slide.on { opacity: 1; }
 .bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 20%; }
-.slide::before, .slide::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; }
-.slide::before { background: linear-gradient(90deg, rgba(6, 6, 10, 0.88) 0%, rgba(6, 6, 10, 0.55) 38%, transparent 70%); }
-.slide::after { background: linear-gradient(transparent 80%, var(--bg) 100%), linear-gradient(rgba(6, 6, 10, 0.55), transparent 22%); }
+.slide::after {
+  content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(transparent 80%, var(--bg) 100%), linear-gradient(rgba(6, 6, 10, 0.55), transparent 22%);
+}
+/* Scrim único detrás del logo, el texto y los botones: cubre el hero completo (de la barra de
+   arriba hasta abajo del contenedor), con degradado hacia la derecha y sin bordes visibles. */
+.hero::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(90deg, rgba(6, 6, 10, 0.85) 0%, rgba(6, 6, 10, 0.5) 40%, transparent 74%); }
 .copy {
   position: absolute; z-index: 2; left: var(--gutter); bottom: clamp(60px, 14vh, 150px);
   width: min(34rem, calc(100% - 2 * var(--gutter))); display: flex; flex-direction: column; align-items: flex-start; gap: 14px;
 }
-/* Dark scrim behind the text: the hero stays dark in both themes, so the copy never sits on the light page. */
-.copy::before { content: ''; position: absolute; z-index: -1; inset: -40px -56px -32px calc(-1 * var(--gutter)); background: linear-gradient(90deg, rgba(6, 6, 10, 0.85) 0%, rgba(6, 6, 10, 0) 100%); pointer-events: none; }
 .logo { max-width: min(420px, 80%); max-height: 150px; object-fit: contain; object-position: left bottom; filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.6)); }
 .name { margin: 0; font-size: clamp(2.2rem, 5vw, 4rem); line-height: 1.02; letter-spacing: -0.02em; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6); }
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0; padding: 0; list-style: none; font-size: 0.95rem; font-weight: 600; color: #e6e6f0; }
@@ -117,7 +119,7 @@ function play(p: HeroPick) {
 .dots button.on { width: 30px; background: var(--accent); }
 @media (max-width: 720px) {
   .hero { height: clamp(460px, 74vh, 620px); }
-  .slide::before { background: linear-gradient(90deg, rgba(6, 6, 10, 0.7), rgba(6, 6, 10, 0.2)); }
+  .hero::after { background: linear-gradient(90deg, rgba(6, 6, 10, 0.72), rgba(6, 6, 10, 0.25) 60%, transparent 88%); }
   .copy { bottom: 64px; gap: 10px; }
   .dots { left: var(--gutter); right: auto; bottom: 26px; }
 }
