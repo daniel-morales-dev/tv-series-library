@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 env:
   NODE_VERSION: "24.14.0"
@@ -127,3 +128,23 @@ jobs:
             packaging/windows/output/*.exe
             packaging/windows/output/SHA256SUMS.txt
           if-no-files-found: error
+
+      # A mention from the user's own token never notifies; this one is posted by
+      # github-actions[bot], which does notify the owner by email and push.
+      - name: Notify owner (success)
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/1/comments" \
+            -f body="@daniel-morales-dev Instalador de Windows listo (v${APP_VERSION}). Descargalo aqui: ${RUN_URL} (artifact \"sala-windows-installer\", hay que estar logueado en GitHub)."
+
+      - name: Notify owner (failure)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/1/comments" \
+            -f body="@daniel-morales-dev La compilacion del instalador de Windows fallo. Detalles: ${RUN_URL}"
