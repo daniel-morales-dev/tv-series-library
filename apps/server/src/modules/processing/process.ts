@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { fingerprint } from '../../library/fingerprint.ts';
 import { type RootDir, sourcePath } from '../../library/roots.ts';
 import { LOG_FILE, PROGRESS_FILE, type ProbeStreams, type RunFfmpeg, type SpawnInfo, extractArgs, keepsChildren, mainArgs, nameRenditions } from './ffmpeg.ts';
 import { isOurFfmpeg, readProgress, terminate, waitForExit, watchProgress } from './proc.ts';
@@ -229,8 +230,8 @@ export async function processMedia(
     await Promise.all([PROGRESS_FILE, LOG_FILE].map((f) => rm(join(tmpDir, f), { force: true })));
     await buildMaster(tmpDir, plan, info.durationS);
     await validatePackage(tmpDir);
-    // T47d: lets another machine re-adopt the package by matching the original (relative path + size).
-    await writeFile(join(tmpDir, 'meta.json'), `${JSON.stringify({ path: file.path, size: srcStat.size, planHash })}\n`);
+    // T47d: lets another machine re-adopt the package by matching the original (relative path, size and content).
+    await writeFile(join(tmpDir, 'meta.json'), `${JSON.stringify({ path: file.path, size: srcStat.size, planHash, fingerprint: await fingerprint(src) })}\n`);
     await rm(finalDir, { recursive: true, force: true });
     await rename(tmpDir, finalDir);
   } catch (err) {

@@ -148,6 +148,58 @@ describe('ingest per root', () => {
     await e.ingestor.scan();
     expect(get(e.db, 'SELECT id FROM media_files WHERE id = ?', onHdd.id)).toBeDefined();
   });
+
+  it('relocates a file that reappeared in another root under a different name, by fingerprint', async () => {
+    const e = ingestEnv();
+    e.addVideo(e.contentDir, 'shows/Show A/Show A S01E01.mkv');
+    await e.ingestor.scan();
+    const before = get<{ id: number; fingerprint: string | null }>(e.db, 'SELECT id, fingerprint FROM media_files')!;
+    expect(before.fingerprint).toMatch(/^1-[0-9a-f]{40}$/);
+
+    rmSync(join(e.contentDir, 'shows/Show A/Show A S01E01.mkv'));
+    e.addVideo(e.hdd, 'shows/Show B/Show B S01E01.mkv'); // same bytes, different name and root
+    expect(await e.ingestor.scan()).toMatchObject({ ingested: 0, pending: 0, waiting: 0, failed: 0 });
+    expect(all(e.db, 'SELECT id, root_id, path FROM media_files')).toEqual([
+      { id: before.id, root_id: e.hddId, path: 'shows/Show B/Show B S01E01.mkv' },
+    ]);
+  });
+
+  it('breaks a fingerprint tie by basename and refuses to guess otherwise', async () => {
+    const e = ingestEnv();
+    e.addVideo(e.contentDir, 'shows/Show A/Show A S01E01.mkv');
+    e.addVideo(e.contentDir, 'shows/Show A/Show A S01E02.mkv');
+    await e.ingestor.scan();
+    const rows = all<{ id: number }>(e.db, 'SELECT id FROM media_files ORDER BY id');
+    rmSync(join(e.contentDir, 'shows/Show A'), { recursive: true, force: true });
+
+    // Both rows share a fingerprint (same bytes); the reappearing name matches only the first one.
+    e.addVideo(e.hdd, 'shows/Show B/Show A S01E01.mkv');
+    await e.ingestor.scan();
+    expect(get(e.db, 'SELECT root_id, path FROM media_files WHERE id = ?', rows[0]!.id)).toEqual({
+      root_id: e.hddId,
+      path: 'shows/Show B/Show A S01E01.mkv',
+    });
+    expect(get(e.db, 'SELECT root_id, path FROM media_files WHERE id = ?', rows[1]!.id)).toEqual({
+      root_id: 1,
+      path: 'shows/Show A/Show A S01E02.mkv',
+    });
+  });
+
+  it('backfills a missing fingerprint and refreshes it when the file changes size', async () => {
+    const e = ingestEnv();
+    const abs = join(e.contentDir, 'shows/Show A/Show A S01E01.mkv');
+    e.addVideo(e.contentDir, 'shows/Show A/Show A S01E01.mkv');
+    await e.ingestor.scan();
+    const first = get<{ id: number; fingerprint: string }>(e.db, 'SELECT id, fingerprint FROM media_files')!;
+
+    run(e.db, 'UPDATE media_files SET fingerprint = NULL');
+    await e.ingestor.scan();
+    expect(get(e.db, 'SELECT fingerprint FROM media_files WHERE id = ?', first.id)).toMatchObject({ fingerprint: first.fingerprint });
+
+    writeFileSync(abs, 'longer content');
+    await e.ingestor.scan();
+    expect(get<{ fingerprint: string }>(e.db, 'SELECT fingerprint FROM media_files WHERE id = ?', first.id)!.fingerprint).not.toBe(first.fingerprint);
+  });
 });
 
 const INFO: StreamInfo = {

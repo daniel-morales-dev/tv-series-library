@@ -158,7 +158,7 @@ describe('explicit hlsDir (T47d)', () => {
     expect(existsSync(join(e.dataDir, 'hls'))).toBe(false);
     expect(existsSync(join(e.hlsDir!, String(id), 'master.m3u8'))).toBe(true);
     const meta = JSON.parse(readFileSync(join(e.hlsDir!, String(id), 'meta.json'), 'utf8'));
-    expect(meta).toEqual({ path: 'a.mkv', size: 1, planHash: expect.stringMatching(/^[0-9a-f]{40}$/) });
+    expect(meta).toEqual({ path: 'a.mkv', size: 1, planHash: expect.stringMatching(/^[0-9a-f]{40}$/), fingerprint: '1-11f6ad8ec52a2984abaafd7c3b516503785c2072' });
     expect((await e.app.inject(`/api/stream/${id}/master.m3u8`)).statusCode).toBe(200);
     expect((await e.app.inject(`/api/stream/${id}/meta.json`)).statusCode).toBe(404);
   });

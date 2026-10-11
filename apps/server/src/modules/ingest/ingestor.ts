@@ -2,6 +2,7 @@ import { watch, type FSWatcher } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { all, get, run } from '../../db/sql.ts';
+import { fingerprint } from '../../library/fingerprint.ts';
 import { rootStatus } from '../../library/roots.ts';
 import { type Assignment, adoptSeries, assignMovie, assignSeries, matchSeries, placeEpisode } from './assign.ts';
 import { type IngestContext, createLocalTitle, findSeasonsGroup, fixPersonNames, importSeasonsGroup, markOfficialSeasons, setSourceDir } from './metadata.ts';
@@ -46,6 +47,17 @@ export interface Ingestor {
 
 /** A video found on disk, tied to the root it was found in (T9b). */
 type RootVideo = VideoFile & { rootId: number };
+
+/** A registered file whose path is gone from its (present) root: the only rows a move may adopt. */
+interface MissingRow {
+  id: number;
+  root_id: number;
+  path: string;
+  size: number;
+  fingerprint: string | null;
+}
+
+const fpKey = (rootId: number, rel: string) => `${rootId}:${rel}`;
 
 interface ScanRoot {
   id: number;
@@ -104,7 +116,17 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     if (present.length === 0) return summary;
     await retryMetadata(state);
     relabelExtras();
-    for (const root of present) await scanRoot(state, root, summary);
+    // T9c: every present root is listed before anything is written, so a file that moved between roots is one
+    // move, not a new file plus a missing row.
+    const listed = new Map<number, RootVideo[]>();
+    for (const root of present) {
+      const files = (await listVideos(root.path)).map((f) => ({ ...f, rootId: root.id }));
+      listed.set(root.id, files);
+      state.onDisk.set(root.id, new Set(files.map((f) => f.rel)));
+    }
+    const known = knownPaths(present);
+    const fingerprints = await relocateMoved(state, present, listed, known);
+    for (const root of present) await scanRoot(state, root, listed.get(root.id)!, known.get(root.id)!, fingerprints, summary);
     if (summary.waiting > 0) schedule(MIN_AGE_MS + 1_000, 'recent');
     log('info', `scan done: ${JSON.stringify(summary)}`);
     return summary;
@@ -121,22 +143,34 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     return out;
   }
 
+  // Paths already in the catalog for these roots: a file on disk is fresh when it is neither registered nor pending.
+  function knownPaths(roots: ScanRoot[]): Map<number, Set<string>> {
+    return new Map(
+      roots.map((root) => [
+        root.id,
+        new Set([
+          ...all<{ path: string }>(db, 'SELECT path FROM media_files WHERE root_id = ?', root.id).map((r) => r.path),
+          ...all<{ path: string }>(db, 'SELECT path FROM pending_files WHERE root_id = ?', root.id).map((r) => r.path),
+        ]),
+      ]),
+    );
+  }
+
   // An absent root is skipped silently: no DB writes and, above all, no deletions of its rows.
-  async function scanRoot(state: ScanState, root: ScanRoot, summary: ScanSummary): Promise<void> {
-    const files: RootVideo[] = (await listVideos(root.path)).map((f) => ({ ...f, rootId: root.id }));
-    const onDisk = new Set(files.map((f) => f.rel));
-    state.onDisk.set(root.id, onDisk);
-    const known = new Set([
-      ...all<{ path: string }>(db, 'SELECT path FROM media_files WHERE root_id = ?', root.id).map((r) => r.path),
-      ...all<{ path: string }>(db, 'SELECT path FROM pending_files WHERE root_id = ?', root.id).map((r) => r.path),
-    ]);
-    // Moves first, so a renamed folder never reaches the TMDB lookup.
-    for (const rel of relocateMoved(root.id, files, known, onDisk)) known.add(rel);
+  async function scanRoot(
+    state: ScanState,
+    root: ScanRoot,
+    files: RootVideo[],
+    known: Set<string>,
+    fingerprints: Map<string, string | null>,
+    summary: ScanSummary,
+  ): Promise<void> {
     await promoteDownloads(root.id, files, summary);
+    await refreshFingerprints(root.id, files, known);
     for (const file of files) {
       if (known.has(file.rel)) continue;
       try {
-        summary[await ingestFile(state, file)]++;
+        summary[await ingestFile(state, file, fingerprints.get(fpKey(root.id, file.rel)) ?? null)]++;
       } catch (err) {
         summary.failed++;
         log('warn', `ingest failed for ${file.rel}: ${(err as Error).message}`);
@@ -144,39 +178,118 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     }
   }
 
-  // A file that is not on disk any more and reappears elsewhere with the same name and size is the same file:
-  // torrent clients preallocate the final size, so this also holds while it downloads. Scoped to one root.
-  function relocateMoved(rootId: number, files: RootVideo[], known: Set<string>, onDisk: Set<string>): string[] {
-    const key = (name: string, size: number | null) => `${size}:${name}`;
-    const fresh = new Map<string, RootVideo[]>();
-    for (const f of files) if (!known.has(f.rel)) fresh.set(key(basename(f.rel), f.size), [...(fresh.get(key(basename(f.rel), f.size)) ?? []), f]);
-    const missing = new Map<string, { id: number; path: string }[]>();
-    for (const r of all<{ id: number; path: string; size: number | null }>(db, 'SELECT id, path, size FROM media_files WHERE size IS NOT NULL AND root_id = ?', rootId)) {
-      if (onDisk.has(r.path)) continue;
-      const k = key(basename(r.path), r.size);
-      missing.set(k, [...(missing.get(k) ?? []), r]);
+  // A fingerprint is computed once per file: a missing one (legacy row, download just registered) or a size
+  // change (the file was replaced in place) refreshes it here.
+  async function refreshFingerprints(rootId: number, files: RootVideo[], known: Set<string>): Promise<void> {
+    const rows = new Map(
+      all<{ path: string; size: number | null; fingerprint: string | null }>(db, 'SELECT path, size, fingerprint FROM media_files WHERE root_id = ?', rootId)
+        .map((r) => [r.path, r]),
+    );
+    for (const file of files) {
+      const row = known.has(file.rel) ? rows.get(file.rel) : undefined;
+      if (!row || (row.fingerprint !== null && row.size === file.size)) continue;
+      const fp = await fingerprint(file.abs);
+      if (fp) run(db, 'UPDATE media_files SET size = ?, fingerprint = ? WHERE root_id = ? AND path = ?', file.size, fp, rootId, file.rel);
     }
-    const moved: string[] = [];
-    for (const [k, rows] of missing) {
-      const candidates = fresh.get(k);
-      if (rows.length !== 1 || candidates?.length !== 1) continue;
-      const [old, to] = [rows[0]!, candidates[0]!];
-      run(db, 'UPDATE media_files SET path = ? WHERE id = ?', to.rel, old.id);
-      inheritSourceDir(rootId, old.path, to.rel);
-      moved.push(to.rel);
-    }
-    return moved;
   }
 
-  function inheritSourceDir(rootId: number, oldRel: string, newRel: string): void {
+  // A file that is not on disk any more and reappears elsewhere — another folder, or another present root —
+  // is the same file: same id, progress and HLS. Content (fingerprint) decides; basename+size is the fallback
+  // within one root, and an ambiguity is never resolved by guessing. Rows of absent roots are never touched:
+  // their files may simply be unplugged.
+  async function relocateMoved(
+    state: ScanState,
+    present: ScanRoot[],
+    listed: Map<number, RootVideo[]>,
+    known: Map<number, Set<string>>,
+  ): Promise<Map<string, string | null>> {
+    const fresh: (RootVideo & { fingerprint: string | null })[] = [];
+    const fingerprints = new Map<string, string | null>();
+    for (const root of present) {
+      for (const file of listed.get(root.id) ?? []) {
+        if (known.get(root.id)?.has(file.rel)) continue;
+        const fp = await fingerprint(file.abs);
+        fresh.push({ ...file, fingerprint: fp });
+        fingerprints.set(fpKey(root.id, file.rel), fp);
+      }
+    }
+    const missing: MissingRow[] = [];
+    for (const root of present) {
+      const onDisk = state.onDisk.get(root.id) ?? new Set<string>();
+      for (const row of all<MissingRow>(db, 'SELECT id, root_id, path, size, fingerprint FROM media_files WHERE size IS NOT NULL AND root_id = ?', root.id)) {
+        if (!onDisk.has(row.path)) missing.push(row);
+      }
+    }
+
+    const claimed = new Set<number>();
+    const relocated = new Set<number>();
+    const move = (row: MissingRow, index: number) => {
+      const file = fresh[index]!;
+      run(db, 'UPDATE media_files SET root_id = ?, path = ? WHERE id = ?', file.rootId, file.rel, row.id);
+      inheritSourceDir(row.root_id, row.path, file.rootId, file.rel);
+      claimed.add(index);
+      relocated.add(row.id);
+      known.get(file.rootId)?.add(file.rel);
+      log('info', `relocated ${row.path} (root ${row.root_id}) -> ${file.rel} (root ${file.rootId})`);
+    };
+
+    // Fingerprint first: same content at a different path or root. Several candidates for one fingerprint are
+    // only accepted when the basename breaks the tie; otherwise nothing is moved.
+    const missingByFp = new Map<string, MissingRow[]>();
+    for (const row of missing) if (row.fingerprint) missingByFp.set(row.fingerprint, [...(missingByFp.get(row.fingerprint) ?? []), row]);
+    const freshByFp = new Map<string, number[]>();
+    fresh.forEach((f, i) => {
+      if (f.fingerprint) freshByFp.set(f.fingerprint, [...(freshByFp.get(f.fingerprint) ?? []), i]);
+    });
+    for (const [fp, rows] of missingByFp) {
+      const openRows = rows.filter((r) => !relocated.has(r.id));
+      const files = (freshByFp.get(fp) ?? []).filter((i) => !claimed.has(i));
+      if (openRows.length === 0 || files.length === 0) continue;
+      if (openRows.length === 1 && files.length === 1) {
+        move(openRows[0]!, files[0]!);
+        continue;
+      }
+      const pairs = openRows.flatMap((row) => files.filter((i) => basename(fresh[i]!.rel) === basename(row.path)).map((i) => [row, i] as const));
+      if (pairs.length === 1) {
+        move(pairs[0]![0], pairs[0]![1]);
+        continue;
+      }
+      log('warn', `fingerprint ${fp} matches ${openRows.length} missing file(s) and ${files.length} on disk; not relocating`);
+    }
+
+    // Name+size within one root, as before: identical names in another root are not proof of a move.
+    const missingByKey = new Map<string, MissingRow[]>();
+    for (const row of missing) {
+      const key = `${row.size}:${basename(row.path)}`;
+      missingByKey.set(key, [...(missingByKey.get(key) ?? []), row]);
+    }
+    const freshByKey = new Map<string, number[]>();
+    fresh.forEach((f, i) => {
+      const key = `${f.size}:${basename(f.rel)}`;
+      freshByKey.set(key, [...(freshByKey.get(key) ?? []), i]);
+    });
+    for (const [key, rows] of missingByKey) {
+      const openRows = rows.filter((r) => !relocated.has(r.id));
+      for (const root of present) {
+        const inRoot = openRows.filter((r) => r.root_id === root.id);
+        if (inRoot.length !== 1) continue;
+        const files = (freshByKey.get(key) ?? []).filter((i) => !claimed.has(i) && fresh[i]!.rootId === root.id);
+        if (files.length !== 1) continue;
+        move(inRoot[0]!, files[0]!);
+      }
+    }
+    return fingerprints;
+  }
+
+  function inheritSourceDir(fromRoot: number, oldRel: string, toRoot: number, newRel: string): void {
     const dirKey = (rel: string) => {
       const parsed = parsePath(rel);
       return parsed.kind === 'episode' || parsed.kind === 'extra' ? showDirKey(rel, parsed.show) : null;
     };
     const [from, to] = [dirKey(oldRel), dirKey(newRel)];
-    if (!from || !to || from === to) return;
-    const old = get<{ title_id: number; season_number: number | null }>(db, 'SELECT title_id, season_number FROM source_dirs WHERE root_id = ? AND path = ?', rootId, from);
-    if (old && !get(db, 'SELECT 1 AS x FROM source_dirs WHERE root_id = ? AND path = ?', rootId, to)) setSourceDir(db, to, old.title_id, old.season_number, rootId);
+    if (!from || !to || (from === to && fromRoot === toRoot)) return;
+    const old = get<{ title_id: number; season_number: number | null }>(db, 'SELECT title_id, season_number FROM source_dirs WHERE root_id = ? AND path = ?', fromRoot, from);
+    if (old && !get(db, 'SELECT 1 AS x FROM source_dirs WHERE root_id = ? AND path = ?', toRoot, to)) setSourceDir(db, to, old.title_id, old.season_number, toRoot);
   }
 
   // Downloads whose file is now old enough and readable join the queue.
@@ -191,7 +304,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     }
   }
 
-  async function ingestFile(state: ScanState, file: RootVideo): Promise<'ingested' | 'pending' | 'waiting'> {
+  async function ingestFile(state: ScanState, file: RootVideo, fp: string | null): Promise<'ingested' | 'pending' | 'waiting'> {
     const info = now() - file.mtimeMs > MIN_AGE_MS ? await probe(file.abs).catch(() => null) : null;
     const parsed = parsePath(file.rel);
     const toPending = (reason: 'unparsed' | 'no_match' | 'unmapped_episode', candidates: Parameters<typeof addPending>[5] = []) => {
@@ -201,10 +314,10 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
     };
     const store = (placement: Placement) => {
       if (!info) {
-        registerDownloading(db, file.rel, file.size, placement, file.rootId);
+        registerDownloading(db, file.rel, file.size, placement, file.rootId, fp);
         return 'waiting' as const;
       }
-      registerFile(db, { rel: file.rel, size: file.size, probe: info }, placement, file.rootId);
+      registerFile(db, { rel: file.rel, size: file.size, probe: info, fingerprint: fp }, placement, file.rootId);
       return 'ingested' as const;
     };
 

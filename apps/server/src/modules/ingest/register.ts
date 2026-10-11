@@ -14,6 +14,8 @@ export interface FileFacts {
   rel: string;
   size: number;
   probe: ProbeResult;
+  /** Content identity computed by the ingestor; null when the file could not be read. */
+  fingerprint?: string | null;
 }
 
 // A registered file starts 'pending' with a queued process job that turns it into HLS.
@@ -25,12 +27,13 @@ export function registerFile(
 ): void {
   const { lastInsertId } = run(
     db,
-    `INSERT INTO media_files (root_id, path, size, title_id, episode_id, extra_label, status, duration_s, audio_tracks,
-       subtitle_tracks, parsed_season, parsed_number)
-     VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+    `INSERT INTO media_files (root_id, path, size, fingerprint, title_id, episode_id, extra_label, status, duration_s,
+       audio_tracks, subtitle_tracks, parsed_season, parsed_number)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
     rootId,
     f.rel,
     f.size,
+    f.fingerprint ?? null,
     placement.titleId,
     placement.episodeId,
     placement.extraLabel,
@@ -53,14 +56,22 @@ export interface Placement {
 }
 
 // A placed file whose download is not finished: kept out of the queue until it can be probed.
-export function registerDownloading(db: DatabaseSync, rel: string, size: number, placement: Placement, rootId = 1): void {
+export function registerDownloading(
+  db: DatabaseSync,
+  rel: string,
+  size: number,
+  placement: Placement,
+  rootId = 1,
+  fingerprint: string | null = null,
+): void {
   run(
     db,
-    `INSERT INTO media_files (root_id, path, size, title_id, episode_id, extra_label, status, parsed_season, parsed_number)
-     VALUES (?, ?, ?, ?, ?, ?, 'downloading', ?, ?)`,
+    `INSERT INTO media_files (root_id, path, size, fingerprint, title_id, episode_id, extra_label, status, parsed_season, parsed_number)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'downloading', ?, ?)`,
     rootId,
     rel,
     size,
+    fingerprint,
     placement.titleId,
     placement.episodeId,
     placement.extraLabel,
