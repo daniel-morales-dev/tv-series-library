@@ -193,7 +193,8 @@
   - [x] T64 Paralelo por defecto (`294c41b`): `DEFAULT_MAX_JOBS = 2` (T21d: +30 % throughput); I/O desconocido (null) ya no fuerza 1 job, solo un volumen rotacional conocido; `AppActivityPanel` muestra `2 a la vez` o `1 a la vez · limitado por disco`. Tests: budget 19/19, server 635/635, web 277/277. Desviacion: cambie el codigo antes de ver el test en RED.
   - [x] T65 Subtitulos sin caja negra (`2b52c61`): `video::cue` con fondo transparente y contorno de texto. Pendiente: verificacion manual en Chrome Linux y Android.
   - [x] T66 Tema claro sin bugs (`947e4dc`): hero siempre oscuro (fade desde 80 %, scrim tras `.copy`), `.pill.soft` para controles fuera del hero, tokens `--ok --warn --err --track` en ambos temas. Pendiente: revision visual en `npm run dev` y capturas en `docs/progress/2026-10-11/`.
-  - [ ] T67 Docs: entrada de tareas hecha; seccion "Desinstalar y empezar de cero" pendiente en `packaging/windows/README.md` (fuera de las superficies permitidas; requiere aprobacion).
+  - [x] T67 Docs: entrada de tareas + sección «Desinstalar y empezar de cero» en `packaging/windows/README.md` y BOM UTF-8 en `sala.iss` (acentos del MsgBox) — `b639832`.
+  - [x] T68 Ajustes: guía desplegable «¿Cómo consigo el token?» en la sección TMDB, reutilizando `tmdbGuide` del asistente (QA Windows 2026-10-11).
 
 ## Hallazgos
 - Releases BD de anime traen audio FLAC → transcodificar a AAC (ADR 0002).
