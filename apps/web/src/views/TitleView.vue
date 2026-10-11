@@ -227,7 +227,7 @@ async function closeEpisode() {
             </button>
           </div>
           <p v-else-if="season.name" class="muted season-name">{{ season.name }} · {{ season.rows.length }} episodios</p>
-          <button v-if="detail.kind !== 'movie'" class="pill glass season-seen" :disabled="busy" :aria-pressed="seasonDone" @click="toggleSeasonFinished">
+          <button v-if="detail.kind !== 'movie'" class="pill soft season-seen" :disabled="busy" :aria-pressed="seasonDone" @click="toggleSeasonFinished">
             <Icon :name="seasonDone ? 'close' : 'check'" :size="20" /> {{ seasonDone ? 'Marcar temporada como no vista' : 'Marcar temporada como vista' }}
           </button>
         </div>
@@ -335,11 +335,13 @@ async function closeEpisode() {
 .bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 20%; }
 .hero::before, .hero::after { content: ''; position: absolute; inset: 0; z-index: 1; pointer-events: none; }
 .hero::before { background: linear-gradient(90deg, rgba(6, 6, 10, 0.9) 0%, rgba(6, 6, 10, 0.55) 40%, transparent 72%); }
-.hero::after { background: linear-gradient(transparent 50%, var(--bg) 100%), linear-gradient(rgba(6, 6, 10, 0.55), transparent 22%); }
+.hero::after { background: linear-gradient(transparent 80%, var(--bg) 100%), linear-gradient(rgba(6, 6, 10, 0.55), transparent 22%); }
 .copy {
   position: absolute; z-index: 2; left: var(--gutter); bottom: clamp(40px, 9vh, 90px);
   width: min(660px, calc(100% - 2 * var(--gutter))); display: flex; flex-direction: column; align-items: flex-start; gap: 12px;
 }
+/* Dark scrim behind the text: the hero stays dark in both themes, so the copy never sits on the light page. */
+.copy::before { content: ''; position: absolute; z-index: -1; inset: -40px -56px -32px calc(-1 * var(--gutter)); background: linear-gradient(90deg, rgba(6, 6, 10, 0.85) 0%, rgba(6, 6, 10, 0) 100%); pointer-events: none; }
 .logo { max-width: min(420px, 80%); max-height: 140px; object-fit: contain; object-position: left bottom; filter: drop-shadow(0 4px 18px rgba(0, 0, 0, 0.6)); }
 .name { margin: 0; font-size: clamp(2.2rem, 5vw, 3.8rem); line-height: 1.02; letter-spacing: -0.02em; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6); }
 .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 0; padding: 0; list-style: none; font-size: 0.95rem; font-weight: 600; color: #e6e6f0; }
@@ -378,7 +380,7 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .play :deep(svg) { padding: 10px; box-sizing: content-box; border-radius: 50%; border: 2px solid #fff; }
 .thumb:hover .play, .thumb:focus-visible .play { opacity: 1; }
 .seen { position: absolute; left: 8px; top: 8px; padding: 2px 9px; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font-size: 0.75rem; font-weight: 700; }
-.bar { position: absolute; inset: auto 0 0; height: 5px; background: rgba(255, 255, 255, 0.28); }
+.bar { position: absolute; inset: auto 0 0; height: 5px; background: var(--track); }
 .bar i { display: block; height: 100%; background: var(--accent); }
 .info { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-height: 0; padding: 4px 8px; margin: -4px -8px; border-radius: 10px; background: none; text-align: left; }
 .info:hover { background: var(--bg-card); }
@@ -390,10 +392,10 @@ h2 { margin: 0 0 14px; font-size: 1.35rem; letter-spacing: -0.01em; }
 .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
 .left { font-size: 0.85rem; }
 .badge { display: inline-flex; align-items: center; min-height: 0; height: 1.7em; padding: 0 0.85em; white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
-.badge.ready { color: #4cc38a; }
-.badge.processing, .badge.downloading { color: #e8b84a; }
-.badge.error { color: var(--danger); }
-.badge.off { color: #ff9b9b; }
+.badge.ready { color: var(--ok); }
+.badge.processing, .badge.downloading { color: var(--warn); }
+.badge.error { color: var(--err); }
+.badge.off { color: var(--err); }
 
 .fr-name { margin-left: 8px; font-size: 0.95rem; font-weight: 500; }
 .related { margin: 0; padding: 0 0 6px; list-style: none; display: flex; gap: 16px; overflow-x: auto; scrollbar-width: thin; }

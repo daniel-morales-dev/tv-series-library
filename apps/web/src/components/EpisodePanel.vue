@@ -72,7 +72,7 @@ onBeforeUnmount(() => {
           <div class="btns">
             <RouterLink v-if="to" data-primary class="pill primary" :to="to"><Icon name="play" /> {{ label }}</RouterLink>
             <button v-else class="pill" disabled>{{ row.file ? 'Descargando' : 'Sin archivo' }}</button>
-            <button v-if="toggle" class="pill glass" :aria-pressed="!!row.progress?.completed" @click="emit('toggleSeen')">
+            <button v-if="toggle" class="pill soft" :aria-pressed="!!row.progress?.completed" @click="emit('toggleSeen')">
               <Icon :name="row.progress?.completed ? 'close' : 'check'" :size="20" /> {{ toggle.label }}
             </button>
           </div>
@@ -104,9 +104,9 @@ h2 { margin: 0; font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.15; letter
 .st { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0; font-size: 0.9rem; }
 .btns { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
 .badge { display: inline-flex; align-items: center; min-height: 0; height: 1.7em; padding: 0 0.85em; white-space: nowrap; line-height: 1; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--bg-hover); color: var(--text-dim); }
-.badge.ready { color: #4cc38a; }
-.badge.processing, .badge.downloading { color: #e8b84a; }
-.badge.error { color: var(--danger); }
+.badge.ready { color: var(--ok); }
+.badge.processing, .badge.downloading { color: var(--warn); }
+.badge.error { color: var(--err); }
 .badge.seen { background: var(--accent); color: var(--accent-ink); }
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } }
