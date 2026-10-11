@@ -4,7 +4,7 @@ import { api } from '../api.ts';
 import { formatGb, migrationView, type DataPlan, type DataStatus } from '../dataMigration.ts';
 import { showToast } from '../toast.ts';
 
-const plan = ref<DataPlan | null>(null);
+const plan = ref<DataPlan | null>();
 const status = ref<DataStatus | null>(null);
 const error = ref('');
 const busy = ref(false);

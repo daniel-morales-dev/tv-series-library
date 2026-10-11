@@ -22,7 +22,7 @@ export interface DataStatus {
 }
 
 export interface MigrationView {
-  stage: 'done' | 'running' | 'failed' | 'restart' | 'free' | 'nospace' | 'ready' | 'idle';
+  stage: 'loading' | 'done' | 'running' | 'failed' | 'restart' | 'free' | 'nospace' | 'ready' | 'idle';
   lines: string[];
   /** 0-100 while running, else null. */
   progress: number | null;
@@ -33,7 +33,10 @@ export interface MigrationView {
 const GB = 1024 ** 3;
 export const formatGb = (bytes: number) => `${(bytes / GB).toFixed(1).replace('.', ',')} GB`;
 
-export function migrationView(plan: DataPlan | null, status: DataStatus): MigrationView {
+/** Plan load state: undefined while the fetch is in flight, null when it failed, else the plan. */
+export type PlanState = DataPlan | null | undefined;
+
+export function migrationView(plan: PlanState, status: DataStatus): MigrationView {
   const view = (stage: MigrationView['stage'], lines: string[], extra: Partial<MigrationView> = {}): MigrationView => ({
     stage, lines, progress: null, canStart: false, canFree: false, ...extra,
   });
@@ -49,7 +52,8 @@ export function migrationView(plan: DataPlan | null, status: DataStatus): Migrat
     return view('restart', ['Los datos ya están copiados y verificados. Reinicia Sala (en la terminal: sala restart), comprueba que todo se ve bien y vuelve aquí para liberar el origen.']);
   }
   if (status.alreadyThere) return view('done', ['Los datos de video ya están junto a la biblioteca.']);
-  if (!plan) return view('idle', ['No se pudo calcular el plan: revisa que el disco de la biblioteca esté conectado.']);
+  if (plan === undefined) return view('loading', ['Calculando el plan…']);
+  if (plan === null) return view('idle', ['No se pudo calcular el plan: revisa que el disco de la biblioteca esté conectado.']);
 
   const method = plan.method === 'link' ? 'Misma partición: se usan enlaces y no ocupa espacio extra.' : 'Otra partición: se copia cada paquete y se verifica.';
   const lines = [
