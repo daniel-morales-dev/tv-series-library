@@ -3,6 +3,7 @@ import { buildApp } from './app.ts';
 import { autoScanAllowed, configStatus, libraryDiskPresent, resolveContentDir } from './config/config.ts';
 import { resolveDataPaths } from './config/paths.ts';
 import { openDb } from './db/connection.ts';
+import { linkPrimaryRoot } from './library/roots.ts';
 import { createIngestor, type Ingestor } from './modules/ingest/ingestor.ts';
 import { createTmdbClient, unavailableTmdb } from './modules/ingest/tmdb.ts';
 import { networkRoutes } from './modules/network/routes.ts';
@@ -29,6 +30,10 @@ const db = openDb(join(dataDir, 'library.db'));
 // only a configured-but-gone folder (`missing`) blocks the ingestor.
 const workerContentDir = resolveContentDir();
 const libraryStatus = configStatus(workerContentDir);
+// T9a: the configured folder is root 1; its library id is adopted once and the last known path refreshed on boot.
+if (libraryStatus.libraryId && libraryStatus.contentDir) {
+  linkPrimaryRoot(db, { libraryId: libraryStatus.libraryId, path: libraryStatus.contentDir });
+}
 // Folder missing (or the default does not exist): no scan, no requeue, no processing — the catalog stays untouched.
 const contentAvailable = autoScanAllowed(libraryStatus);
 if (!contentAvailable) console.warn(`Content folder not available (${workerContentDir}): ingest and processing wait until it is configured or the disk returns.`);

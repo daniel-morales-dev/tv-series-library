@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { mkdir, readdir, rename, rm, stat, statfs as realStatfs } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { all, run } from '../../db/sql.ts';
+import { sourcePath } from '../../library/roots.ts';
 import { type ProbeStreams, probeStreams as realProbe } from './ffmpeg.ts';
 import { buildPlan } from './plan.ts';
 
@@ -104,9 +105,9 @@ export function createCache(o: CacheOptions) {
   // Evictable = regenerable copy packages: ready, no job pending, not in use, not `protectId`, original still readable.
   // Least recently played first; never-played ones count from their creation.
   async function candidates(protectId: number): Promise<Candidate[]> {
-    const rows = all<{ id: number; path: string; hls_dir: string; pkg_bytes: number }>(
+    const rows = all<{ id: number; path: string; hls_dir: string; pkg_bytes: number; root_id: number }>(
       db,
-      `SELECT id, path, hls_dir, pkg_bytes FROM media_files
+      `SELECT id, path, hls_dir, pkg_bytes, root_id FROM media_files
        WHERE status = 'ready' AND pkg_mode = 'copy' AND hls_dir IS NOT NULL AND pkg_bytes IS NOT NULL AND id <> ?
          AND (last_played_at IS NULL OR last_played_at < ?)
          AND id NOT IN (SELECT media_file_id FROM jobs WHERE type = 'process' AND status IN ('queued', 'running'))
@@ -117,7 +118,7 @@ export function createCache(o: CacheOptions) {
     const out: Candidate[] = [];
     for (const r of rows) {
       // Without the original the package cannot be rebuilt (a deleted file, or a disk that is not mounted).
-      if ((await stat(join(o.contentDir, r.path)).catch(() => null))?.isFile()) {
+      if ((await stat(sourcePath(o.contentDir, r.root_id, r.path)).catch(() => null))?.isFile()) {
         out.push({ id: r.id, path: r.path, hlsDir: r.hls_dir, bytes: r.pkg_bytes });
       }
     }
@@ -169,12 +170,12 @@ export function createCache(o: CacheOptions) {
 
     /** Packages built before the cache existed: probes the source to learn whether each is a copy package (evictable). */
     async classifyLegacy(): Promise<void> {
-      const rows = all<{ id: number; path: string; hls_dir: string }>(
+      const rows = all<{ id: number; path: string; hls_dir: string; root_id: number }>(
         db,
-        "SELECT id, path, hls_dir FROM media_files WHERE status = 'ready' AND hls_dir IS NOT NULL AND pkg_mode IS NULL",
+        "SELECT id, path, hls_dir, root_id FROM media_files WHERE status = 'ready' AND hls_dir IS NOT NULL AND pkg_mode IS NULL",
       );
       for (const r of rows) {
-        const src = join(o.contentDir, r.path);
+        const src = sourcePath(o.contentDir, r.root_id, r.path);
         if (!(await stat(src).catch(() => null))?.isFile()) continue;
         try {
           const mode = buildPlan(await probe(src)).video.mode;

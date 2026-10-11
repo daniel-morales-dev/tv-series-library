@@ -3,6 +3,7 @@ import { lstat, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { parseArgs } from 'node:util';
+import { sourcePath } from '../library/roots.ts';
 import { dedupeFontsDir } from '../modules/processing/fonts.ts';
 
 export interface ReportOptions {
@@ -36,6 +37,7 @@ interface Row {
   path: string;
   status: string;
   duration_s: number | null;
+  root_id: number;
 }
 
 async function* walk(dir: string): AsyncGenerator<{ path: string; size: number; mtimeMs: number; key: string }> {
@@ -83,7 +85,7 @@ function readRows(dataDir: string): Map<number, Row> | null {
   let db: DatabaseSync | undefined;
   try {
     db = new DatabaseSync(join(dataDir, 'library.db'), { readOnly: true });
-    const rows = db.prepare('SELECT id, path, status, duration_s FROM media_files').all() as unknown as Row[];
+    const rows = db.prepare('SELECT id, path, status, duration_s, root_id FROM media_files').all() as unknown as Row[];
     return new Map(rows.map((r) => [r.id, r]));
   } catch {
     return null;
@@ -141,7 +143,7 @@ export async function buildReport(opts: ReportOptions): Promise<Report> {
     if (row && row.status !== 'ready') continue;
     const reason = await truncation(dir, row?.duration_s ?? null);
     if (!reason) continue;
-    const originalMissing = Boolean(row) && contentOk && !(await stat(join(contentDir, row!.path)).catch(() => null))?.isFile();
+    const originalMissing = Boolean(row) && contentOk && !(await stat(sourcePath(contentDir, row!.root_id, row!.path)).catch(() => null))?.isFile();
     report.truncated.push({ id, dir, bytes, reason, originalMissing });
   }
   report.truncated.sort((a, b) => a.id - b.id);

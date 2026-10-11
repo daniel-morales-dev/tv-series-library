@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { join } from 'node:path';
 import { all, get, run } from '../../db/sql.ts';
+import { sourcePath } from '../../library/roots.ts';
 import { FranchiseError, type FranchiseRelation, assertTitleExists, linkFranchise } from '../catalog/franchise.ts';
 import { type GroupMatch, adoptSeries, normalize, placeEpisode } from './assign.ts';
 import { type IngestContext, importMovie } from './metadata.ts';
@@ -22,6 +22,7 @@ export class PendingError extends Error {
 
 interface PendingRow {
   id: number;
+  root_id: number;
   path: string;
   size: number | null;
   parsed: string;
@@ -108,7 +109,7 @@ async function place(
 }
 
 async function registerPending(deps: ConfirmDeps, row: PendingRow, titleId: number, placement: Placement): Promise<void> {
-  const probe = await deps.probe(join(deps.contentDir, row.path)).catch(() => null);
+  const probe = await deps.probe(sourcePath(deps.contentDir, row.root_id, row.path)).catch(() => null);
   if (!probe) throw new PendingError(409, 'file_unreadable');
   registerFile(deps.ctx.db, { rel: row.path, size: row.size ?? 0, probe }, { titleId, ...placement });
   run(deps.ctx.db, 'DELETE FROM pending_files WHERE id = ?', row.id);
