@@ -27,7 +27,7 @@ content/
 
 ## Configuración
 
-La app guarda la carpeta donde está tu contenido en su propia configuración (`~/.config/sala/config.json` en Linux, `%LOCALAPPDATA%\sala` en Windows); puedes cambiarla en Ajustes. No edites ese archivo a mano. Hasta que llegue el asistente de primera ejecución (T22b), el valor por defecto es `content/` y puedes fijar otro con la API de configuración.
+La app guarda la carpeta donde está tu contenido en su propia configuración (`~/.config/sala/config.json` en Linux, `%LOCALAPPDATA%\sala` en Windows); puedes cambiarla en Ajustes. No edites ese archivo a mano. El asistente de primera ejecución (o Ajustes) elige la carpeta; la sugerencia por defecto es `content/`.
 
 1. Solo en una instalación nueva y **solo para desarrollo**, crea `.env` desde `.env.example` **sin sobrescribir uno existente**. `CONTENT_DIR` ahí es opcional: tu elección en la app tiene prioridad.
 2. Configura tu *Read Access Token* de TMDB en `TMDB_READ_ACCESS_TOKEN`. Esta instalación ya lo tiene; no lo imprimas ni lo subas a git.
@@ -65,6 +65,7 @@ Requisitos: Node.js 24 o superior, npm y ffmpeg. No hace falta internet, pero ce
    Con tu subred (por ejemplo `192.168.1.0/24`), abre el puerto solo para ella:
    ```sh
    sudo ufw allow from 192.168.1.0/24 to any port 8080 proto tcp comment 'sala'
+   sudo ufw status numbered      # verificar que la regla quedó
    ```
    No abras a `any`: la app no tiene autenticación.
 

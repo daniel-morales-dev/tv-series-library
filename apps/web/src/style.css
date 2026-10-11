@@ -66,6 +66,8 @@ input { min-height: 56px; padding: 0 16px; border-radius: 10px; border: 1px soli
 
 /* Focus must read from the couch: thick accent ring (only cards scale, buttons never do) and room above so the fixed header never covers it. */
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+/* T56: #app anchors focus so TV remotes have something to deliver D-pad keys to; it is not a control, no ring. */
+#app:focus, #app:focus-visible { outline: none; }
 a[href], button, input, select, [tabindex] { scroll-margin: calc(var(--header-h) + 32px) 48px 56px; }
 input:focus-visible { outline-offset: 2px; }
 

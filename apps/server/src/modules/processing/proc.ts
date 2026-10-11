@@ -29,7 +29,9 @@ export function isOurFfmpeg(pid: number, pidStart: number, tmpDir: string): bool
 }
 
 // Every process writing under `<hlsRoot>/<id>.tmp/`: at most one may exist per package folder.
-export function findWriters(hlsRoot: string): { pid: number; pidStart: number }[] {
+// /proc only exists on Linux (Windows runs without adoption): elsewhere there is nothing to scan.
+export function findWriters(hlsRoot: string, platform: NodeJS.Platform = process.platform): { pid: number; pidStart: number }[] {
+  if (platform !== 'linux') return [];
   const prefix = `${hlsRoot}/`;
   const found: { pid: number; pidStart: number }[] = [];
   for (const entry of readdirSync('/proc')) {

@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { api, getProfileId, playErrorMessage, saveProgress, streamUrl } from '../api.ts';
 import { fullscreenMode, isIOS, isMobile, volumeWritable } from '../device.ts';
 import { isBackKey } from '../spatial.ts';
-import { decidePlayerKey } from '../player-keys.ts';
+import { decidePlayerKey, stepIndex } from '../player-keys.ts';
 import { audioMenu, audioSelection, clock, defaultSubtitle, nextFile, prevFile, resumePosition, seekRange, subtitleLabel } from '../player.ts';
 import { SPEEDS, loadSpeed, saveSpeed, speedLabel } from '../speed.ts';
 import { type Chapter, activeSkip, skipLabel } from '../skip.ts';
@@ -19,6 +19,7 @@ const fileId = computed(() => Number(route.params.mediaFileId));
 const titleId = computed(() => Number(route.query.title));
 
 const video = ref<HTMLVideoElement>();
+const playButton = ref<HTMLButtonElement>();
 const phase = ref<'loading' | 'preparing' | 'playing' | 'error'>('loading');
 const message = ref('');
 const percent = ref(0);
@@ -37,6 +38,7 @@ const countdown = ref(0);
 const playing = ref(false);
 const volume = ref(1);
 const muted = ref(false);
+const needsGesture = ref(false); // T56: autoplay was blocked; the paused frame asks for OK
 const canSetVolume = ref(true); // false on iOS: the system owns the level, only mute works
 const touch = navigator.maxTouchPoints;
 const ios = isIOS(navigator.userAgent, navigator.platform, touch);
@@ -158,7 +160,7 @@ function attach(f: MediaFile, startAt: number) {
     v.src = url;
     v.playbackRate = speed.value;
     if (startAt > 0) v.addEventListener('loadedmetadata', () => (v.currentTime = startAt), { once: true });
-    v.play().catch(() => {});
+    tryPlay();
   } else if (Hls.isSupported()) {
     const h = (hls = new Hls({ startPosition: startAt > 0 ? startAt : -1 }));
     // hls.js fills `audioTracks` only when the level playlist loads, not at MANIFEST_PARSED — listen for the update.
@@ -170,7 +172,7 @@ function attach(f: MediaFile, startAt: number) {
     h.on(Hls.Events.AUDIO_TRACK_SWITCHED, refreshAudio); // `hls.audioTrack` is still -1 inside UPDATED; the default pick lands here
     h.on(Hls.Events.MANIFEST_PARSED, () => {
       v.playbackRate = speed.value;
-      v.play().catch(() => {}); // autoplay may still be blocked; the user can press play
+      tryPlay(); // autoplay may still be blocked; the paused frame shows the hint
     });
     h.on(Hls.Events.ERROR, (_e, data) => {
       if (!data.fatal) return;
@@ -208,12 +210,16 @@ function poke() {
   idle.value = false;
   clearTimeout(idleTimer);
   idleTimer = setTimeout(() => {
-    if (video.value && !video.value.paused && !menu.value && !next.value) idle.value = true;
+    if (video.value && !video.value.paused && !menu.value && !next.value && !needsGesture.value && !chromeHasFocus()) idle.value = true;
   }, 3000);
+}
+// T56: autoplay may be blocked without a gesture (TV policy); keep the paused frame and ask for OK.
+function tryPlay() {
+  video.value?.play().catch(() => (needsGesture.value = true));
 }
 function togglePlay() {
   const v = video.value;
-  if (v) v.paused ? v.play().catch(() => {}) : v.pause();
+  if (v) v.paused ? tryPlay() : v.pause();
 }
 function onVideoClick() {
   if (menu.value) menu.value = null;
@@ -284,6 +290,7 @@ function onSeek(e: Event) {
 
 const onPlay = () => {
   playing.value = true;
+  needsGesture.value = false;
   if (autoFullscreen) {
     autoFullscreen = false;
     if (!fullscreen.value) enterFullscreen(); // the browser may refuse without a gesture; the button still works
@@ -365,6 +372,37 @@ function onFullscreenChange() {
   }
 }
 
+const ARROW_STEP: Record<string, 1 | -1> = { ArrowUp: -1, ArrowLeft: -1, ArrowDown: 1, ArrowRight: 1 };
+
+// T56: the remote has no Tab. While focus sits on a player control, arrows walk the visible controls in DOM
+// order instead of seeking; Enter activates natively.
+function chromeHasFocus(): boolean {
+  return document.activeElement instanceof HTMLElement && !!document.activeElement.closest('.chrome');
+}
+function chromeControls(): HTMLElement[] {
+  const r = root.value;
+  if (!r) return [];
+  return [...r.querySelectorAll<HTMLElement>('button, a[href], input')].filter((el) => {
+    if (el.closest('.menu') || el.matches(':disabled')) return false;
+    if (idle.value && el.closest('.chrome')) return false; // hidden while idle
+    const box = el.getBoundingClientRect();
+    return box.width > 0 && box.height > 0;
+  });
+}
+function moveChromeFocus(list: HTMLElement[], delta: number) {
+  const i = list.indexOf(document.activeElement as HTMLElement);
+  list[i < 0 ? 0 : stepIndex(i, list.length, delta)]?.focus({ preventScroll: true });
+}
+const menuItems = () => [...(root.value?.querySelectorAll<HTMLElement>('.menu [role="menuitemradio"]') ?? [])];
+function moveMenuFocus(delta: number) {
+  const items = menuItems();
+  const i = items.indexOf(document.activeElement as HTMLElement);
+  items[i < 0 ? 0 : stepIndex(i, items.length, delta)]?.focus({ preventScroll: true });
+}
+function focusPlayButton() {
+  playButton.value?.focus({ preventScroll: true });
+}
+
 function onKey(e: KeyboardEvent) {
   const v = video.value;
   if (!v) return;
@@ -375,23 +413,46 @@ function onKey(e: KeyboardEvent) {
     return;
   }
   poke();
+  const step = ARROW_STEP[e.key];
+  const controls = step ? chromeControls() : [];
+  const focused = document.activeElement as HTMLElement | null;
   if (e.key === 'Escape' && menu.value) {
     menu.value = null;
   } else if (isBackKey(e)) {
     back();
+  } else if (menu.value && (action === 'volume-up' || action === 'volume-down')) {
+    moveMenuFocus(action === 'volume-down' ? 1 : -1);
+  } else if (step && focused && controls.includes(focused)) {
+    moveChromeFocus(controls, step);
   } else if (action === 'toggle') {
     togglePlay();
-  } else if ((action === 'seek-back' || action === 'seek-forward') && !menu.value) {
+    if (v.paused && !menu.value) focusPlayButton(); // T56: a keyboard pause hands the arrows to the chrome; never yank focus out of an open menu
+  } else if ((action === 'seek-back' || action === 'seek-forward') && (!menu.value || e.key === 'MediaRewind' || e.key === 'MediaFastForward')) {
     skip(action === 'seek-back' ? -10 : 10);
   } else if (action === 'volume-up' && canSetVolume.value) {
     bumpVolume(0.05);
   } else if (action === 'volume-down' && canSetVolume.value) {
     bumpVolume(-0.05);
+  } else if (action === 'prev-episode') {
+    goPrev();
+  } else if (action === 'next-episode') {
+    goNextEp();
   } else {
     return;
   }
   e.preventDefault();
 }
+
+// T56: opening the menu hands focus to its selected item; closing it keeps a key anchor for the remote.
+watch(menu, async (m) => {
+  await nextTick();
+  if (!m) {
+    if (!document.activeElement || document.activeElement === document.body) document.getElementById('app')?.focus({ preventScroll: true });
+    return;
+  }
+  const items = menuItems();
+  (items.find((el) => el.getAttribute('aria-checked') === 'true') ?? items[0])?.focus({ preventScroll: true });
+});
 
 onMounted(() => {
   window.addEventListener('keydown', onKey);
@@ -444,6 +505,7 @@ watch([fileId, titleId], start, { immediate: true });
     <p v-else-if="phase === 'error'" class="center error">{{ message }}</p>
 
     <template v-if="phase === 'playing'">
+      <p v-if="needsGesture" class="hint" role="status">Pulsa OK para reproducir</p>
       <div class="top right actions chrome">
         <button class="round speed" :class="{ on: menu === 'speed' }" aria-label="Velocidad de reproducción" title="Velocidad de reproducción" aria-haspopup="menu" :aria-expanded="menu === 'speed'" @click="toggleMenu('speed')">
           {{ speedLabel(speed) }}
@@ -458,7 +520,7 @@ watch([fileId, titleId], start, { immediate: true });
       <button v-if="skipTarget" class="skip" @click="skipSection">{{ skipLabel(skipTarget.kind) }}</button>
       <div class="controls chrome">
         <div class="group">
-          <button class="round" :aria-label="playing ? 'Pausar' : 'Reproducir'" :title="playing ? 'Pausar' : 'Reproducir'" @click="togglePlay">
+          <button ref="playButton" class="round" :aria-label="playing ? 'Pausar' : 'Reproducir'" :title="playing ? 'Pausar' : 'Reproducir'" @click="togglePlay">
             <Icon :name="playing ? 'pause' : 'play'" :size="24" />
           </button>
           <button class="round" aria-label="Retroceder 10 segundos" title="Retroceder 10 segundos" @click="skip(-10)">
@@ -497,7 +559,7 @@ watch([fileId, titleId], start, { immediate: true });
           <input v-if="canSetVolume" type="range" min="0" max="1" step="0.01" :value="muted ? 0 : volume" aria-label="Volumen" class="vol" @input="onVolume" />
         </div>
       </div>
-      <div v-if="menu === 'tracks'" class="menu" role="menu">
+      <div v-if="menu === 'tracks'" class="menu" role="menu" data-spatial-scope>
         <template v-if="audio.length > 1">
           <h2>Audio</h2>
           <button v-for="a in audio" :key="a.id" role="menuitemradio" :aria-checked="a.id === audioIndex" :class="{ on: a.id === audioIndex }" @click="pickAudio(a.id)">{{ a.name }}</button>
@@ -506,7 +568,7 @@ watch([fileId, titleId], start, { immediate: true });
         <button role="menuitemradio" :aria-checked="subIndex === -1" :class="{ on: subIndex === -1 }" @click="pickSubtitle(-1)">Sin subtítulos</button>
         <button v-for="(t, i) in subs" :key="t.index" role="menuitemradio" :aria-checked="subIndex === i" :class="{ on: subIndex === i }" @click="pickSubtitle(i)">{{ subtitleLabel(t, i) }}</button>
       </div>
-      <div v-else-if="menu === 'speed'" class="menu" role="menu">
+      <div v-else-if="menu === 'speed'" class="menu" role="menu" data-spatial-scope>
         <h2>Velocidad</h2>
         <button v-for="s in SPEEDS" :key="s" role="menuitemradio" :aria-checked="s === speed" :class="{ on: s === speed }" @click="pickSpeed(s)">{{ speedLabel(s) }}</button>
       </div>
@@ -532,6 +594,11 @@ video { width: 100%; height: 100%; background: #000; }
 .idle { cursor: none; }
 /* T51: the back link is deliberately not .chrome, so it stays visible and tappable while idle. */
 .idle .chrome { opacity: 0; pointer-events: none; }
+/* T56: autoplay was blocked; never swallow a click on the video underneath. */
+.hint {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 2; margin: 0;
+  padding: 12px 24px; border-radius: 999px; background: rgba(15, 15, 18, 0.95); pointer-events: none;
+}
 .center { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; text-align: center; padding: 0 16px; }
 .menu {
   position: absolute; top: 68px; right: 12px; z-index: 2; display: flex; flex-direction: column; gap: 8px; min-width: 180px;

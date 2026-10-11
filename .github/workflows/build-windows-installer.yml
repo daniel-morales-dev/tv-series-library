@@ -1,0 +1,150 @@
+name: build-windows-installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  NODE_VERSION: "24.14.0"
+  # node-v24.14.0-win-x64.zip, cross-checked against https://nodejs.org/dist/v24.14.0/SHASUMS256.txt
+  NODE_ZIP_SHA256: "313fa40c0d7b18575821de8cb17483031fe07d95de5994f6f435f3b345f85c66"
+  FFMPEG_URL: "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip"
+  # ffmpeg-9.0.2-essentials_build.zip, from https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.0.2-essentials_build.zip.sha256
+  FFMPEG_ZIP_SHA256: "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba"
+  # The prod tree of apps/server is ~15 MB; anything near the dev tree (52 MB+) fails the build.
+  MAX_NODE_MODULES_KB: "40000"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: "24.14.0"
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Build web (apps/web/dist)
+        run: npm run build -w apps/web
+
+      - name: Stage payload
+        run: |
+          set -euo pipefail
+          PAYLOAD=packaging/windows/payload
+          rm -rf "$PAYLOAD"
+          mkdir -p "$PAYLOAD/node" "$PAYLOAD/ffmpeg/bin" "$PAYLOAD/apps/server" "$PAYLOAD/apps/web" "$PAYLOAD/scripts"
+          cp -R apps/server/src "$PAYLOAD/apps/server/src"
+          cp apps/server/package.json "$PAYLOAD/apps/server/package.json"
+          cp package.json "$PAYLOAD/package.json"
+          cp scripts/dev.mjs "$PAYLOAD/scripts/dev.mjs"
+          cp -R apps/web/dist "$PAYLOAD/apps/web/dist"
+
+          # Prod deps of apps/server only: npm ci -w apps/server installs the web tree too, so the
+          # install runs in an isolated workspace that declares apps/server and nothing else.
+          STAGE="$RUNNER_TEMP/sala-stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE/apps/server"
+          printf '{\n  "name": "sala-staging",\n  "private": true,\n  "type": "module",\n  "workspaces": ["apps/server"]\n}\n' > "$STAGE/package.json"
+          cp apps/server/package.json "$STAGE/apps/server/package.json"
+          (cd "$STAGE" && npm install --omit=dev --no-audit --no-fund)
+          rm -rf "$STAGE/node_modules/.bin" "$STAGE/node_modules/@tv-series-library"
+          if find "$STAGE/node_modules" -type l | grep -q .; then
+            echo "::error::staged node_modules contains symlinks; refusing to package"
+            exit 1
+          fi
+          SIZE_KB=$(du -sk "$STAGE/node_modules" | cut -f1)
+          echo "staged apps/server node_modules: ${SIZE_KB} KB (limit ${MAX_NODE_MODULES_KB} KB)"
+          if [ "$SIZE_KB" -gt "$MAX_NODE_MODULES_KB" ]; then
+            echo "::error::staged node_modules is ${SIZE_KB} KB: the dev tree leaked into the payload"
+            exit 1
+          fi
+          cp -R "$STAGE/node_modules" "$PAYLOAD/apps/server/node_modules"
+
+          du -sh "$PAYLOAD"
+
+      - name: Download Node portable (verified)
+        run: |
+          set -euo pipefail
+          ZIP="$RUNNER_TEMP/node.zip"
+          curl -fsSL -o "$ZIP" "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-win-x64.zip"
+          echo "${NODE_ZIP_SHA256}  $ZIP" | sha256sum -c -
+          curl -fsSL -o "$RUNNER_TEMP/SHASUMS256.txt" "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt"
+          grep -E " node-v${NODE_VERSION}-win-x64\.zip$" "$RUNNER_TEMP/SHASUMS256.txt" | grep -q "^${NODE_ZIP_SHA256} "
+          echo "node zip matches SHASUMS256.txt"
+          7z x -y -o"$RUNNER_TEMP/node" "$ZIP" >/dev/null
+          cp "$RUNNER_TEMP/node/node-v${NODE_VERSION}-win-x64/node.exe" packaging/windows/payload/node/node.exe
+          ls -l packaging/windows/payload/node/node.exe
+
+      - name: Download ffmpeg (verified)
+        run: |
+          set -euo pipefail
+          ZIP="$RUNNER_TEMP/ffmpeg.zip"
+          curl -fsSL -o "$ZIP" "$FFMPEG_URL"
+          echo "${FFMPEG_ZIP_SHA256}  $ZIP" | sha256sum -c -
+          7z x -y -o"$RUNNER_TEMP/ffmpeg" "$ZIP" >/dev/null
+          BIN=$(find "$RUNNER_TEMP/ffmpeg" -type d -name bin | head -n1)
+          cp "$BIN/ffmpeg.exe" "$BIN/ffprobe.exe" packaging/windows/payload/ffmpeg/bin/
+          ls -l packaging/windows/payload/ffmpeg/bin/
+
+      - name: Install Inno Setup
+        run: choco install innosetup --version=6.7.1 --no-progress -y
+
+      - name: Compute version
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0-dev.$(git rev-parse --short=7 HEAD)"
+          fi
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Compile installer
+        run: |
+          set -euo pipefail
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          "$ISCC" "/DAppVersion=${APP_VERSION}" packaging/windows/sala.iss
+          sha256sum packaging/windows/output/*.exe | tee packaging/windows/output/SHA256SUMS.txt
+
+      - name: Upload installer
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: sala-windows-installer
+          path: |
+            packaging/windows/output/*.exe
+            packaging/windows/output/SHA256SUMS.txt
+          if-no-files-found: error
+
+      # A mention from the user's own token never notifies; this one is posted by
+      # github-actions[bot], which does notify the owner by email and push.
+      - name: Notify owner (success)
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/1/comments" \
+            -f body="@daniel-morales-dev Instalador de Windows listo (v${APP_VERSION}). Descargalo aqui: ${RUN_URL} (artifact \"sala-windows-installer\", hay que estar logueado en GitHub)."
+
+      - name: Notify owner (failure)
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh api "repos/${{ github.repository }}/issues/1/comments" \
+            -f body="@daniel-morales-dev La compilacion del instalador de Windows fallo. Detalles: ${RUN_URL}"

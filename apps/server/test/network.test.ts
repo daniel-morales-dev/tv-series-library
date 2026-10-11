@@ -53,6 +53,16 @@ describe('lanUrls', () => {
     expect(lanUrls(interfaces, 8080)).toEqual(['http://192.168.1.20:8080']);
   });
 
+  it('discards Windows virtual adapters regardless of case', () => {
+    const interfaces = {
+      'vEthernet (WSL (Hyper-V firewall))': [v4('172.20.0.1')],
+      'vEthernet (Default Switch)': [v4('192.168.192.1')],
+      'Docker Desktop': [v4('172.30.0.1')],
+      Ethernet: [v4('192.168.1.20')],
+    };
+    expect(lanUrls(interfaces, 8080)).toEqual(['http://192.168.1.20:8080']);
+  });
+
   it('discards IPv6 addresses and internal interfaces', () => {
     const interfaces = {
       lo: [v4('127.0.0.1', { internal: true }), v6('fe80::1')],

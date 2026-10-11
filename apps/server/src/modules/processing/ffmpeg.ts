@@ -10,6 +10,11 @@ const execFileAsync = promisify(execFile);
 
 export const SEGMENT_SECONDS = 6;
 
+// Windows installs ship ffmpeg under `<install>\ffmpeg\bin` (the launcher also prepends it to PATH).
+// The env override makes that location explicit and lets tests point at a fake binary.
+export const ffmpegBin = (env: Record<string, string | undefined> = process.env): string => env.FFMPEG_BIN || 'ffmpeg';
+export const ffprobeBin = (env: Record<string, string | undefined> = process.env): string => env.FFPROBE_BIN || 'ffprobe';
+
 export interface SpawnInfo {
   pid: number;
   pidStart: number;
@@ -52,7 +57,7 @@ export function niceFromEnv(env: Record<string, string | undefined> = process.en
   return raw !== undefined && raw !== '' && Number.isInteger(n) && n >= -20 && n <= 19 ? n : 19;
 }
 
-export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000, killAfterMs = KILL_ESCALATION_MS }: { bin?: string; pollMs?: number; killAfterMs?: number } = {}): RunFfmpeg {
+export function createRunFfmpeg({ bin = ffmpegBin(), pollMs = 1_000, killAfterMs = KILL_ESCALATION_MS }: { bin?: string; pollMs?: number; killAfterMs?: number } = {}): RunFfmpeg {
   return (args, opts = {}) =>
     new Promise((resolve, reject) => {
       const { signal, detached } = opts;
@@ -84,10 +89,14 @@ export function createRunFfmpeg({ bin = 'ffmpeg', pollMs = 1_000, killAfterMs = 
       };
       function onAbort() {
         if (keepsChildren(signal)) return done(() => reject(signal!.reason));
+        // SIGTERM kills the child on every platform (TerminateProcess on Windows); SIGCONT and SIGKILL
+        // do not exist there (ERR_UNKNOWN_SIGNAL) and neither is needed: the kill is immediate.
         child.kill('SIGTERM');
-        child.kill('SIGCONT'); // a paused (SIGSTOP) ffmpeg only handles SIGTERM once continued
-        escalate = setTimeout(() => child.kill('SIGKILL'), killAfterMs);
-        escalate.unref();
+        if (process.platform !== 'win32') {
+          child.kill('SIGCONT'); // a paused (SIGSTOP) ffmpeg only handles SIGTERM once continued
+          escalate = setTimeout(() => child.kill('SIGKILL'), killAfterMs);
+          escalate.unref();
+        }
       }
       signal?.addEventListener('abort', onAbort, { once: true });
       child.on('error', (err) => done(() => reject(err)));
@@ -131,7 +140,7 @@ interface FfprobeStream {
 
 export const probeStreams: ProbeStreams = async (absPath) => {
   const { stdout } = await execFileAsync(
-    'ffprobe',
+    ffprobeBin(),
     ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', absPath],
     { maxBuffer: 32 * 1024 * 1024, timeout: 60_000 },
   );

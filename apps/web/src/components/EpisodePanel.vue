@@ -50,7 +50,7 @@ onBeforeUnmount(() => {
 <template>
   <Teleport to="body">
     <div class="scrim" @pointerdown.self="emit('close')">
-      <div ref="dialog" class="panel" role="dialog" aria-modal="true" aria-labelledby="ep-title" tabindex="-1">
+      <div ref="dialog" class="panel" role="dialog" aria-modal="true" aria-labelledby="ep-title" tabindex="-1" data-spatial-scope>
         <div class="still">
           <img v-if="image" :src="imageUrl(image)" alt="" draggable="false" />
           <button class="round x" aria-label="Cerrar" @click="emit('close')"><Icon name="close" :size="20" /></button>
