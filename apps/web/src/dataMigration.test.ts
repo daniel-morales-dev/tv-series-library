@@ -78,4 +78,16 @@ describe('migrationView', () => {
   it('has nothing to do without pending packages', () => {
     expect(migrationView(plan({ pendingCount: 0, movedCount: 5 }), status()).canStart).toBe(false);
   });
+
+  it('shows a neutral loading state while the plan is still on its way', () => {
+    const v = migrationView(undefined, status());
+    expect(v).toMatchObject({ stage: 'loading', canStart: false, canFree: false, progress: null });
+    expect(v.lines.join('\n')).not.toContain('No se pudo calcular el plan');
+  });
+
+  it('reports the disk error only when the plan fetch actually failed', () => {
+    const v = migrationView(null, status());
+    expect(v.stage).toBe('idle');
+    expect(v.lines.join('\n')).toContain('No se pudo calcular el plan');
+  });
 });
