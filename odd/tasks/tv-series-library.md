@@ -427,6 +427,7 @@ Reporte del dueño: 12 pendientes `[Cifer] Sousou no Frieren S1 - 17..28` que no
 - [x] T97 El re-análisis reintenta los `pending_files` abiertos de cada carpeta mapeada (`placePendingInDir`, reutilizado por Confirmar). `20a2759`. RED/GREEN en `reanalyze.test.ts`.
 - [x] T98 Causa raíz real: TMDB ahora lista «Cours» (tipo 7, 16+12+10) junto a «Seasons» (tipo 6, 28+10); el desempate por *más* temporadas elegía Cours. Ahora gana el set más grueso. `26d96e1`. RED/GREEN en `assign.test.ts`.
 - [x] T99 El escaneo borra pendientes **abiertos** cuyo archivo ya no existe (ENOENT, raíz presente); los ignorados se conservan. La carpeta `[Cifer] ... S1` ya no está en el HDD → los 12 eran fantasmas. `a6672dc`. RED/GREEN en `ingest.test.ts`.
+- [x] T100 UX web: la razón del pendiente va en línea propia debajo del nombre (`PendingView.vue`, `.head` en columna). `bc6b94f`. Suite web 309 verdes; `dist` reconstruido y sirviendo.
 - Evidencia en vivo (backup `data/library.db.bak-20261012-frieren`): re-análisis → `reseasoned:1, placed:38`; Frieren T1 28/28 y T2 10/10 con archivo; reinicio + escaneo → 12 «pending file gone from disk», pendientes abiertos 0.
 - Suite server: 715 verdes; 4 fallos preexistentes en `paths.test.ts` (leen el `config.json` real con `hlsDir` en el HDD — fuga de entorno, no tocado) + flake ocasional en `resumable-processing`.
 - Pendiente: push/PR (decisión del dueño). Quedan 16 filas `missing` de Cifer sin enlazar (diseño T69: se conservan por si el archivo vuelve).
