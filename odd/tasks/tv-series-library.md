@@ -409,3 +409,12 @@ Reporte del dueño: (1) en el detalle de título el bloque logo/texto/botones pi
 - Smoke del CI: `Sala.app/Contents/MacOS/sala --no-open --no-agent` con `HOME=$RUNNER_TEMP/sala-home`, espera health, `pkill -f "Sala.app/Contents/Resources/sala"`. Verificación visual del DMG queda pendiente para el dueño (solo macOS real).
 
 **Notas de entorno de la sesión:** RDD global off; `gh` autenticado como `dmorales-alegra` **sin acceso** a `daniel-morales-dev/tv-series-library` (API 404) → todo el flujo GitHub (PR/merge/release/lecturas) va por el MCP `github-daniel`; ese MCP **no tiene tools de Actions** (sin dispatch/run/logs) ni de edición de releases → la validación del workflow se hizo vía rama desechable + notificaciones del bot a issue #1. Push por SSH funciona. shellcheck disponible; actionlint no.
+
+### Ronda 6 (2026-10-11, ops) — migración de la biblioteca al HDD externo (sin código)
+
+- 🐕 3 pts. Objetivo del dueño: liberar el disco interno moviendo `content` (93G) + HLS (40G) a un HDD USB Toshiba de 1TB.
+- HDD formateado **exFAT** (label `Sala`, GPT). Primer intento quedó FAT32 por falta de `exfatprogs` en Ubuntu (límite 4GB/archivo) → reformateado a exFAT. Montado en `/media/dmorales/Sala` (udisks, uid=1000).
+- `content` → `/media/dmorales/Sala/content` con `rsync -rt` (141 archivos; verificado: mismos counts, diff rsync vacío, sha256 de muestra idénticos). Sala re-vinculada vía `PUT /api/config/content-dir` (status ready, mismo libraryId `68cacd2c-…`), `.env` `CONTENT_DIR` → ruta absoluta del HDD, servicio reiniciado, roots `present=true`. Originales borrados tras la verificación.
+- HLS → `/media/dmorales/Sala/content/.sala/hls` con el panel «Mover datos con la biblioteca» (81 paquetes, 43G; `pointerSwitched`, `config.json` `hlsDir` en el HDD, origen liberado tras confirmación del dueño). Fricción encontrada: `DATA_DIR` en `.env` bloquea la migración (pin explícito que el panel reporta) → se quitó la línea (la DB sigue resolviendo por ruta legacy `<repo>/data`).
+- Resultado: interno 351G→219G usados (80%→50%), **225G libres** (antes 94G). HDD: 136G usados de 932G.
+- Pendiente/conocido: el HDD es USB — al reiniciar, Ubuntu lo auto-monta al iniciar sesión; si no está montado, Sala marca los títulos como «No disponible» y ofrece re-vincular en Ubicaciones. Opcional futuro: montaje permanente por fstab. El HDD es ahora la única copia de los videos originales.
