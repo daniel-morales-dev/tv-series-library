@@ -229,6 +229,18 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
       counts.missing++;
       log('info', `missing from disk: ${row.path}`);
     }
+    // An open pending file has nothing to keep: once gone it leaves the review list (it comes back as new if
+    // it reappears). Ignored rows stay, so the owner's decision survives.
+    for (const row of all<{ id: number; path: string }>(db, "SELECT id, path FROM pending_files WHERE root_id = ? AND status = 'open'", root.id)) {
+      if (onDisk.has(row.path)) continue;
+      const gone = await stat(join(root.path, row.path)).then(
+        () => false,
+        (err: NodeJS.ErrnoException) => err.code === 'ENOENT',
+      );
+      if (!gone) continue;
+      run(db, 'DELETE FROM pending_files WHERE id = ?', row.id);
+      log('info', `pending file gone from disk: ${row.path}`);
+    }
   }
 
   // T70: a file replaced in place (size, mtime or fingerprint changed) is re-registered on the same row, so
@@ -698,7 +710,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   // behind it instead of racing it; the stored-data passes that follow are plain idempotent rewrites.
   async function reanalyzeOnce(titleId?: number): Promise<ReanalyzeSummary> {
     const summary = emptyReanalyzeSummary();
-    const deps = { db, ctx: { db, tmdb: memoize(tmdb()), dataDir }, rootPath, log };
+    const deps = { db, ctx: { db, tmdb: memoize(tmdb()), dataDir }, rootPath, log, probe };
     if (titleId !== undefined) {
       await reanalyzeTitle(deps, summary, titleId);
       return summary;

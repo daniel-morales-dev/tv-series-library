@@ -166,6 +166,52 @@ describe('assignSeries with a "Seasons" episode group', () => {
   });
 });
 
+describe('placeEpisode with a "Cours" group finer than the official seasons', () => {
+  // Frieren on TMDB: official seasons 28 + 10, the adopted type 6 group splits them into cours 16 / 12 / 10.
+  const FRIEREN_ID = 209867;
+  const courGroups: Record<string, EpisodeGroupDetails> = {
+    g_cours: {
+      id: 'g_cours',
+      name: 'Cours',
+      type: 6,
+      groups: [
+        { id: 'c1', name: 'Cour 1', order: 1, episodes: geps(16) },
+        { id: 'c2', name: 'Cour 2', order: 2, episodes: geps(12) },
+        { id: 'c3', name: 'Cour 3', order: 3, episodes: geps(10) },
+      ],
+    },
+  };
+  const frierenTv = tvBase({
+    id: FRIEREN_ID,
+    name: 'Frieren',
+    original_name: 'Sousou no Frieren',
+    seasons: [gseason(1, 28), gseason(2, 10)],
+    episode_groups: { results: [{ id: 'g_cours', name: 'Cours', type: 6, episode_count: 38 }] },
+  });
+  const client = () =>
+    tmdbWith(courGroups, { [FRIEREN_ID]: frierenTv }, (q) =>
+      q.toLowerCase().includes('frieren') ? [{ id: FRIEREN_ID, name: 'Frieren', original_name: 'Sousou no Frieren' }] : [],
+    );
+  const epAt = (db: any, id: number | null) =>
+    get<any>(db, 'SELECT s.number AS s, e.number AS e FROM episodes e JOIN seasons s ON s.id = e.season_id WHERE e.id = ?', id!);
+
+  it('reads SxxEyy as the official numbering and finds it inside the cours', async () => {
+    const { context, db } = ctx({ tmdb: client() });
+    await assignSeries(context, 'shows/Sousou no Frieren S1', 'Sousou no Frieren');
+    const titleId = get<{ id: number }>(db, 'SELECT id FROM titles')!.id;
+    expect(get<any>(db, 'SELECT seasons_group_id AS g FROM titles')?.g).toBe('g_cours');
+    const at = async (season: number | null, number: number) => epAt(db, await placeEpisode(context, titleId, null, { season, number }));
+    expect(await at(1, 16)).toEqual({ s: 1, e: 16 });
+    expect(await at(1, 17)).toEqual({ s: 2, e: 1 });
+    expect(await at(1, 28)).toEqual({ s: 2, e: 12 });
+    expect(await at(2, 1)).toEqual({ s: 3, e: 1 });
+    expect(await at(null, 29)).toEqual({ s: 3, e: 1 });
+    // A season the official numbering lacks keeps the literal group season.
+    expect(await at(3, 2)).toEqual({ s: 3, e: 2 });
+    expect(await placeEpisode(context, titleId, null, { season: 2, number: 11 })).toBeNull();
+  });
+});
+
 describe('assignMovie', () => {
   it('creates the movie and its collection', async () => {
     const { context, db } = ctx();
@@ -343,6 +389,45 @@ describe('findSeasonsGroup (T73)', () => {
     };
     const { context } = ctx({ tmdb: tmdbWith({ ...mushokuGroups, g_alt: alt }) });
     expect((await findSeasonsGroup(context, tv))?.id).toBe('g_alt');
+  });
+
+  it('on equal episodes prefers the coarser set: release names follow seasons, not cours (Frieren)', async () => {
+    // TMDB 2026: official season 1 has 38 episodes; "Seasons" splits it 28 + 10 and "Cours" 16 + 12 + 10.
+    const tv = tvBase({
+      id: 209867,
+      name: 'Frieren',
+      seasons: [gseason(0, 26), gseason(1, 38)],
+      episode_groups: {
+        results: [
+          { id: 'g_fseasons', name: 'Seasons', type: 6, episode_count: 64 },
+          { id: 'g_fcours', name: 'Cours', type: 7, episode_count: 38 },
+        ],
+      },
+    });
+    const groups: Record<string, EpisodeGroupDetails> = {
+      g_fseasons: {
+        id: 'g_fseasons',
+        name: 'Seasons',
+        type: 6,
+        groups: [
+          { id: 's1', name: 'Season 1', order: 1, episodes: geps(28) },
+          { id: 's0', name: 'Specials', order: 0, episodes: geps(26) },
+          { id: 's2', name: 'Season 2', order: 2, episodes: geps(10) },
+        ],
+      },
+      g_fcours: {
+        id: 'g_fcours',
+        name: 'Cours',
+        type: 7,
+        groups: [
+          { id: 'c1', name: 'Cour 1', order: 1, episodes: geps(16) },
+          { id: 'c2', name: 'Cour 2', order: 2, episodes: geps(12) },
+          { id: 'c3', name: 'Cour 3', order: 3, episodes: geps(10) },
+        ],
+      },
+    };
+    const { context } = ctx({ tmdb: tmdbWith(groups) });
+    expect((await findSeasonsGroup(context, tv))?.id).toBe('g_fseasons');
   });
 
   it('still adopts a set whose non-zero seasons cover the official episode count (Re:Zero)', async () => {

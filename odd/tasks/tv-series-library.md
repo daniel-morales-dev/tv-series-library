@@ -409,3 +409,25 @@ Reporte del dueño: (1) en el detalle de título el bloque logo/texto/botones pi
 - Smoke del CI: `Sala.app/Contents/MacOS/sala --no-open --no-agent` con `HOME=$RUNNER_TEMP/sala-home`, espera health, `pkill -f "Sala.app/Contents/Resources/sala"`. Verificación visual del DMG queda pendiente para el dueño (solo macOS real).
 
 **Notas de entorno de la sesión:** RDD global off; `gh` autenticado como `dmorales-alegra` **sin acceso** a `daniel-morales-dev/tv-series-library` (API 404) → todo el flujo GitHub (PR/merge/release/lecturas) va por el MCP `github-daniel`; ese MCP **no tiene tools de Actions** (sin dispatch/run/logs) ni de edición de releases → la validación del workflow se hizo vía rama desechable + notificaciones del bot a issue #1. Push por SSH funciona. shellcheck disponible; actionlint no.
+
+### Ronda 6 (2026-10-11, ops) — migración de la biblioteca al HDD externo (sin código)
+
+- 🐕 3 pts. Objetivo del dueño: liberar el disco interno moviendo `content` (93G) + HLS (40G) a un HDD USB Toshiba de 1TB.
+- HDD formateado **exFAT** (label `Sala`, GPT). Primer intento quedó FAT32 por falta de `exfatprogs` en Ubuntu (límite 4GB/archivo) → reformateado a exFAT. Montado en `/media/dmorales/Sala` (udisks, uid=1000).
+- `content` → `/media/dmorales/Sala/content` con `rsync -rt` (141 archivos; verificado: mismos counts, diff rsync vacío, sha256 de muestra idénticos). Sala re-vinculada vía `PUT /api/config/content-dir` (status ready, mismo libraryId `68cacd2c-…`), `.env` `CONTENT_DIR` → ruta absoluta del HDD, servicio reiniciado, roots `present=true`. Originales borrados tras la verificación.
+- HLS → `/media/dmorales/Sala/content/.sala/hls` con el panel «Mover datos con la biblioteca» (81 paquetes, 43G; `pointerSwitched`, `config.json` `hlsDir` en el HDD, origen liberado tras confirmación del dueño). Fricción encontrada: `DATA_DIR` en `.env` bloquea la migración (pin explícito que el panel reporta) → se quitó la línea (la DB sigue resolviendo por ruta legacy `<repo>/data`).
+- Resultado: interno 351G→219G usados (80%→50%), **225G libres** (antes 94G). HDD: 136G usados de 932G.
+- Pendiente/conocido: el HDD es USB — al reiniciar, Ubuntu lo auto-monta al iniciar sesión; si no está montado, Sala marca los títulos como «No disponible» y ofrece re-vincular en Ubicaciones. Opcional futuro: montaje permanente por fstab. El HDD es ahora la única copia de los videos originales.
+
+### Ronda 7 (2026-10-12) — Frieren: «Episodio sin ubicación en las temporadas» (rama `fix/frieren-cour-placement`)
+
+Reporte del dueño: 12 pendientes `[Cifer] Sousou no Frieren S1 - 17..28` que no se arreglaban con «Re-analizar título» ni «Refrescar metadata». Ruta: inline (diagnóstico con explorador read-only). RDD off.
+
+- [x] T96 `placeEpisode` con grupo de temporadas traduce SxxEyy oficial → absoluto → temporada del grupo (temporada no oficial = literal; especiales literal). `69386c6`. RED/GREEN en `assign.test.ts`.
+- [x] T97 El re-análisis reintenta los `pending_files` abiertos de cada carpeta mapeada (`placePendingInDir`, reutilizado por Confirmar). `20a2759`. RED/GREEN en `reanalyze.test.ts`.
+- [x] T98 Causa raíz real: TMDB ahora lista «Cours» (tipo 7, 16+12+10) junto a «Seasons» (tipo 6, 28+10); el desempate por *más* temporadas elegía Cours. Ahora gana el set más grueso. `26d96e1`. RED/GREEN en `assign.test.ts`.
+- [x] T99 El escaneo borra pendientes **abiertos** cuyo archivo ya no existe (ENOENT, raíz presente); los ignorados se conservan. La carpeta `[Cifer] ... S1` ya no está en el HDD → los 12 eran fantasmas. `a6672dc`. RED/GREEN en `ingest.test.ts`.
+- [x] T100 UX web: la razón del pendiente va en línea propia debajo del nombre (`PendingView.vue`, `.head` en columna). `bc6b94f`. Suite web 309 verdes; `dist` reconstruido y sirviendo.
+- Evidencia en vivo (backup `data/library.db.bak-20261012-frieren`): re-análisis → `reseasoned:1, placed:38`; Frieren T1 28/28 y T2 10/10 con archivo; reinicio + escaneo → 12 «pending file gone from disk», pendientes abiertos 0.
+- Suite server: 715 verdes; 4 fallos preexistentes en `paths.test.ts` (leen el `config.json` real con `hlsDir` en el HDD — fuga de entorno, no tocado) + flake ocasional en `resumable-processing`.
+- Pendiente: push/PR (decisión del dueño). Quedan 16 filas `missing` de Cifer sin enlazar (diseño T69: se conservan por si el archivo vuelve).

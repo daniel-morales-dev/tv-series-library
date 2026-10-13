@@ -5,7 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.ts';
 import { all, get, run } from '../src/db/sql.ts';
 import { createIngestor } from '../src/modules/ingest/ingestor.ts';
+import { parsePath } from '../src/modules/ingest/parser.ts';
 import type { Probe } from '../src/modules/ingest/probe.ts';
+import { showDirKey } from '../src/modules/ingest/scanner.ts';
 import type { EpisodeGroupDetails, SeasonDetails, SeasonSummary, TmdbClient, TvDetails } from '../src/modules/ingest/tmdb.ts';
 import { type FakeTmdb, makeFakeTmdb } from './fake-tmdb.ts';
 import { setup } from './helpers.ts';
@@ -166,6 +168,79 @@ describe('POST /api/library/reanalyze', () => {
     expect(layout(e.db, titleId)).toEqual([{ season: 3, episode: 12 }]);
     expect(get(e.db, 'SELECT COUNT(*) AS n FROM seasons WHERE title_id = ?', titleId)).toEqual({ n: 3 });
     expect(get(e.db, 'SELECT COUNT(*) AS n FROM episodes e JOIN seasons s ON s.id = e.season_id WHERE s.title_id = ?', titleId)).toEqual({ n: 36 });
+  });
+
+  it('places pending files of the title again and moves official S2 to the right cour (Frieren)', async () => {
+    const fake = fakeLibrary();
+    fake.register({
+      id: 209867,
+      name: 'Sousou no Frieren',
+      original_name: 'Sousou no Frieren',
+      first_air_date: '2023-09-29',
+      overview: null,
+      episode_run_time: [24],
+      vote_average: 9,
+      genres: [],
+      poster_path: null,
+      backdrop_path: null,
+      origin_country: ['JP'],
+      seasons: [season(1, 28), season(2, 10)],
+      episode_groups: { results: [{ id: 'g_cours', name: 'Cours', type: 6, episode_count: 38 }] },
+    });
+    fake.groups.set('g_cours', {
+      id: 'g_cours',
+      name: 'Cours',
+      type: 6,
+      groups: [
+        { id: 'c1', name: 'Cour 1', order: 1, episodes: eps(16) },
+        { id: 'c2', name: 'Cour 2', order: 2, episodes: eps(12) },
+        { id: 'c3', name: 'Cour 3', order: 3, episodes: eps(10) },
+      ],
+    });
+    const e = env(fake.client);
+    const titleId = Number(
+      run(e.db, "INSERT INTO titles (tmdb_type, tmdb_id, kind, title, metadata_status, seasons_group_id, episode_group_id) VALUES ('tv', 209867, 'anime', 'Frieren', 'ready', 'g_cours', 'g_cours')")
+        .lastInsertId,
+    );
+    for (const [n, count] of [[1, 16], [2, 12], [3, 10]] as const) {
+      const sid = Number(run(e.db, 'INSERT INTO seasons (title_id, number, name) VALUES (?, ?, ?)', titleId, n, `Cour ${n}`).lastInsertId);
+      for (let k = 1; k <= count; k++) run(e.db, 'INSERT INTO episodes (season_id, number) VALUES (?, ?)', sid, k);
+    }
+    const epId = (s: number, n: number) =>
+      Number(get<{ id: number }>(e.db, 'SELECT e.id FROM episodes e JOIN seasons s ON s.id = e.season_id WHERE s.title_id = ? AND s.number = ? AND e.number = ?', titleId, s, n)!.id);
+
+    const pendingRel = 'shows/[Cifer] Sousou no Frieren S1 [BD 1080p Opus]/[Cifer] Sousou no Frieren S1 - 17 [BD 1080P Ma10p Opus].mkv';
+    const s2Rel = 'shows/[SubsPlease] Sousou no Frieren S2 (01-10)/[SubsPlease] Sousou no Frieren S2 - 01 (1080p).mkv';
+    for (const rel of [pendingRel, s2Rel]) {
+      e.addFile(rel);
+      const parsed = parsePath(rel);
+      if (parsed.kind !== 'episode') throw new Error(`not an episode: ${rel}`);
+      run(e.db, 'INSERT OR IGNORE INTO source_dirs (root_id, path, title_id) VALUES (1, ?, ?)', showDirKey(rel, parsed.show), titleId);
+    }
+    run(
+      e.db,
+      "INSERT INTO pending_files (root_id, path, size, parsed, reason, candidates) VALUES (1, ?, 1, ?, 'unmapped_episode', '[]')",
+      pendingRel,
+      JSON.stringify(parsePath(pendingRel)),
+    );
+    // The S2 release was placed literally on Cour 2 E1, which is really the second half of official S1.
+    run(
+      e.db,
+      "INSERT INTO media_files (root_id, path, title_id, episode_id, status, parsed_season, parsed_number) VALUES (1, ?, ?, ?, 'ready', 2, 1)",
+      s2Rel,
+      titleId,
+      epId(2, 1),
+    );
+
+    const res = await e.reanalyze({ titleId });
+
+    expect(res.statusCode).toBe(200);
+    expect(all(e.db, "SELECT id FROM pending_files WHERE status = 'open'")).toEqual([]);
+    expect(layout(e.db, titleId)).toEqual([
+      { season: 2, episode: 1 },
+      { season: 3, episode: 1 },
+    ]);
+    expect(get(e.db, 'SELECT episode_id FROM media_files WHERE path = ?', pendingRel)).toEqual({ episode_id: epId(2, 1) });
   });
 
   it('adopts the group found through the alias and moves the files to the free season number (T83/T84)', async () => {

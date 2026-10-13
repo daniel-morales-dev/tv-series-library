@@ -422,14 +422,16 @@ export async function findSeasonsGroup(ctx: IngestContext, tv: TvDetails): Promi
   const officialEpisodes = official.reduce((n, s) => n + s.episode_count, 0);
   let best: EpisodeGroupDetails | null = null;
   let bestEpisodes = -1;
-  let bestSeasons = -1;
+  let bestSeasons = Infinity;
   for (const ref of tv.episode_groups?.results ?? []) {
     if (!SEASONS_GROUP_TYPES.includes(ref.type)) continue;
     const detail = await ctx.tmdb.episodeGroup(ref.id);
     const groups = detail.groups.filter((g) => g.order > 0);
     const episodes = groups.reduce((n, g) => n + g.episodes.length, 0);
     if (groups.length < official.length || episodes < officialEpisodes) continue;
-    if (episodes > bestEpisodes || (episodes === bestEpisodes && groups.length > bestSeasons)) {
+    // On a tie the coarser set wins: release names follow seasons, so Frieren's "Cours" (16 + 12 + 10)
+    // must not beat its "Seasons" (28 + 10).
+    if (episodes > bestEpisodes || (episodes === bestEpisodes && groups.length < bestSeasons)) {
       best = detail;
       bestEpisodes = episodes;
       bestSeasons = groups.length;
