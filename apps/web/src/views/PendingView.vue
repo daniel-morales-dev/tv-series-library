@@ -124,9 +124,9 @@ h1 { margin: 0; }
 .list { margin: 0; padding: 0; list-style: none; display: grid; gap: 12px; }
 .item { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-card); display: grid; gap: 8px; }
 .item.done { opacity: 0.65; }
-.head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.head { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
 .name { overflow-wrap: anywhere; }
-.reason { flex: none; color: var(--warn); font-size: 0.85rem; font-weight: 600; text-align: right; }
+.reason { flex: none; color: var(--warn); font-size: 0.85rem; font-weight: 600; text-align: left; }
 .meta { margin: 0; color: var(--text-dim); font-size: 0.9rem; overflow-wrap: anywhere; }
 .candidates { margin: 0; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 4px; }
 .candidates legend { padding: 0 6px; color: var(--text-dim); font-size: 0.8rem; }
