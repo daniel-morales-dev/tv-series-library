@@ -162,22 +162,36 @@ export async function confirmPending(deps: ConfirmDeps, id: number, body: Confir
   await registerPending(deps, row, target.titleId, placement);
   joinFranchise(deps, target.titleId, body);
 
-  let placed = 1;
-  const siblings = all<PendingRow>(ctx.db, "SELECT * FROM pending_files WHERE status = 'open' AND id != ?", id);
-  for (const s of siblings) {
+  const placed = 1 + (await placePendingInDir(deps, target.titleId, target.seasonNumber, row.root_id, dirRel));
+  return { titleId: target.titleId, placed };
+}
+
+// The open pending files of a folder already mapped to a series are placed again; the ones that still do
+// not fit stay pending as unmapped. Returns how many left the list. Also run by the title reanalysis.
+export async function placePendingInDir(
+  deps: ConfirmDeps,
+  titleId: number,
+  seasonNumber: number | null,
+  rootId: number,
+  dirRel: string,
+): Promise<number> {
+  const { ctx } = deps;
+  let placed = 0;
+  const rows = all<PendingRow>(ctx.db, "SELECT * FROM pending_files WHERE status = 'open' AND root_id = ?", rootId);
+  for (const s of rows) {
     const p = JSON.parse(s.parsed) as Parsed;
     if ((p.kind !== 'episode' && p.kind !== 'extra') || dirOf(s.path, p) !== dirRel) continue;
-    const sp = await place(ctx, target.titleId, target.seasonNumber, p, {});
+    const sp = await place(ctx, titleId, seasonNumber, p, {});
     if (!sp) {
       run(ctx.db, "UPDATE pending_files SET reason = 'unmapped_episode', candidates = '[]' WHERE id = ?", s.id);
       continue;
     }
     try {
-      await registerPending(deps, s, target.titleId, sp);
+      await registerPending(deps, s, titleId, sp);
       placed++;
     } catch (err) {
       if (!(err instanceof PendingError)) throw err; // unreadable file: stays pending
     }
   }
-  return { titleId: target.titleId, placed };
+  return placed;
 }

@@ -6,6 +6,8 @@ import { ApiError } from '../../http/api-error.ts';
 import { assignSeries, placeEpisode } from './assign.ts';
 import { type IngestContext, MetadataError, findSeasonsGroup, importSeasonsGroup, refreshSeasonAirDates, refreshTitleMetadata } from './metadata.ts';
 import { parsePath } from './parser.ts';
+import { placePendingInDir } from './pending.ts';
+import type { Probe } from './probe.ts';
 import { showDirKey } from './scanner.ts';
 
 /** T74: one reanalysis pass, in the shape the API returns it. */
@@ -42,6 +44,8 @@ export interface ReanalyzeDeps {
   /** Absolute folder of a root: live for root 1, last known path for the rest. */
   rootPath: (rootId: number) => string;
   log: (level: 'info' | 'warn', message: string) => void;
+  /** Reads a pending file before it is registered; without it pending files are not retried. */
+  probe?: Probe;
 }
 
 // T74: every folder mapping is resolved again from scratch. A folder that no longer matches anything keeps
@@ -163,11 +167,33 @@ async function replaceFiles(deps: ReanalyzeDeps, summary: ReanalyzeSummary, titl
   }
 }
 
+// Pending files are never retried by a scan, so a fix in the placement rules (or a refreshed season
+// structure) only reaches them here: each mapped folder places its open pending files again.
+async function retryPending(deps: ReanalyzeDeps, summary: ReanalyzeSummary, titleId?: number): Promise<void> {
+  const { db, ctx, probe } = deps;
+  if (!probe) return;
+  const scope = titleId === undefined ? '' : ' WHERE title_id = ?';
+  const dirs = all<{ root_id: number; path: string; title_id: number; season_number: number | null }>(
+    db,
+    `SELECT root_id, path, title_id, season_number FROM source_dirs${scope}`,
+    ...(titleId === undefined ? [] : [titleId]),
+  );
+  const confirmDeps = { ctx, probe, contentDir: deps.rootPath };
+  for (const d of dirs) {
+    try {
+      summary.placed += await placePendingInDir(confirmDeps, d.title_id, d.season_number, d.root_id, d.path);
+    } catch (err) {
+      deps.log('warn', `reanalyze: pending files of ${d.path} not retried: ${(err as Error).message}`);
+    }
+  }
+}
+
 /** Steps 2-4 of the full reanalysis: folders, seasons group and placement, for the whole library. */
 export async function reanalyzeTitles(deps: ReanalyzeDeps, summary: ReanalyzeSummary): Promise<void> {
   await reparseFolders(deps, summary);
   await readoptSeasons(deps, summary);
   await replaceFiles(deps, summary);
+  await retryPending(deps, summary);
 }
 
 // T84: one title: its TMDB data is refreshed first (the season structure may have changed), then the same
@@ -190,6 +216,7 @@ export async function reanalyzeTitle(deps: ReanalyzeDeps, summary: ReanalyzeSumm
   await reparseFolders(deps, summary, titleId);
   await readoptSeasons(deps, summary, titleId);
   await replaceFiles(deps, summary, titleId);
+  await retryPending(deps, summary, titleId);
 }
 
 async function countFilesOnDisk(deps: ReanalyzeDeps, titleId: number): Promise<number> {

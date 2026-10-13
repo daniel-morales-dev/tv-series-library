@@ -698,7 +698,7 @@ export function createIngestor(opts: IngestorOptions): Ingestor {
   // behind it instead of racing it; the stored-data passes that follow are plain idempotent rewrites.
   async function reanalyzeOnce(titleId?: number): Promise<ReanalyzeSummary> {
     const summary = emptyReanalyzeSummary();
-    const deps = { db, ctx: { db, tmdb: memoize(tmdb()), dataDir }, rootPath, log };
+    const deps = { db, ctx: { db, tmdb: memoize(tmdb()), dataDir }, rootPath, log, probe };
     if (titleId !== undefined) {
       await reanalyzeTitle(deps, summary, titleId);
       return summary;
