@@ -183,7 +183,21 @@ export async function placeEpisode(
        LEFT JOIN episodes e ON e.season_id = s.id WHERE s.title_id = ? GROUP BY s.id`,
       titleId,
     );
-    const at = parsed.season !== null ? { season: parsed.season, episode: parsed.number } : locateAbsolute(stored, parsed.number);
+    let at: { season: number; episode: number } | null;
+    if (parsed.season === null) at = locateAbsolute(stored, parsed.number);
+    else if (parsed.season === 0) at = { season: 0, episode: parsed.number };
+    else {
+      // Release names follow the official seasons (Frieren "S1 - 17" is Cour 2 E1): translate through the
+      // absolute number. A season TMDB does not list officially is taken as a group season.
+      const official = (await ctx.tmdb.tv(title.tmdb_id)).seasons.filter((s) => s.season_number > 0);
+      const season = official.find((s) => s.season_number === parsed.season);
+      if (!season) at = { season: parsed.season, episode: parsed.number };
+      else if (parsed.number > season.episode_count) at = null;
+      else {
+        const before = official.filter((s) => s.season_number < parsed.season!).reduce((n, s) => n + s.episode_count, 0);
+        at = locateAbsolute(stored, before + parsed.number);
+      }
+    }
     return at ? findEpisodeId(ctx.db, titleId, at.season, at.episode) : null;
   }
 
