@@ -355,6 +355,19 @@ describe('moved or renamed files', () => {
     });
   });
 
+  it('drops an open pending file once it is gone from disk, keeping ignored ones', async () => {
+    const e = env();
+    const open = e.addFile('shows/zzz/zzz - 01.mkv');
+    const ignored = e.addFile('shows/zzz/zzz - 02.mkv');
+    await e.ingestor.scan();
+    expect(all(e.db, 'SELECT id FROM pending_files')).toHaveLength(2);
+    run(e.db, "UPDATE pending_files SET status = 'ignored' WHERE path = 'shows/zzz/zzz - 02.mkv'");
+    rmSync(open);
+    rmSync(ignored);
+    await e.ingestor.scan();
+    expect(all(e.db, 'SELECT path, status FROM pending_files')).toEqual([{ path: 'shows/zzz/zzz - 02.mkv', status: 'ignored' }]);
+  });
+
   it('restores a missing file that comes back renamed, keeping its package', async () => {
     const e = env();
     const abs = e.addFile(bake('01'));
