@@ -7,8 +7,7 @@ set -u
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="$HERE/Sala.app"
 
-# Idioma de los mensajes: el del sistema, o SALA_LANG=es|en|pt para forzarlo
-# (SALA_LANG también es el punto de prueba de esta rama; ver packaging/macos/README.md).
+# Idioma de los mensajes: el del sistema, o SALA_LANG=es|en|pt para forzarlo.
 # ponytail: solo estos tres idiomas. Si algun dia son mas, esto pasa a ser un archivo de traducciones.
 LOCALE="${SALA_LANG:-$(/usr/bin/defaults read -g AppleLocale 2>/dev/null)}"
 case "$(printf '%s' "$LOCALE" | cut -c1-2)" in
