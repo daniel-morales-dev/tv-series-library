@@ -69,7 +69,7 @@ Everything is downloaded from **[Releases → latest version](https://github.com
 
 That is it: http://127.0.0.1:8080 opens and Sala starts again on its own every time you log in. Everything is bundled (Node, ffmpeg, server and web) and the installer opens port 8080 for your local network only.
 
-Uninstall and details: [packaging/windows/README.md](packaging/windows/README.md).
+Uninstall and details: [packaging/windows/README.en.md](packaging/windows/README.en.md).
 
 ### macOS 12 or newer
 
@@ -86,7 +86,7 @@ Done: http://127.0.0.1:8080 opens and Sala starts on its own at login. Your data
 
 > If your account is not an administrator, the app installs to `~/Applications` and does **not** start at login. You can still use it.
 
-Uninstall and details: [packaging/macos/README.md](packaging/macos/README.md).
+Uninstall and details: [packaging/macos/README.en.md](packaging/macos/README.en.md).
 
 ### Linux (Ubuntu and friends)
 

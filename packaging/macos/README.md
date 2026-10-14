@@ -1,5 +1,7 @@
 # Sala para macOS 12+ — instalador
 
+**Español** · [English](README.en.md) · [Português](README.pt.md)
+
 DMG con `Sala.app` y todo incluido: Node portable, ffmpeg/ffprobe, el servidor y la web. Se compila en GitHub Actions (`build-macos-installer`) y se descarga como artifact o desde la página del release; no hace falta compilar nada en la máquina del dueño.
 
 ## Qué hace el instalador

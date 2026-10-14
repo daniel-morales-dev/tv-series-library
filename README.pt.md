@@ -69,7 +69,7 @@ Tudo é baixado em **[Releases → última versão](https://github.com/daniel-mo
 
 Pronto: abre http://127.0.0.1:8080 e o app volta a iniciar sozinho toda vez que você fizer login. Vem tudo incluído (Node, ffmpeg, servidor e web) e o instalador abre a porta 8080 só para a sua rede local.
 
-Desinstalação e detalhes: [packaging/windows/README.md](packaging/windows/README.md).
+Desinstalação e detalhes: [packaging/windows/README.pt.md](packaging/windows/README.pt.md).
 
 ### macOS 12 ou superior
 
@@ -86,7 +86,7 @@ Pronto: abre http://127.0.0.1:8080 e o app inicia sozinho no login. Seus dados f
 
 > Se sua conta não for de administrador, o app é instalado em `~/Applications` e **não** inicia sozinho no login. Você pode usá-lo normalmente.
 
-Desinstalação e detalhes: [packaging/macos/README.md](packaging/macos/README.md).
+Desinstalação e detalhes: [packaging/macos/README.pt.md](packaging/macos/README.pt.md).
 
 ### Linux (Ubuntu e derivados)
 

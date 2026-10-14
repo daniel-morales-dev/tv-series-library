@@ -1,5 +1,7 @@
 # Sala para Windows 11 — instalador
 
+**Español** · [English](README.en.md) · [Português](README.pt.md)
+
 Instalador `.exe` (Inno Setup 6) con todo incluido: Node portable, ffmpeg/ffprobe, el servidor y la web. Se compila en GitHub Actions (`build-windows-installer`) y se descarga como artifact; no hace falta compilar nada en la máquina del dueño.
 
 ## Qué hace el instalador
