@@ -32,36 +32,97 @@ La app guarda la carpeta donde está tu contenido en su propia configuración (`
 1. Solo en una instalación nueva y **solo para desarrollo**, crea `.env` desde `.env.example` **sin sobrescribir uno existente**. `CONTENT_DIR` ahí es opcional: tu elección en la app tiene prioridad.
 2. Configura tu *Read Access Token* de TMDB en `TMDB_READ_ACCESS_TOKEN`. Esta instalación ya lo tiene; no lo imprimas ni lo subas a git.
 
-## Instaladores para Windows y macOS
+## Instalación
 
-Para usuarios sin conocimientos técnicos: todo incluido (Node, ffmpeg, servidor y web), arranque al iniciar sesión y apertura en el navegador. Se descargan desde la página del release (Assets) o como artifact del workflow en Actions.
+Todo se descarga desde **[Releases → última versión](https://github.com/daniel-morales-dev/tv-series-library/releases/latest)**, en la sección **Assets**.
 
-- **Windows 11**: `sala-setup.exe`. SmartScreen puede avisar la primera vez: **Más información → Ejecutar de todas formas**. Guía: [packaging/windows/README.md](packaging/windows/README.md).
-- **macOS 12+**: `sala-macos-arm64.dmg` (Apple Silicon) o `sala-macos-x64.dmg` (Intel). Abre el DMG y haz doble clic en **Instalar Sala**; si macOS bloquea la primera apertura (la app no está notarizada), clic derecho → **Abrir** → **Abrir**. Guía y desinstalación: [packaging/macos/README.md](packaging/macos/README.md).
+### Windows 11 — siguiente, siguiente, listo
+
+1. Descarga `sala-setup-<versión>.exe`.
+2. Doble clic y **Siguiente → Siguiente → Instalar**.
+3. Si Windows avisa *"Windows protegió su PC"*: **Más información → Ejecutar de todas formas**. El instalador no tiene firma digital de pago; no es un virus.
+4. Deja marcada la casilla **Iniciar Sala y abrir el navegador** y pulsa **Finalizar**.
+
+Ya está: se abre http://127.0.0.1:8080 y Sala vuelve a arrancar sola cada vez que inicies sesión. Viene todo incluido (Node, ffmpeg, servidor y web) y el instalador abre el puerto 8080 solo para tu red local.
+
+Desinstalación y detalles: [packaging/windows/README.md](packaging/windows/README.md).
+
+### macOS 12 o superior
+
+**1. Averigua qué Mac tienes.** Menú Apple → **Acerca de esta Mac**:
+
+- **Chip** dice `Apple M1`, `M2`, `M3`, `M4`… → descarga `sala-macos-arm64.dmg`.
+- **Procesador** dice `Intel` → descarga `sala-macos-x64.dmg`.
+
+**2. Instala.** Doble clic en el `.dmg` descargado y doble clic en **Instalar Sala**. Se abre una ventana de Terminal que copia la app a Aplicaciones y la abre sola.
+
+**3. Si macOS la bloquea la primera vez.** Aparece un aviso de *"desarrollador no identificado"*: **clic derecho sobre `Instalar Sala` → Abrir → Abrir**. Si el aviso vuelve a salir, ve a **Ajustes del Sistema → Privacidad y seguridad**, baja hasta el mensaje sobre Sala y pulsa **Abrir de todas formas**. Solo hace falta esa vez: la app no está notarizada por Apple.
+
+Listo: se abre http://127.0.0.1:8080 y Sala arranca sola al iniciar sesión. Tus datos quedan en `~/Library/Application Support/sala` y el registro en `~/Library/Logs/sala/server.log`.
+
+> Si tu cuenta no es de administrador, la app se instala en `~/Applications` y **no** arranca sola al iniciar sesión. Puedes usarla igual.
+
+Desinstalación y detalles: [packaging/macos/README.md](packaging/macos/README.md).
+
+### Linux (Ubuntu y familia)
+
+En Linux no hay instalador de doble clic: son seis pasos que se copian y pegan en la terminal (unos 5 minutos). Funciona en Ubuntu, Debian, Linux Mint y Pop!_OS.
+
+**1. Abre la terminal.** Pulsa `Ctrl` + `Alt` + `T`.
+
+**2. Mira si ya tienes Node 24.** Pega esto y pulsa Enter:
+
+```sh
+node --version
+```
+
+- Responde `v24.…` o superior → salta al **paso 4**.
+- Responde un número menor, o `command not found` → sigue al paso 3.
+
+**3. Instala Node 24 y ffmpeg.** Pega las dos líneas (te pedirá tu contraseña; al escribir no se ve nada, es normal):
+
+```sh
+curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+sudo apt-get install -y nodejs ffmpeg
+```
+
+Cierra la terminal, ábrela de nuevo y repite el paso 2 para confirmar que ya dice `v24.…`. Node 24 es obligatorio: el que trae Ubuntu por defecto es demasiado viejo.
+
+**4. Descarga Sala:**
+
+```sh
+git clone https://github.com/daniel-morales-dev/tv-series-library.git
+cd tv-series-library
+```
+
+Si dice `command not found: git`, instálalo con `sudo apt install -y git` y repite.
+
+**5. Instala y activa el servicio** (el primer comando tarda un par de minutos):
+
+```sh
+npm ci
+bash scripts/linux-install.sh
+systemctl --user daemon-reload
+systemctl --user enable --now sala
+```
+
+**6. Ábrela** en el navegador de la laptop: http://localhost:8080
+
+El asistente de primer arranque te pide la carpeta donde tienes tus videos y, si quieres carátulas y sinopsis, un token gratuito de TMDB. Puedes dejarlo para después: sin token reproduce igual, solo sin pósters.
+
+**Arrancar al encender, sin iniciar sesión** (único paso con `sudo`):
+
+```sh
+sudo loginctl enable-linger "$USER"
+```
+
+Para verla desde el celular y la TV, el firewall y los comandos del día a día: [Correrlo en Linux (laptop) y verlo desde celular y TV](#correrlo-en-linux-laptop-y-verlo-desde-celular-y-tv).
 
 ## Correrlo en Linux (laptop) y verlo desde celular y TV
 
-Requisitos: Node.js 24 o superior, npm y ffmpeg. No hace falta internet, pero celular y TV deben estar en la **misma WiFi** que la laptop.
+Si todavía no la instalaste, empieza por [Linux (Ubuntu y familia)](#linux-ubuntu-y-familia). No hace falta internet, pero celular y TV deben estar en la **misma WiFi** que la laptop.
 
-1. **Instalar dependencias y compilar la web**, desde la raíz del repo:
-   ```sh
-   npm ci
-   bash scripts/linux-install.sh
-   ```
-   El script compila la web y escribe `~/.config/systemd/user/sala.service`. No usa sudo ni habilita nada.
-
-2. **Activar el servicio:**
-   ```sh
-   systemctl --user daemon-reload
-   systemctl --user enable --now sala
-   ```
-
-3. **Arrancar al encender, sin iniciar sesión** (único paso con sudo de esta guía):
-   ```sh
-   sudo loginctl enable-linger "$USER"
-   ```
-
-4. **Firewall, solo si ufw está activo.** Primero revisa el estado:
+1. **Firewall, solo si ufw está activo.** Primero revisa el estado:
    ```sh
    sudo ufw status
    ```
@@ -76,11 +137,11 @@ Requisitos: Node.js 24 o superior, npm y ffmpeg. No hace falta internet, pero ce
    ```
    No abras a `any`: la app no tiene autenticación.
 
-5. **Conectar celular y TV.** En la laptop abre http://localhost:8080, ve a **Ajustes** (menú del perfil) y en **Ver desde el celular o la TV** escanea el QR con el celular, o escribe la URL en la TV. Si aparecen varias URL (Ethernet y WiFi), usa la de la red WiFi.
+2. **Conectar celular y TV.** En la laptop abre http://localhost:8080, ve a **Ajustes** (menú del perfil) y en **Ver desde el celular o la TV** escanea el QR con el celular, o escribe la URL en la TV. Si aparecen varias URL (Ethernet y WiFi), usa la de la red WiFi.
 
-6. **Reservar la IP de la laptop en el router** (una vez): busca la reserva DHCP o IP fija por MAC y asigna la IP que muestra Ajustes. Así la URL y el QR no cambian.
+3. **Reservar la IP de la laptop en el router** (una vez): busca la reserva DHCP o IP fija por MAC y asigna la IP que muestra Ajustes. Así la URL y el QR no cambian.
 
-7. **Operación:**
+4. **Operación:**
    - Estado: `systemctl --user status sala`
    - Logs: `journalctl --user -u sala -f`
    - Parar: `systemctl --user stop sala`
@@ -115,3 +176,7 @@ Si `npm run dev` está usando el puerto 8080, `sala start` te lo avisa en vez de
 
 - [Glosario](CONTEXT.md)
 - [Decisiones de arquitectura](docs/adr/)
+
+## Licencia
+
+[MIT](LICENSE). Puedes usar, copiar, modificar y distribuir Sala, incluso con fines comerciales, siempre que conserves el aviso de copyright.
