@@ -3,6 +3,13 @@
 Los cambios notables de Sala. Se genera desde los Conventional Commits.
 Las versiones anteriores a 0.6.1 viven en las releases de GitHub.
 
+## 0.7.0
+
+### Features
+- **release:** write CHANGELOG.md automatically on every release (`cb0af64`)
+
+**Full diff**: https://github.com/daniel-morales-dev/tv-series-library/compare/v0.6.1...v0.7.0
+
 ## 0.6.1
 
 ### Bug Fixes
