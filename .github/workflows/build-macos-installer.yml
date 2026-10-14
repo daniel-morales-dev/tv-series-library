@@ -193,6 +193,48 @@ jobs:
           gh api "repos/${{ github.repository }}/issues/1/comments" \
             -f body="@daniel-morales-dev La compilacion del instalador de macOS (${{ matrix.arch }}) fallo. Detalles: ${RUN_URL}"
 
+  # La rama de idioma del instalador usa `defaults read -g AppleLocale`, que solo existe en macOS;
+  # por eso se comprueba aqui y no en local. Va como job aparte para dar senal en ~1 minuto
+  # sin esperar a que se arme el DMG.
+  lang-check:
+    runs-on: macos-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - name: El instalador habla el idioma del sistema
+        run: |
+          set -euo pipefail
+          F="packaging/macos/Instalar Sala.command"
+          # El bloque real del script: de la linea LOCALE= al cierre de msg().
+          BLOCK="$(sed -n '/^LOCALE=/,/^}/p' "$F")"
+          fail=0
+          check() {  # check <locale> <esperado>
+            got="$(SALA_LANG="$1" bash -c "$BLOCK"$'\n''msg ES EN PT')"
+            printf '  %-6s -> %s\n' "$1" "$got"
+            [ "$got" = "$2" ] || { echo "    FALLA: esperado $2"; fail=1; }
+          }
+          check es_CO ES
+          check es    ES
+          check pt_BR PT
+          check pt_PT PT
+          check en_US EN
+          check fr_FR EN
+          [ "$fail" -eq 0 ] || exit 1
+
+          # Y el caso real: sin SALA_LANG, contra el AppleLocale de este runner.
+          echo "AppleLocale de este runner: $(defaults read -g AppleLocale 2>/dev/null || echo '(vacio)')"
+          real="$(bash -c "$BLOCK"$'\n''msg ES EN PT')"
+          echo "Mensajes que mostraria el instalador: $real"
+          case "$real" in
+            ES|EN|PT) ;;
+            *) echo "idioma inesperado: $real"; exit 1 ;;
+          esac
+
   # Publica los DMG en la release del tag, sin autenticacion manual (los artifacts expiran y piden login).
   publish:
     if: github.ref_type == 'tag'
