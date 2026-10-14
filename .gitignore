@@ -8,6 +8,7 @@ data/
 .codegraph/
 .atl/
 .claude/
+.playwright-mcp/
 packaging/macos/payload/
 packaging/macos/output/
 packaging/macos/Sala.app/
