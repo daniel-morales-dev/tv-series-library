@@ -1,0 +1,99 @@
+name: release
+
+# Publica una release cuando un push a main trae cambios que lo ameritan:
+# `feat` sube minor, `fix`/`perf` suben patch, `!` o BREAKING CHANGE sube major.
+# `docs`/`ci`/`chore` no publican por si solos, pero si entran en el changelog
+# de la proxima release que si lo amerite.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version exacta (ej. 0.7.0). Vacio = calcular desde los commits."
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: write
+
+# Dos pushes seguidos no deben competir por el mismo tag.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout (historial y tags completos)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe743b1d18a591444 # v5.0.0
+        with:
+          node-version: "24.14.0"
+
+      - name: Calcular version y changelog
+        id: calc
+        env:
+          FORCE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          NOTES="$RUNNER_TEMP/notes.md"
+          LAST="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          echo "Ultimo tag: ${LAST:-(ninguno)}"
+
+          args=(--notes-file "$NOTES" --repo "$GITHUB_REPOSITORY")
+          [ -n "$LAST" ] && args+=(--since "$LAST")
+          [ -n "${FORCE_VERSION:-}" ] && args+=(--force-version "$FORCE_VERSION")
+
+          VERSION="$(node scripts/changelog.mjs "${args[@]}")"
+          if [ -z "$VERSION" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "Ningun commit desde $LAST amerita release."
+            exit 0
+          fi
+
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          echo "----- changelog -----"
+          cat "$NOTES"
+
+      - name: Crear tag y release
+        id: create
+        if: steps.calc.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.calc.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "La release $TAG ya existe; no se toca."
+            exit 0
+          fi
+          gh release create "$TAG" \
+            --title "sala $TAG" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --target "$GITHUB_SHA"
+          echo "created=true" >> "$GITHUB_OUTPUT"
+
+      # Un tag creado con GITHUB_TOKEN no dispara eventos de push, asi que los
+      # workflows de instaladores se lanzan a mano apuntando al tag.
+      - name: Lanzar los instaladores
+        if: steps.create.outputs.created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.calc.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run build-windows-installer.yml --ref "$TAG"
+          gh workflow run build-macos-installer.yml --ref "$TAG"
+          echo "Instaladores lanzados para $TAG."
