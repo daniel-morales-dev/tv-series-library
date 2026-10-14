@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bumpFor, changelogFor, nextVersion, parseCommits } from './changelog.mjs';
+import { bumpFor, changelogFor, mergeChangelog, nextVersion, parseCommits } from './changelog.mjs';
 
 const record = (sha: string, subject: string, body = '') => [sha, subject, body].join('\x1f');
 const log = (...rows: string[]) => rows.join('\x1e');
@@ -100,5 +100,30 @@ describe('changelogFor', () => {
   it('agrega el enlace de comparacion cuando hay repo y tag previo', () => {
     const md = changelogFor(commits, { version: '0.7.0', previous: 'v0.6.0', repo: 'o/r' });
     expect(md).toContain('https://github.com/o/r/compare/v0.6.0...v0.7.0');
+  });
+});
+
+describe('mergeChangelog', () => {
+  const section = '## 0.7.0\n\n### Features\n- add 2x speed (`abc1111`)\n';
+
+  it('crea el archivo con encabezado cuando no existe', () => {
+    const out = mergeChangelog('', section);
+    expect(out.startsWith('# Changelog')).toBe(true);
+    expect(out).toContain(section);
+  });
+
+  it('antepone la seccion nueva y conserva las anteriores', () => {
+    const existing = '# Changelog\n\nIntro.\n\n## 0.6.1\n\n### Bug Fixes\n- old (`1111111`)\n';
+    const out = mergeChangelog(existing, section);
+    expect(out.indexOf('## 0.7.0')).toBeLessThan(out.indexOf('## 0.6.1'));
+    expect(out).toContain('- old (`1111111`)');
+    expect(out).toContain('Intro.');
+    expect(out.match(/# Changelog/g)).toHaveLength(1);
+  });
+
+  it('agrega al final si el archivo no tiene secciones previas', () => {
+    const out = mergeChangelog('# Changelog\n\nIntro.\n', section);
+    expect(out).toContain('Intro.');
+    expect(out).toContain(section);
   });
 });

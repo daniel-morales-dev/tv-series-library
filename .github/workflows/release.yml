@@ -34,6 +34,7 @@ jobs:
       - name: Checkout (historial y tags completos)
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Setup Node
@@ -51,7 +52,7 @@ jobs:
           LAST="$(git describe --tags --abbrev=0 2>/dev/null || true)"
           echo "Ultimo tag: ${LAST:-(ninguno)}"
 
-          args=(--notes-file "$NOTES" --repo "$GITHUB_REPOSITORY")
+          args=(--notes-file "$NOTES" --repo "$GITHUB_REPOSITORY" --changelog-file CHANGELOG.md)
           [ -n "$LAST" ] && args+=(--since "$LAST")
           [ -n "${FORCE_VERSION:-}" ] && args+=(--force-version "$FORCE_VERSION")
 
@@ -63,6 +64,7 @@ jobs:
           fi
 
           echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
           echo "----- changelog -----"
           cat "$NOTES"
@@ -84,6 +86,25 @@ jobs:
             --notes-file "$RUNNER_TEMP/notes.md" \
             --target "$GITHUB_SHA"
           echo "created=true" >> "$GITHUB_OUTPUT"
+
+      # El CHANGELOG.md ya quedo escrito por el paso anterior. Un commit hecho con
+      # GITHUB_TOKEN no dispara workflows, asi que esto no relanza el release.
+      - name: Publicar el CHANGELOG.md
+        if: steps.create.outputs.created == 'true'
+        env:
+          VERSION: ${{ steps.calc.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "CHANGELOG.md sin cambios."
+            exit 0
+          fi
+          git commit -q -m "docs(changelog): add $VERSION"
+          git pull --rebase --autostash origin main
+          git push origin HEAD:main
 
       # Un tag creado con GITHUB_TOKEN no dispara eventos de push, asi que los
       # workflows de instaladores se lanzan a mano apuntando al tag.

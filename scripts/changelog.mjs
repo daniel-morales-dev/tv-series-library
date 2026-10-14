@@ -6,9 +6,10 @@
 //   node scripts/changelog.mjs --since v0.6.0 --force-version 0.7.0 --notes-file /tmp/notes.md
 //
 // Escribe el changelog en --notes-file e imprime en stdout la version a publicar.
+// Con --changelog-file tambien antepone la seccion al CHANGELOG.md del repo.
 // Si ningun commit amerita release, no imprime nada y sale con 0.
 import { execFileSync } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 // Que tipo de commit produce que salto de version. docs/ci/chore/refactor no publican
@@ -78,6 +79,21 @@ export const changelogFor = (commits, { version, previous = null, repo = null } 
   return `${parts.join('\n\n')}\n`;
 };
 
+const CHANGELOG_HEADER = `# Changelog
+
+Los cambios notables de Sala. Se genera desde los Conventional Commits.
+Las versiones anteriores a 0.6.1 viven en las releases de GitHub.
+`;
+
+// Antepone la seccion nueva sin tocar las anteriores: el archivo se lee de lo
+// mas reciente a lo mas viejo, como cualquier CHANGELOG.
+export const mergeChangelog = (existing, section) => {
+  if (!existing || !existing.trim()) return `${CHANGELOG_HEADER}\n${section}`;
+  const at = existing.indexOf('\n## ');
+  if (at === -1) return `${existing.trimEnd()}\n\n${section}`;
+  return `${existing.slice(0, at).trimEnd()}\n\n${section}${existing.slice(at)}`;
+};
+
 const main = () => {
   const args = process.argv.slice(2);
   const flag = (name) => {
@@ -103,7 +119,15 @@ const main = () => {
     console.error(`Sin feat/fix desde ${since ?? 'el inicio del historial'}: no amerita release.`);
     return;
   }
-  writeFileSync(notesFile, changelogFor(commits, { version, previous: since, repo: flag('repo') }));
+  const notes = changelogFor(commits, { version, previous: since, repo: flag('repo') });
+  writeFileSync(notesFile, notes);
+
+  const changelogFile = flag('changelog-file');
+  if (changelogFile) {
+    const existing = existsSync(changelogFile) ? readFileSync(changelogFile, 'utf8') : '';
+    writeFileSync(changelogFile, mergeChangelog(existing, notes));
+  }
+
   process.stdout.write(`${version}\n`);
 };
 
