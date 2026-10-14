@@ -1,3 +1,10 @@
+Sala — guía rápida.  Quick guide below.  Guia rápido abaixo.
+============================================================
+
+
+ESPAÑOL
+-------
+
 Sala — guía rápida para macOS
 =============================
 
@@ -53,3 +60,123 @@ Desinstalar
 3. Quita el arranque automático, en Terminal: launchctl bootout gui/$(id -u)/com.sala.launcher
    y borra el archivo ~/Library/LaunchAgents/com.sala.launcher.plist (en Finder: Mayúsculas + Comando + G, pega la ruta y borra el archivo).
 4. Opcional: borra la carpeta de datos ~/Library/Application Support/sala (catálogo, carátulas, progreso y ajustes). Los videos originales no se tocan.
+
+
+ENGLISH
+-------
+
+Sala — quick guide for macOS
+============================
+
+Sala is your personal TV series and movie library. This DMG includes everything: there is nothing else to install.
+
+Which DMG do I download?
+------------------------
+- Mac with an Apple chip (M1 or newer): sala-macos-arm64.dmg
+- Mac with an Intel processor: sala-macos-x64.dmg
+Not sure which one you have? Apple menu → "About This Mac".
+
+Install
+-------
+1. Open the DMG with a double click.
+2. Double click "Instalar Sala". A Terminal window opens, copies the app to Applications and opens it for you.
+3. If macOS says it cannot be opened because it is from an unidentified developer:
+   - Right-click (or Control + click) on "Instalar Sala" → Open → the Open button.
+   - If the warning comes back: Apple menu → System Settings → Privacy & Security, scroll down to the message about "Sala" or "Instalar Sala" and click "Open Anyway".
+4. Sala opens in your browser at http://127.0.0.1:8080
+
+Manual alternative (without the installer)
+------------------------------------------
+Drag "Sala.app" onto the "Aplicaciones" folder shown in the DMG window. If macOS blocks the first launch, use right-click → Open.
+
+If your account is not an administrator
+---------------------------------------
+The installer tries to copy to /Applications. If it has no permission, it copies the app to your home folder (~/Applications) and tells you so in the same window. You can use it from there, but without automatic start at login.
+
+How it works
+------------
+- When you log in to your Mac, Sala starts by itself and silently (without opening the browser), so you can watch your series from your phone or TV on the same WiFi.
+- To use it on the Mac: double click Sala (or open it from Launchpad). The browser opens.
+- It works without internet, without accounts and without ads.
+
+Your data and your videos
+-------------------------
+- Catalog, settings, artwork and progress: ~/Library/Application Support/sala
+- App log, if something fails: ~/Library/Logs/sala/server.log
+- Your original videos are never deleted or moved.
+
+The TMDB token (optional)
+-------------------------
+Sala plays and sorts without a token: titles come from the file name, without posters. If you want posters, the app asks for the TMDB token the first time or in Ajustes (Settings); it is only used when importing new content.
+
+Expected warning the first time
+-------------------------------
+Sala is not notarized by Apple (the project has no developer account), so the first launch shows the Gatekeeper warning. This is normal and expected: use right-click → Open once and you are done; after that it opens with a double click.
+
+Uninstall
+---------
+1. Close the server: open "Activity Monitor", find Sala's "node" process and quit it. Terminal alternative: pkill -f Sala.app
+2. Drag Sala.app from Applications (or from ~/Applications) to the Trash.
+3. Remove the automatic start, in Terminal: launchctl bootout gui/$(id -u)/com.sala.launcher
+   and delete the file ~/Library/LaunchAgents/com.sala.launcher.plist (in Finder: Shift + Command + G, paste the path and delete the file).
+4. Optional: delete the data folder ~/Library/Application Support/sala (catalog, artwork, progress and settings). Your original videos are not touched.
+
+
+PORTUGUÊS
+---------
+
+Sala — guia rápido para macOS
+=============================
+
+Sala é a sua biblioteca pessoal de séries e filmes. Este DMG traz tudo incluído: não é preciso instalar mais nada.
+
+Qual DMG eu baixo?
+------------------
+- Mac com chip Apple (M1 ou mais novo): sala-macos-arm64.dmg
+- Mac com processador Intel: sala-macos-x64.dmg
+Não sabe qual é o seu? Menu Apple → "Sobre este Mac".
+
+Instalar
+--------
+1. Abra o DMG com um duplo clique.
+2. Duplo clique em "Instalar Sala". Abre-se uma janela do Terminal que copia o app para Aplicativos e o abre sozinho.
+3. Se o macOS avisar que não é possível abrir porque é de um desenvolvedor não identificado:
+   - Clique com o botão direito (ou Control + clique) em "Instalar Sala" → Abrir → botão Abrir.
+   - Se o aviso aparecer de novo: menu Apple → Ajustes do Sistema → Privacidade e Segurança, desça até a mensagem sobre "Sala" ou "Instalar Sala" e clique em "Abrir de qualquer forma".
+4. O Sala abre no seu navegador em http://127.0.0.1:8080
+
+Alternativa manual (sem usar o instalador)
+------------------------------------------
+Arraste "Sala.app" para a pasta "Aplicaciones" que aparece na janela do DMG. Se o macOS bloquear a primeira execução, use clique com o botão direito → Abrir.
+
+Se a sua conta não for de administrador
+---------------------------------------
+O instalador tenta copiar para /Applications. Se não tiver permissão, copia o app para a sua pasta pessoal (~/Applications) e avisa na mesma janela. Você pode usá-lo de lá, mas sem início automático ao entrar no sistema.
+
+Como funciona
+-------------
+- Ao entrar na sua conta do Mac, o Sala inicia sozinho e em silêncio (sem abrir o navegador), para você assistir às suas séries do celular ou da TV na mesma WiFi.
+- Para usá-lo no Mac: duplo clique em Sala (ou no Launchpad). O navegador abre.
+- Funciona sem internet, sem contas e sem anúncios.
+
+Seus dados e seus vídeos
+-------------------------
+- Catálogo, ajustes, capas e progresso: ~/Library/Application Support/sala
+- Registro do app, se algo falhar: ~/Library/Logs/sala/server.log
+- Seus vídeos originais nunca são apagados nem movidos.
+
+O token do TMDB (opcional)
+--------------------------
+O Sala reproduz e organiza sem token: os títulos vêm do nome do arquivo, sem pôsteres. Se quiser pôsteres, o app pede o token do TMDB na primeira vez ou em Ajustes; ele só é usado ao importar conteúdo novo.
+
+Aviso esperado na primeira vez
+------------------------------
+O Sala não é notarizado pela Apple (o projeto não tem conta de desenvolvedor), então a primeira execução mostra o aviso do Gatekeeper. É normal e esperado: use clique com o botão direito → Abrir uma vez e pronto; depois abre com duplo clique.
+
+Desinstalar
+-----------
+1. Feche o servidor: abra o "Monitor de Atividade", encontre o processo "node" do Sala e encerre-o. Alternativa pelo Terminal: pkill -f Sala.app
+2. Arraste Sala.app de Aplicativos (ou de ~/Applications) para a Lixeira.
+3. Remova o início automático, no Terminal: launchctl bootout gui/$(id -u)/com.sala.launcher
+   e apague o arquivo ~/Library/LaunchAgents/com.sala.launcher.plist (no Finder: Shift + Comando + G, cole o caminho e apague o arquivo).
+4. Opcional: apague a pasta de dados ~/Library/Application Support/sala (catálogo, capas, progresso e ajustes). Seus vídeos originais não são tocados.

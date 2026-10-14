@@ -10,7 +10,7 @@ DMG con `Sala.app` y todo incluido: Node portable, ffmpeg/ffprobe, el servidor y
 - `Sala.app/Contents/MacOS/sala` (lanzador bash): si el servidor ya responde, abre el navegador; si no, hace la copia verificada de SQLite (bloqueante), arranca el servidor en segundo plano con `nohup`, espera hasta 30 s a `/api/health` y abre `http://127.0.0.1:8080`. Los dos procesos Node cargan `--env-file-if-exists` de `Sala.app/Contents/Resources/sala/.env` y de `~/Library/Application Support/sala/.env` (ambos opcionales). Flags: `--no-open` (no abre el navegador) y `--no-agent` (no instala el autostart).
 - Inicio de sesión: la primera vez que el servidor arranca desde `/Applications`, el lanzador crea `~/Library/LaunchAgents/com.sala.launcher.plist` (LaunchAgent `com.sala.launcher`, `RunAtLoad`) que arranca el servidor **en silencio** (`--no-open`); el doble clic normal sí abre el navegador.
 - El estado (base, imágenes, HLS, copias) vive en `~/Library/Application Support/sala`; los logs en `~/Library/Logs/sala/server.log`.
-- Sin notarización (no hay cuenta Apple Developer): la firma es ad-hoc y el primer arranque muestra el aviso de Gatekeeper → **clic derecho → Abrir**. La guía `LEEME.txt` del DMG lo explica paso a paso.
+- Sin notarización (no hay cuenta Apple Developer): la firma es ad-hoc y el primer arranque muestra el aviso de Gatekeeper → **clic derecho → Abrir**. La guía `LEEME.txt` del DMG lo explica paso a paso (en español, inglés y portugués).
 - Firma ad-hoc obligatoria en Apple Silicon (`codesign --force --deep --sign -`); el build falla si `codesign --verify --strict` no pasa.
 
 ## Cómo generar el instalador
