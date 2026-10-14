@@ -1,10 +1,30 @@
-# TV Series Library
+# Sala
 
 Plataforma local para ver tus películas, series y anime desde cualquier dispositivo conectado a tu WiFi (TV, celular, tablet o PC). Sin anuncios ni cuentas, con perfiles, Mi lista y Continuar viendo.
 
 > **Arranque local:** `npm run dev` desde la raíz inicia backend (8080) y frontend (5174), con copia SQLite verificada y parada conjunta con `Ctrl+C`. Guía y aviso de copia/migración: [docs/local-development.md](docs/local-development.md). Si ya tienes biblioteca, lee ese aviso **antes de iniciar el backend**.
 >
-> Estado: en construcción. Ver el plan en [`odd/tasks/tv-series-library.md`](odd/tasks/tv-series-library.md).
+> Estado: funcional y en uso diario. Lo que falta, en el plan: [`odd/tasks/tv-series-library.md`](odd/tasks/tv-series-library.md).
+
+## Capturas
+
+**Escritorio**
+
+| Inicio | Ficha de título |
+| :---: | :---: |
+| ![Inicio: hero con Continuar viendo](docs/screenshots/01-browse.webp) | ![Ficha de título con temporadas y episodios](docs/screenshots/08-title-frieren.webp) |
+
+| Reproductor | Actividad |
+| :---: | :---: |
+| ![Reproductor con controles y subtítulos](docs/screenshots/13-player.webp) | ![Panel de Actividad con el procesado en curso](docs/screenshots/14-activity.webp) |
+
+**Celular y TV**
+
+| Inicio | Ficha de título | Reproductor |
+| :---: | :---: | :---: |
+| ![Inicio en el celular](docs/screenshots/16-browse-mobile.webp) | ![Ficha de título en el celular](docs/screenshots/17-title-mobile.webp) | ![Reproductor en el celular](docs/screenshots/19-player-mobile.webp) |
+
+Más capturas (Series, Películas, Anime, Mi lista, Búsqueda, Ajustes, Pendientes y perfiles) en [`docs/screenshots/`](docs/screenshots).
 
 ## Cómo agregar contenido
 
