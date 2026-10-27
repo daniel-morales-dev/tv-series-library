@@ -14,7 +14,7 @@
     "upgrade-stills": "node --env-file-if-exists=../../.env src/db/upgrade-stills.ts"
   },
   "dependencies": {
-    "fastify": "^5.12.5"
+    "fastify": "^5.12.6"
   },
   "devDependencies": {
     "@types/node": "^24.19.1",
